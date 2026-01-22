@@ -1,0 +1,49 @@
+[package]
+name = "kpio-runtime"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Contributors"]
+description = "WASM runtime for KPIO kernel"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/your-org/kernel-performed-illegal-operation"
+
+[lib]
+name = "kpio_runtime"
+path = "src/lib.rs"
+
+[dependencies]
+# Core utilities (no_std compatible)
+spin = "0.9"
+bitflags = "2.4"
+log = "0.4"
+
+# Wasmtime runtime
+# 주의: Wasmtime 17.0은 std 환경 필요
+# 커널 내부에서 직접 사용 불가, 사용자 공간 서비스로 실행해야 함
+# no_std 대안: wasmi (인터프리터, 느림)
+wasmtime = { version = "17.0", default-features = false, features = ["cranelift"], optional = true }
+
+# WASI support (std 필요)
+wasi-common = { version = "17.0", default-features = false, optional = true }
+
+# no_std 호환 WASM 인터프리터 (대안)
+wasmi = { version = "0.31", default-features = false, optional = true }
+
+# Shared kernel types
+kpio-kernel = { path = "../kernel", optional = true }
+
+[features]
+default = []
+kernel = ["kpio-kernel"]
+# std 환경에서 Wasmtime 사용 (사용자 공간 서비스)
+std = ["wasmtime", "wasi-common"]
+# no_std 환경에서 wasmi 사용 (커널 내장, 느림)
+no_std_wasm = ["wasmi"]
+
+[dev-dependencies]
+# Testing utilities
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

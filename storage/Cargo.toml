@@ -1,0 +1,25 @@
+[package]
+name = "storage"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Team"]
+description = "Storage subsystem for KPIO - VFS, FUSE, and filesystem drivers"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Spin locks for kernel environment
+spin = "0.9"
+
+# Bitflags for file permissions and flags
+bitflags = "2.4"
+
+[features]
+default = []
+# Enable ext4 filesystem support
+ext4 = []
+# Enable FAT32 filesystem support
+fat32 = []
+# Enable NTFS read support
+ntfs = []
+# Enable all filesystem drivers
+all-fs = ["ext4", "fat32", "ntfs"]

@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "kernel",
+    "runtime",
+    "graphics",
+    "network",
+    "storage",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Contributors"]
+license = "MIT"
+repository = "https://github.com/kpio/kpio"
+
+[workspace.dependencies]
+# Shared dependencies across workspace
+spin = "0.9"
+bitflags = "2.4"
+log = "0.4"
+hashbrown = "0.14"
+
+# Serialization (no_std compatible)
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1.0", default-features = false, features = ["alloc"] }
+
+# WASM runtime
+# wasmtime 17.0: cranelift (JIT), default features 사용
+wasmtime = { version = "17.0", default-features = false, features = ["cranelift"] }
+
+# Networking
+# smoltcp 0.11: socket-* 피처가 proto-*를 자동 포함
+smoltcp = { version = "0.11", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp", "socket-dhcpv4", "socket-dns"] }
+
+# Graphics
+# wgpu 0.19: wgc (WebGPU Core) 백엔드 사용
+wgpu = { version = "0.19", default-features = false, features = ["wgc"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = 2

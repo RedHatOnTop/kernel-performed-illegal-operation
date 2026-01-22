@@ -1,0 +1,8 @@
+# 호스트 타겟으로 빌드
+# bootloader 크레이트 build.rs가 내부적으로 nightly + build-std를 사용
+
+[build]
+target = "x86_64-pc-windows-msvc"
+
+[env]
+# build.rs가 사용할 설정은 별도로 관리됨

@@ -1,0 +1,25 @@
+[build]
+# 커널용 타겟: no_std, bare metal x86_64
+target = "x86_64-unknown-none"
+
+# bootimage runner는 bootloader 0.9.x용이므로 제거
+# QEMU는 scripts/run-qemu.ps1 또는 직접 실행
+
+[target.x86_64-unknown-none]
+# bootloader 0.11은 자체 링킹을 수행하므로 커스텀 링커 스크립트 제거
+# rustflags = [
+#     "-C", "link-arg=-Tlinker.ld",
+#     "-C", "code-model=kernel",
+# ]
+
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+
+[env]
+KERNEL_LOG_LEVEL = { value = "debug", force = false }
+
+[alias]
+kbuild = "build --release"
+krun = "run --release"
+ktest = "test --lib"

@@ -1,0 +1,23 @@
+[package]
+name = "kpio-boot"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Contributors"]
+license = "MIT"
+description = "KPIO 커널 디스크 이미지 빌더"
+
+# 호스트 타겟용 (no_std가 아님)
+# 워크스페이스와 별도로 빌드됨
+
+# 워크스페이스에서 독립적으로 동작하도록 설정
+[workspace]
+
+[dependencies]
+bootloader = "0.11"
+
+# 커널 바이너리를 찾기 위한 유틸리티
+# bootloader는 CARGO_BIN_FILE_* 환경변수를 사용
+
+[[bin]]
+name = "build-image"
+path = "src/main.rs"

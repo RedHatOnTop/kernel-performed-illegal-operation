@@ -1,0 +1,24 @@
+# Rust / Cargo
+/target/
+**/target/
+**/*.rs.bk
+
+# OS / disk images & firmware artifacts
+*.img
+*.iso
+*.bin
+
+# Logs
+*.log
+
+# Editors
+.vscode/
+
+# OS junk
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.swp
+*.swo

@@ -1,0 +1,47 @@
+[package]
+name = "kpio-network"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Contributors"]
+description = "Network stack for KPIO kernel"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/your-org/kernel-performed-illegal-operation"
+
+[lib]
+name = "kpio_network"
+path = "src/lib.rs"
+
+[dependencies]
+# Core utilities (no_std compatible)
+spin = "0.9"
+bitflags = "2.4"
+log = "0.4"
+
+# TCP/IP stack
+# medium-ethernet 피처 추가 (Ethernet 프레임 지원 필수)
+# smoltcp 0.11에서는 socket-* 피처가 proto-* 를 자동으로 포함
+smoltcp = { version = "0.11", default-features = false, features = [
+    "medium-ethernet",
+    "proto-ipv4", 
+    "proto-ipv6", 
+    "proto-dhcpv4", 
+    "socket-tcp", 
+    "socket-udp", 
+    "socket-dns"
+] }
+
+# Shared kernel types
+kpio-kernel = { path = "../kernel", optional = true }
+
+[features]
+default = []
+kernel = ["kpio-kernel"]
+std = []
+
+[dev-dependencies]
+# Testing utilities
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

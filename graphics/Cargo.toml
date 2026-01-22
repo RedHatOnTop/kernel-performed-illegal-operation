@@ -1,0 +1,42 @@
+[package]
+name = "kpio-graphics"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Contributors"]
+description = "Graphics subsystem for KPIO kernel"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/your-org/kernel-performed-illegal-operation"
+
+[lib]
+name = "kpio_graphics"
+path = "src/lib.rs"
+
+[dependencies]
+# Core utilities (no_std compatible)
+spin = "0.9"
+bitflags = "2.4"
+log = "0.4"
+
+# wgpu for Vulkan abstraction (feature-gated)
+# wgpu 0.19: wgc (WebGPU Core) 백엔드 사용
+wgpu = { version = "0.19", default-features = false, features = ["wgc"], optional = true }
+
+# Vello for 2D rendering
+vello = { version = "0.1", default-features = false, optional = true }
+
+# Shared kernel types
+kpio-kernel = { path = "../kernel", optional = true }
+
+[features]
+default = []
+kernel = ["kpio-kernel"]
+std = ["wgpu", "vello"]
+compositor = ["wgpu", "vello"]
+
+[dev-dependencies]
+# Testing utilities
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
