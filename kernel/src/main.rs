@@ -113,7 +113,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] Enumerating PCI bus...");
     driver::pci::enumerate();
     
-    // Phase 9: Start timer and enable interrupts
+    // Phase 9: VirtIO device initialization
+    serial_println!("[KPIO] Initializing VirtIO devices...");
+    driver::virtio::block::init();
+    serial_println!("[KPIO] VirtIO initialized ({} block device(s))", 
+        driver::virtio::block::device_count());
+    
+    // Phase 10: Start timer and enable interrupts
     serial_println!("[KPIO] Starting APIC timer...");
     interrupts::start_apic_timer(100); // 100 Hz
     
