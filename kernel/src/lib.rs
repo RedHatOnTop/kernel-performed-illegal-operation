@@ -19,6 +19,7 @@
 extern crate alloc;
 
 pub mod allocator;
+pub mod browser;
 pub mod driver;
 pub mod gdt;
 pub mod interrupts;
