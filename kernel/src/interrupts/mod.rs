@@ -76,6 +76,9 @@ lazy_static! {
         // Hardware interrupts (vectors 32-255)
         idt[InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
         idt[InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
+        
+        // Spurious interrupt handler (vector 0xFF)
+        idt[vectors::SPURIOUS].set_handler_fn(spurious_interrupt_handler);
 
         idt
     };
@@ -95,6 +98,10 @@ pub fn init() {
 ///
 /// Physical memory offset must be valid.
 pub unsafe fn init_apic(phys_mem_offset: u64) {
+    // CRITICAL: Disable legacy 8259 PIC before using APIC
+    // The PIC might have pending interrupts that would cause havoc
+    disable_pic();
+    
     // Set physical memory offset for APIC MMIO access.
     unsafe { apic::init(phys_mem_offset) };
     ioapic::set_physical_memory_offset(phys_mem_offset);
@@ -103,6 +110,25 @@ pub unsafe fn init_apic(phys_mem_offset: u64) {
     unsafe { ioapic::init_default() };
     
     crate::serial_println!("[APIC] APIC subsystem initialized");
+}
+
+/// Disable the legacy 8259 PIC.
+///
+/// This is required before using APIC to prevent spurious interrupts
+/// from the PIC interfering with APIC operation.
+fn disable_pic() {
+    use x86_64::instructions::port::Port;
+    
+    unsafe {
+        // Mask all interrupts on both PICs
+        let mut pic1_data: Port<u8> = Port::new(0x21);
+        let mut pic2_data: Port<u8> = Port::new(0xA1);
+        
+        pic1_data.write(0xFF);  // Mask all on master PIC
+        pic2_data.write(0xFF);  // Mask all on slave PIC
+    }
+    
+    crate::serial_println!("[PIC] Legacy 8259 PIC disabled");
 }
 
 /// Start the APIC timer for preemptive scheduling.
@@ -208,19 +234,16 @@ extern "x86-interrupt" fn page_fault_handler(
 // Hardware Interrupt Handlers
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    // Increment tick counter.
+    // Increment tick counter
     let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
     
-    // Log every 100 ticks (approximately every second at 100 Hz).
+    // Log every 100 ticks (~1 second at 100 Hz)
     if ticks % 100 == 0 {
         crate::serial_println!("[TIMER] Tick {}", ticks);
     }
     
-    // Send EOI to Local APIC.
+    // Send EOI to Local APIC
     apic::end_of_interrupt();
-    
-    // TODO: Trigger scheduler if preemption is needed.
-    // scheduler::on_timer_tick();
 }
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
@@ -234,4 +257,10 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     
     // Send EOI to Local APIC.
     apic::end_of_interrupt();
+}
+
+extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    // Spurious interrupts should NOT send EOI.
+    // Just ignore them silently or log if debugging.
+    // crate::serial_println!("[APIC] Spurious interrupt");
 }

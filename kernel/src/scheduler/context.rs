@@ -3,7 +3,7 @@
 //! This module provides the low-level context switch functionality
 //! for task scheduling.
 
-use core::arch::asm;
+use core::arch::naked_asm;
 
 /// Minimal CPU context for context switching.
 /// 
@@ -56,42 +56,39 @@ impl SwitchContext {
 /// - Both pointers must be valid and properly aligned.
 /// - The contexts must be properly initialized.
 /// - This function never returns to the caller if switching to a new task.
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn switch_context(
     _current: *mut SwitchContext,
     _next: *const SwitchContext,
 ) {
     // rdi = current context pointer
     // rsi = next context pointer
-    unsafe {
-        asm!(
-            // Save current context
-            "mov [rdi + 0x00], r15",
-            "mov [rdi + 0x08], r14",
-            "mov [rdi + 0x10], r13",
-            "mov [rdi + 0x18], r12",
-            "mov [rdi + 0x20], rbx",
-            "mov [rdi + 0x28], rbp",
-            "mov [rdi + 0x30], rsp",
-            // Save return address
-            "mov rax, [rsp]",
-            "mov [rdi + 0x38], rax",
-            
-            // Restore next context
-            "mov r15, [rsi + 0x00]",
-            "mov r14, [rsi + 0x08]",
-            "mov r13, [rsi + 0x10]",
-            "mov r12, [rsi + 0x18]",
-            "mov rbx, [rsi + 0x20]",
-            "mov rbp, [rsi + 0x28]",
-            "mov rsp, [rsi + 0x30]",
-            // Push return address and return
-            "mov rax, [rsi + 0x38]",
-            "push rax",
-            "ret",
-            options(noreturn)
-        );
-    }
+    naked_asm!(
+        // Save current context
+        "mov [rdi + 0x00], r15",
+        "mov [rdi + 0x08], r14",
+        "mov [rdi + 0x10], r13",
+        "mov [rdi + 0x18], r12",
+        "mov [rdi + 0x20], rbx",
+        "mov [rdi + 0x28], rbp",
+        "mov [rdi + 0x30], rsp",
+        // Save return address
+        "mov rax, [rsp]",
+        "mov [rdi + 0x38], rax",
+        
+        // Restore next context
+        "mov r15, [rsi + 0x00]",
+        "mov r14, [rsi + 0x08]",
+        "mov r13, [rsi + 0x10]",
+        "mov r12, [rsi + 0x18]",
+        "mov rbx, [rsi + 0x20]",
+        "mov rbp, [rsi + 0x28]",
+        "mov rsp, [rsi + 0x30]",
+        // Push return address and return
+        "mov rax, [rsi + 0x38]",
+        "push rax",
+        "ret",
+    );
 }
 
 /// Initialize a new task's stack for first-time execution.

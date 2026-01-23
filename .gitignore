@@ -10,6 +10,8 @@
 
 # Logs
 *.log
+qemu_err.txt
+qemu_out.txt
 
 # Editors
 .vscode/

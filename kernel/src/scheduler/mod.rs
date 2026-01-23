@@ -228,6 +228,9 @@ impl Scheduler {
     }
     
     /// Handle timer tick.
+    /// Note: This is called from the timer interrupt handler.
+    /// We only decrement the time slice here. Actual scheduling
+    /// should happen when the interrupt returns, not inside the handler.
     pub fn timer_tick(&mut self) {
         if !self.preemption_enabled {
             return;
@@ -237,9 +240,11 @@ impl Scheduler {
             self.time_slice_remaining -= 1;
         }
         
-        if self.time_slice_remaining == 0 {
-            self.schedule();
-        }
+        // Note: We don't call schedule() here because we're inside
+        // an interrupt handler. In a full implementation, we would
+        // set a flag and reschedule when returning to user space or
+        // at a safe point in the kernel.
+        // For now, cooperative scheduling via yield_now() is used.
     }
     
     /// Perform context switch.

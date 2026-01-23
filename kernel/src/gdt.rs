@@ -32,8 +32,13 @@ lazy_static! {
             static mut STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
 
             let stack_start = VirtAddr::from_ptr(unsafe { &raw const STACK });
+            let stack_end = stack_start + STACK_SIZE as u64;
+            
+            // Debug: Print stack addresses
+            // Note: This runs during lazy_static initialization
+            
             // 스택은 높은 주소에서 낮은 주소로 자라므로 끝 주소 반환
-            stack_start + STACK_SIZE as u64
+            stack_end
         };
 
         tss

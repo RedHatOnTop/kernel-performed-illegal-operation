@@ -34,6 +34,7 @@ mod gdt;
 mod interrupts;
 mod memory;
 mod panic;
+mod scheduler;
 mod serial;
 
 #[cfg(test)]
@@ -97,16 +98,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
     serial_println!("[KPIO] Heap initialized");
 
-    // Phase 6: APIC initialization (Phase 1 feature)
+    // Phase 6: Scheduler initialization
+    serial_println!("[KPIO] Initializing scheduler...");
+    scheduler::init();
+    serial_println!("[KPIO] Scheduler initialized");
+
+    // Phase 7: APIC initialization (Phase 1 feature)
     serial_println!("[KPIO] Initializing APIC...");
     unsafe { interrupts::init_apic(phys_mem_offset) };
     serial_println!("[KPIO] APIC initialized");
 
-    // Phase 7: Enable interrupts and start timer
+    // Phase 8: Start timer and enable interrupts
     serial_println!("[KPIO] Starting APIC timer...");
     interrupts::start_apic_timer(100); // 100 Hz
+    
+    serial_println!("[KPIO] Enabling interrupts...");
     interrupts::enable();
-    serial_println!("[KPIO] Interrupts enabled");
 
     serial_println!("[KPIO] Kernel initialization complete");
 
