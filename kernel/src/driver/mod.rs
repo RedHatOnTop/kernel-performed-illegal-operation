@@ -1,0 +1,5 @@
+//! Device driver subsystem.
+//!
+//! This module contains hardware device drivers for the kernel.
+
+pub mod pci;

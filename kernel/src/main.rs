@@ -30,6 +30,7 @@
 extern crate alloc;
 
 mod allocator;
+mod driver;
 mod gdt;
 mod interrupts;
 mod memory;
@@ -108,7 +109,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { interrupts::init_apic(phys_mem_offset) };
     serial_println!("[KPIO] APIC initialized");
 
-    // Phase 8: Start timer and enable interrupts
+    // Phase 8: PCI enumeration
+    serial_println!("[KPIO] Enumerating PCI bus...");
+    driver::pci::enumerate();
+    
+    // Phase 9: Start timer and enable interrupts
     serial_println!("[KPIO] Starting APIC timer...");
     interrupts::start_apic_timer(100); // 100 Hz
     
