@@ -7,6 +7,8 @@ members = [
     "graphics",
     "network",
     "storage",
+    "userlib",
+    "examples/hello-world",
 ]
 
 [workspace.package]

@@ -1,0 +1,18 @@
+[package]
+name = "hello-world"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Simple Hello World userspace program for KPIO OS"
+
+[[bin]]
+name = "hello"
+path = "src/main.rs"
+
+[dependencies]
+userlib = { path = "../../userlib" }
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = "s"

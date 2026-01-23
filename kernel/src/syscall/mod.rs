@@ -11,6 +11,9 @@ use core::arch::asm;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
 pub enum SyscallNumber {
+    // ==========================================
+    // Process Management (0-19)
+    // ==========================================
     /// Exit the current process.
     Exit = 0,
     /// Write to a file descriptor.
@@ -25,6 +28,16 @@ pub enum SyscallNumber {
     Mmap = 5,
     /// Memory unmap.
     Munmap = 6,
+    /// Fork process.
+    Fork = 7,
+    /// Execute new program.
+    Exec = 8,
+    /// Wait for child process.
+    Wait = 9,
+    
+    // ==========================================
+    // IPC (10-19)
+    // ==========================================
     /// Create an IPC channel.
     ChannelCreate = 10,
     /// Send an IPC message.
@@ -33,6 +46,16 @@ pub enum SyscallNumber {
     ChannelRecv = 12,
     /// Close an IPC channel.
     ChannelClose = 13,
+    /// Create shared memory.
+    ShmCreate = 14,
+    /// Map shared memory.
+    ShmMap = 15,
+    /// Unmap shared memory.
+    ShmUnmap = 16,
+    
+    // ==========================================
+    // Process Info & Control (20-29)
+    // ==========================================
     /// Get process info.
     ProcessInfo = 20,
     /// Yield CPU.
@@ -41,6 +64,16 @@ pub enum SyscallNumber {
     Sleep = 22,
     /// Get current time.
     GetTime = 23,
+    /// Get process ID.
+    GetPid = 24,
+    /// Get parent process ID.
+    GetPpid = 25,
+    /// Set process break (heap).
+    Brk = 26,
+    
+    // ==========================================
+    // Sockets (30-39)
+    // ==========================================
     /// Create a socket.
     SocketCreate = 30,
     /// Bind a socket.
@@ -55,14 +88,60 @@ pub enum SyscallNumber {
     SocketSend = 35,
     /// Receive data on a socket.
     SocketRecv = 36,
+    
+    // ==========================================
+    // GPU (40-49)
+    // ==========================================
     /// Allocate GPU memory.
     GpuAlloc = 40,
     /// Submit GPU commands.
     GpuSubmit = 41,
     /// Present a frame.
     GpuPresent = 42,
+    /// Set GPU priority.
+    GpuSetPriority = 43,
+    /// Wait for GPU fence.
+    GpuWait = 44,
+    
+    // ==========================================
+    // Threading (50-59)
+    // ==========================================
+    /// Create a thread.
+    ThreadCreate = 50,
+    /// Exit current thread.
+    ThreadExit = 51,
+    /// Join a thread.
+    ThreadJoin = 52,
+    /// Futex wait.
+    FutexWait = 53,
+    /// Futex wake.
+    FutexWake = 54,
+    
+    // ==========================================
+    // Epoll (60-69)
+    // ==========================================
+    /// Create epoll instance.
+    EpollCreate = 60,
+    /// Control epoll.
+    EpollCtl = 61,
+    /// Wait for epoll events.
+    EpollWait = 62,
+    
+    // ==========================================
+    // KPIO Extensions - Browser (100-109)
+    // ==========================================
     /// Debug print.
     DebugPrint = 100,
+    /// Register browser tab.
+    TabRegister = 101,
+    /// Set tab state.
+    TabSetState = 102,
+    /// Get tab memory usage.
+    TabGetMemory = 103,
+    /// WASM cache lookup.
+    WasmCacheGet = 104,
+    /// WASM cache store.
+    WasmCachePut = 105,
 }
 
 impl TryFrom<u64> for SyscallNumber {

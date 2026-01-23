@@ -22,9 +22,12 @@ pub mod allocator;
 pub mod driver;
 pub mod gdt;
 pub mod interrupts;
+pub mod loader;
 pub mod memory;
+pub mod process;
 pub mod scheduler;
 pub mod serial;
+pub mod syscall;
 pub mod test;
 
 #[cfg(test)]

@@ -1,0 +1,15 @@
+[package]
+name = "userlib"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "KPIO OS userspace library - system call wrappers and runtime"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+
+[features]
+default = []
+std = []  # When we have full std implementation
