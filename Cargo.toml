@@ -8,6 +8,7 @@ members = [
     "network",
     "storage",
     "userlib",
+    "servo-platform",
     "examples/hello-world",
 ]
 

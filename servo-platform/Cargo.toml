@@ -1,0 +1,29 @@
+[package]
+name = "kpio-servo-platform"
+version = "0.1.0"
+edition = "2021"
+description = "KPIO platform abstraction layer for Servo browser engine"
+authors = ["KPIO Team"]
+
+[lib]
+name = "kpio_platform"
+path = "src/lib.rs"
+
+[dependencies]
+# Core dependencies
+spin = "0.9"
+bitflags = "2.4"
+log = "0.4"
+
+# Servo components (will be added incrementally)
+# These are the core components we need to interface with
+
+[features]
+default = []
+# Feature to enable when building with actual Servo
+servo-integration = []
+
+# Platform-specific features
+gpu = []
+network = []
+audio = []
