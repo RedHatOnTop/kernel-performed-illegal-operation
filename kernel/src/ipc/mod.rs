@@ -15,7 +15,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, RwLock};
 
 pub use channel::{Channel, ChannelId};
-pub use capability::{Capability, CapabilityId, CapabilityType};
+pub use capability::{Capability, CapabilityId, CapabilityType, CapabilityRights};
 pub use message::{Message, MessageHeader};
 pub use mqueue::{MqId, MessageQueue, MqError};
 pub use shm::{ShmId, SharedMemoryRegion, ShmError};

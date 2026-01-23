@@ -28,6 +28,7 @@ pub mod loader;
 pub mod memory;
 pub mod process;
 pub mod scheduler;
+pub mod security;
 pub mod serial;
 pub mod syscall;
 pub mod test;
