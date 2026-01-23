@@ -37,6 +37,7 @@ mod memory;
 mod panic;
 mod scheduler;
 mod serial;
+mod wasm;
 
 #[cfg(test)]
 mod test;
@@ -119,7 +120,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] VirtIO initialized ({} block device(s))", 
         driver::virtio::block::device_count());
     
-    // Phase 10: Start timer and enable interrupts
+    // Phase 10: WASM runtime initialization
+    serial_println!("[KPIO] Initializing WASM runtime...");
+    wasm::init();
+    match wasm::test_runtime() {
+        Ok(()) => serial_println!("[KPIO] WASM runtime test passed"),
+        Err(e) => serial_println!("[KPIO] WASM runtime test failed: {}", e),
+    }
+    
+    // Phase 11: Start timer and enable interrupts
     serial_println!("[KPIO] Starting APIC timer...");
     interrupts::start_apic_timer(100); // 100 Hz
     

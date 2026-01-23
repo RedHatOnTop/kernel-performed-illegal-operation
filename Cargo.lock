@@ -929,6 +929,7 @@ dependencies = [
  "spin",
  "uart_16550",
  "virtio-drivers",
+ "wasmi",
  "x86_64",
 ]
 

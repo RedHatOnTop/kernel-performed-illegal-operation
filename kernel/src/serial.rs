@@ -99,18 +99,18 @@ impl fmt::Write for SerialWriter {
 /// Print macro for serial output.
 #[macro_export]
 macro_rules! serial_print {
-    ($($arg:tt)*) => {
-        $crate::serial::_print(format_args!($($arg)*));
-    };
+    ($($arg:tt)*) => {{
+        $crate::serial::_print(format_args!($($arg)*))
+    }};
 }
 
 /// Println macro for serial output.
 #[macro_export]
 macro_rules! serial_println {
-    () => ($crate::serial_print!("\n"));
-    ($($arg:tt)*) => {
-        $crate::serial_print!("{}\n", format_args!($($arg)*));
-    };
+    () => {{ $crate::serial_print!("\n") }};
+    ($($arg:tt)*) => {{
+        $crate::serial_print!("{}\n", format_args!($($arg)*))
+    }};
 }
 
 /// Internal print function.

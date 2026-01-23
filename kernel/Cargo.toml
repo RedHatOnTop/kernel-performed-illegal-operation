@@ -38,6 +38,9 @@ virtio-drivers = "0.7"
 acpi = "5.0"
 aml = "0.16"
 
+# WASM runtime (no_std compatible interpreter)
+wasmi = { version = "0.31", default-features = false }
+
 [dev-dependencies]
 
 [features]
