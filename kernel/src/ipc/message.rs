@@ -142,7 +142,7 @@ impl Message {
     }
     
     /// Create a data message.
-    pub fn data(data: Vec<u8>) -> Self {
+    pub fn with_data(data: Vec<u8>) -> Self {
         let mut msg = Self::new(MessageType::Data);
         msg.header.data_len = data.len() as u32;
         msg.data = data;

@@ -22,6 +22,7 @@ pub mod allocator;
 pub mod driver;
 pub mod gdt;
 pub mod interrupts;
+pub mod ipc;
 pub mod loader;
 pub mod memory;
 pub mod process;

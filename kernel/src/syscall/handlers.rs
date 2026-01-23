@@ -6,6 +6,7 @@ use super::{SyscallContext, SyscallError, SyscallNumber, SyscallResult};
 use crate::scheduler;
 use crate::serial;
 use crate::process::ProcessId;
+use crate::ipc::{self, ChannelId, Message, IpcError};
 
 /// Handle a system call.
 pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
@@ -173,42 +174,67 @@ fn handle_munmap(_ctx: &SyscallContext) -> SyscallResult {
 
 /// Create an IPC channel.
 fn handle_channel_create(_ctx: &SyscallContext) -> SyscallResult {
-    // TODO: Integrate with IPC subsystem
-    // For now, return placeholder
-    Err(SyscallError::NotFound)
+    match ipc::create_channel() {
+        Some((id_a, id_b)) => {
+            // Return both endpoints packed into u64
+            Ok((id_a.0 << 32) | id_b.0)
+        }
+        None => Err(SyscallError::OutOfMemory),
+    }
 }
 
 /// Send an IPC message.
 fn handle_channel_send(ctx: &SyscallContext) -> SyscallResult {
-    let _channel_id = ctx.arg1;
+    let channel_id = ChannelId(ctx.arg1);
     let buf_ptr = ctx.arg2 as *const u8;
-    let _len = ctx.arg3 as usize;
+    let len = ctx.arg3 as usize;
     
     if buf_ptr.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
     
-    // TODO: Integrate with IPC subsystem
-    Err(SyscallError::NotFound)
+    // Copy data from userspace
+    let data = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
+    let message = Message::with_data(data.to_vec());
+    
+    match ipc::send(channel_id, message) {
+        Ok(()) => Ok(len as u64),
+        Err(IpcError::QueueFull) => Err(SyscallError::WouldBlock),
+        Err(IpcError::ChannelClosed) => Err(SyscallError::NotConnected),
+        Err(IpcError::ChannelNotFound) => Err(SyscallError::NotFound),
+        Err(IpcError::MessageTooLarge) => Err(SyscallError::InvalidArgument),
+        Err(_) => Err(SyscallError::IoError),
+    }
 }
 
 /// Receive an IPC message.
 fn handle_channel_recv(ctx: &SyscallContext) -> SyscallResult {
-    let _channel_id = ctx.arg1;
+    let channel_id = ChannelId(ctx.arg1);
     let buf_ptr = ctx.arg2 as *mut u8;
-    let _len = ctx.arg3 as usize;
+    let len = ctx.arg3 as usize;
     
     if buf_ptr.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
     
-    // TODO: Integrate with IPC subsystem
-    Err(SyscallError::WouldBlock)
+    match ipc::receive(channel_id) {
+        Ok(message) => {
+            let data = message.data();
+            let copy_len = core::cmp::min(data.len(), len);
+            let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, copy_len) };
+            slice.copy_from_slice(&data[..copy_len]);
+            Ok(copy_len as u64)
+        }
+        Err(IpcError::QueueEmpty) => Err(SyscallError::WouldBlock),
+        Err(IpcError::ChannelClosed) => Err(SyscallError::NotConnected),
+        Err(IpcError::ChannelNotFound) => Err(SyscallError::NotFound),
+        Err(_) => Err(SyscallError::IoError),
+    }
 }
 
 /// Close an IPC channel.
 fn handle_channel_close(_ctx: &SyscallContext) -> SyscallResult {
-    // TODO: Implement channel closing
+    // TODO: Implement channel closing with proper cleanup
     Ok(0)
 }
 
@@ -388,34 +414,54 @@ fn handle_brk(ctx: &SyscallContext) -> SyscallResult {
 /// Create shared memory region.
 fn handle_shm_create(ctx: &SyscallContext) -> SyscallResult {
     let size = ctx.arg1 as usize;
-    let _flags = ctx.arg2 as u32;
+    let flags = ctx.arg2 as u32;
     
     if size == 0 || size > 1024 * 1024 * 1024 {
         return Err(SyscallError::InvalidArgument);
     }
     
-    // TODO: Allocate physical frames for shared memory
-    // Return handle ID
-    Err(SyscallError::OutOfMemory)
+    // Get current process ID
+    let pid = scheduler::current_task_id().0;
+    
+    match ipc::shm::create("anonymous", size, pid, flags) {
+        Ok(id) => Ok(id.0),
+        Err(ipc::shm::ShmError::OutOfMemory) => Err(SyscallError::OutOfMemory),
+        Err(ipc::shm::ShmError::InvalidSize) => Err(SyscallError::InvalidArgument),
+        Err(ipc::shm::ShmError::LimitReached) => Err(SyscallError::OutOfMemory),
+        Err(_) => Err(SyscallError::IoError),
+    }
 }
 
 /// Map shared memory into address space.
 fn handle_shm_map(ctx: &SyscallContext) -> SyscallResult {
-    let _shm_id = ctx.arg1;
-    let _addr_hint = ctx.arg2;
-    let _prot = ctx.arg3 as u32;
+    let shm_id = ipc::ShmId(ctx.arg1);
+    let addr_hint = ctx.arg2;
+    let prot = ctx.arg3 as u32;
     
-    // TODO: Map shared memory into process page table
-    Err(SyscallError::NotFound)
+    let pid = scheduler::current_task_id().0;
+    
+    match ipc::shm::map(shm_id, pid, addr_hint, prot) {
+        Ok(addr) => Ok(addr),
+        Err(ipc::shm::ShmError::NotFound) => Err(SyscallError::NotFound),
+        Err(ipc::shm::ShmError::AlreadyMapped) => Err(SyscallError::InvalidArgument),
+        Err(ipc::shm::ShmError::PermissionDenied) => Err(SyscallError::PermissionDenied),
+        Err(_) => Err(SyscallError::IoError),
+    }
 }
 
 /// Unmap shared memory.
 fn handle_shm_unmap(ctx: &SyscallContext) -> SyscallResult {
-    let _addr = ctx.arg1;
+    let shm_id = ipc::ShmId(ctx.arg1);
     let _size = ctx.arg2 as usize;
     
-    // TODO: Unmap from page table
-    Ok(0)
+    let pid = scheduler::current_task_id().0;
+    
+    match ipc::shm::unmap(shm_id, pid) {
+        Ok(()) => Ok(0),
+        Err(ipc::shm::ShmError::NotFound) => Err(SyscallError::NotFound),
+        Err(ipc::shm::ShmError::NotMapped) => Err(SyscallError::InvalidArgument),
+        Err(_) => Err(SyscallError::IoError),
+    }
 }
 
 // ==========================================

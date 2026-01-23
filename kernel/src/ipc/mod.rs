@@ -6,16 +6,19 @@
 pub mod channel;
 pub mod capability;
 pub mod message;
+pub mod mqueue;
+pub mod shm;
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, RwLock};
 
 pub use channel::{Channel, ChannelId};
 pub use capability::{Capability, CapabilityId, CapabilityType};
 pub use message::{Message, MessageHeader};
+pub use mqueue::{MqId, MessageQueue, MqError};
+pub use shm::{ShmId, SharedMemoryRegion, ShmError};
 
 /// Maximum message size in bytes.
 pub const MAX_MESSAGE_SIZE: usize = 64 * 1024; // 64 KB
