@@ -1,8 +1,8 @@
 # WebAssembly Runtime Design Document
 
-**Document Version:** 1.0.0  
-**Last Updated:** 2026-01-21  
-**Status:** Initial Draft
+**Document Version:** 2.0.0  
+**Last Updated:** 2026-01-23  
+**Status:** Phase 1 Implementation Complete
 
 ---
 
@@ -11,15 +11,16 @@
 1. [Overview](#1-overview)
 2. [Design Goals](#2-design-goals)
 3. [Runtime Architecture](#3-runtime-architecture)
-4. [Wasmtime Integration](#4-wasmtime-integration)
-5. [WASI Implementation](#5-wasi-implementation)
-6. [Custom System Extensions](#6-custom-system-extensions)
-7. [Memory Management](#7-memory-management)
-8. [Sandboxing and Isolation](#8-sandboxing-and-isolation)
-9. [Performance Optimizations](#9-performance-optimizations)
-10. [Debugging and Profiling](#10-debugging-and-profiling)
-11. [Module Loading](#11-module-loading)
-12. [Inter-Module Communication](#12-inter-module-communication)
+4. [wasmi Integration](#4-wasmi-integration)
+5. [Browser WASM (SpiderMonkey)](#5-browser-wasm-spidermonkey)
+6. [WASI Implementation](#6-wasi-implementation)
+7. [Custom System Extensions](#7-custom-system-extensions)
+8. [Memory Management](#8-memory-management)
+9. [Sandboxing and Isolation](#9-sandboxing-and-isolation)
+10. [Performance Optimizations](#10-performance-optimizations)
+11. [Debugging and Profiling](#11-debugging-and-profiling)
+12. [Module Loading](#12-module-loading)
+13. [Inter-Module Communication](#13-inter-module-communication)
 
 ---
 
@@ -27,12 +28,26 @@
 
 ### 1.1 Purpose
 
-This document specifies the design of the KPIO WebAssembly runtime, which serves as the execution environment for all user-space applications. The runtime provides a secure, high-performance execution layer that bridges WASM modules to kernel services.
+This document specifies the design of the KPIO WebAssembly runtime system, which provides two execution environments:
 
-### 1.2 Scope
+1. **Kernel WASM Runtime (wasmi):** Lightweight interpreter for kernel-side WASM execution
+2. **Browser WASM Runtime (SpiderMonkey):** Full-featured JIT for web content (Phase 2)
+
+### 1.2 Strategic Decision: Dual Runtime
+
+| Runtime | Context | Use Case | Performance |
+|---------|---------|----------|-------------|
+| wasmi | Kernel (no_std) | System services, drivers | Interpreted |
+| SpiderMonkey | Browser (userspace) | Web apps, games | JIT compiled |
+
+**Key Insight:** Web WASM via browser handles performance-critical workloads, allowing kernel runtime to prioritize simplicity and security.
+
+### 1.3 Scope
 
 This document covers:
-- Wasmtime engine integration and configuration
+- wasmi interpreter integration (kernel-side, no_std)
+- SpiderMonkey integration plans (browser-side, Phase 2)
+- Shared WASM module caching between kernel and browser
 - WASI (WebAssembly System Interface) implementation
 - Custom syscall extensions for GPU, IPC, and capabilities
 - Memory management for WASM instances
@@ -42,9 +57,18 @@ This document covers:
 This document does NOT cover:
 - Kernel internals (see `kernel.md`)
 - Graphics pipeline details (see `graphics.md`)
-- Individual application development
+- Browser engine architecture (see Phase 2 design docs)
 
-### 1.3 Source Location
+### 1.4 Current Implementation Status
+
+```
+kernel/src/wasm/
+    mod.rs              # ✅ Module entry, test_runtime()
+    engine.rs           # ✅ wasmi Engine/Module/Instance wrappers
+    host.rs             # ✅ Host function stubs (WASI-like)
+```
+
+### 1.5 Source Location (Planned Full Structure)
 
 ```
 runtime/

@@ -1,39 +1,61 @@
 # Phase 1: 코어 (Core) 설계 문서
 
+**상태:** ✅ 완료 (2026-01-23)
+
 ## 개요
 
-Phase 1은 KPIO 운영체제의 핵심 런타임을 구축하는 단계입니다. WASM 런타임(Wasmtime)을 통합하고, 기본적인 WASI 구현과 스케줄러를 완성합니다.
+Phase 1은 KPIO 운영체제의 핵심 런타임을 구축하는 단계입니다. WASM 런타임을 통합하고, 기본적인 디바이스 드라이버와 인터럽트 시스템을 완성했습니다.
 
 ---
 
-## 중요 제한 사항: Wasmtime 및 no_std
+## 완료된 구현 사항
 
-**Wasmtime 17.0은 `std` 환경을 필요로 합니다.** 커널 내부에서 직접 사용할 수 없으며, 다음 전략 중 하나를 선택해야 합니다:
+### 핵심 기능
+- ✅ APIC 타이머 (100Hz) - 8259 PIC 비활성화 후 정상 동작
+- ✅ PCI 버스 열거 (7개 디바이스 탐지)
+- ✅ VirtIO 블록 디바이스 드라이버 (64MB 디스크 인식)
+- ✅ WASM 런타임 (wasmi 인터프리터, `add(2,3)=5` 테스트 통과)
 
-| 전략 | 설명 | 장점 | 단점 |
-|--------|------|------|------|
-| **A. 사용자 공간 WASM 서버** | Wasmtime을 사용자 공간 프로세스로 실행, IPC로 커널과 통신 | 커널 단순화, 표준 Wasmtime 사용 | IPC 오버헤드 |
-| **B. Wasmtime 포크** | Wasmtime 코드를 no_std 환경에 맞게 수정 | 커널 내 직접 실행 | 대규모 작업, 유지보수 부담 |
-| **C. wasmi 사용** | no_std 호환 인터프리터 (wasmi) 사용 | no_std 네이티브 | JIT 없음, 느림 |
-| **D. 하이브리드** | 초기 wasmi, 이후 사용자 공간 Wasmtime | 점진적 구현 | 두 런타임 유지 |
+### 관련 커밋
+- `cbf0c6a` - APIC timer and scheduler infrastructure
+- `28b72dd` - PCI bus enumeration with VirtIO detection
+- `d4560cf` - VirtIO block device driver (Stage 5)
+- `5e0269f` - WASM runtime with wasmi interpreter (Phase 1 Complete)
 
-**권장:** 전략 A (사용자 공간 WASM 서버) - 순수 마이크로커널 아키텍처와 일치
+---
+
+## 중요 설계 결정: wasmi 선택
+
+**Wasmtime 17.0은 `std` 환경을 필요로 합니다.** 따라서 커널 내부에서는 wasmi(no_std 호환 인터프리터)를 사용하기로 결정했습니다.
+
+| 전략 | 설명 | 상태 |
+|--------|------|------|
+| ~~A. 사용자 공간 WASM 서버~~ | Wasmtime을 사용자 공간에서 실행 | 보류 |
+| ~~B. Wasmtime 포크~~ | no_std 환경에 맞게 수정 | 비용 과다 |
+| **C. wasmi 사용** | no_std 호환 인터프리터 | ✅ 채택 |
+| ~~D. 하이브리드~~ | 초기 wasmi, 이후 Wasmtime | Phase 2에서 재검토 |
+
+**선택 이유:**
+- no_std 네이티브 지원
+- 커널 내 직접 실행 가능
+- 성능은 브라우저의 SpiderMonkey가 보완 (Phase 2)
 
 ---
 
 ## 선행 조건
 
-- Phase 0 완료 (부팅, 메모리 관리, 시리얼 출력)
+- Phase 0 완료 (부팅, 메모리 관리, 시리얼 출력) ✅
 
 ## 완료 조건
 
-- WASM "Hello World" 애플리케이션 실행
-- 기본 WASI 함수 동작 (fd_write, clock_time_get)
-- VirtIO-Blk 드라이버로 블록 읽기
+- ✅ WASM 테스트 애플리케이션 실행 (`add(2,3)=5`)
+- ✅ APIC 타이머 동작 (100Hz)
+- ✅ VirtIO-Blk 드라이버로 디바이스 인식 (64MB)
+- ⏳ WASI 함수 (fd_write, clock_time_get) - Phase 2에서 브라우저와 함께 구현
 
 ---
 
-## 1. 인터럽트 및 예외 처리
+## 1. 인터럽트 및 예외 처리 ✅ 완료
 
 ### 1.1 APIC 초기화
 

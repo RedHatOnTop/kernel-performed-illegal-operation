@@ -1,24 +1,181 @@
-# Phase 2: 사용자 공간 (Userspace) 설계 문서
+# Phase 2: 브라우저 통합 (Browser Integration) 설계 문서
+
+**상태:** 🔄 계획 중
 
 ## 개요
 
-Phase 2는 KPIO 운영체제에서 실질적인 사용자 경험을 제공하는 단계입니다. IPC 시스템, 파일시스템, 네트워킹, 그리고 WASM 기반 쉘을 구현합니다.
+Phase 2는 KPIO 운영체제에 Servo 기반 브라우저 엔진을 깊이 통합하는 단계입니다. 
+기존 OS에서 불가능한 커널 수준 최적화를 통해 전례 없는 웹 성능을 달성합니다.
+
+---
+
+## 핵심 전략: OS-Level Browser Integration
+
+### 기존 브라우저의 문제점
+
+```
+Chrome/Firefox on Windows/macOS:
+┌─────────────────────────────────────────┐
+│ 브라우저 (자체 GPU 스케줄러)            │ ← OS와 경쟁
+│ 브라우저 (자체 메모리 관리)             │ ← OS와 중복
+│ 브라우저 (자체 프로세스 모델)           │ ← OS와 중복
+└─────────────────────────────────────────┘
+│ OS (브라우저가 뭘 하는지 모름)          │ ← 최적화 불가
+```
+
+### KPIO 접근법
+
+```
+KPIO Browser:
+┌─────────────────────────────────────────┐
+│ Servo Components (얇은 레이어)          │
+│  ├─ html5ever, Stylo, WebRender        │
+│  └─ SpiderMonkey                       │
+└─────────────────────────────────────────┘
+│ KPIO Kernel (모든 것을 앎)              │
+│  ├─ 탭별 GPU 우선순위 조정              │
+│  ├─ 백그라운드 탭 메모리 압축           │
+│  ├─ WASM AOT 캐시 시스템 전체 공유      │
+│  └─ 네트워크 → GPU Zero-copy           │
+```
 
 ---
 
 ## 선행 조건
 
-- Phase 1 완료 (WASM 실행, 기본 WASI, VirtIO-Blk)
+- Phase 1 완료 (WASM 실행, VirtIO-Blk) ✅
 
 ## 완료 조건
 
-- WASM 쉘에서 파일 시스템 탐색 가능
-- TCP 연결 수립
-- 프로세스 간 메시지 전달 동작
+- [ ] html5ever로 주요 웹사이트 파싱
+- [ ] Stylo로 CSS3 레이아웃 렌더링
+- [ ] WebRender + Vulkan 렌더링
+- [ ] SpiderMonkey JavaScript 실행
+- [ ] Chrome 대비 50% 메모리 절감
 
 ---
 
-## 1. IPC 시스템
+## 1. Servo 컴포넌트 통합
+
+### 1.1 html5ever (HTML 파서)
+
+```rust
+// Rust 기반 HTML5 파서 - 이미 no_std 친화적
+use html5ever::parse_document;
+use html5ever::tendril::TendrilSink;
+
+fn parse_html(html: &str) -> Document {
+    let dom = parse_document(RcDom::default(), Default::default())
+        .from_utf8()
+        .read_from(&mut html.as_bytes())
+        .unwrap();
+    dom.document
+}
+```
+
+### 1.2 Stylo (CSS 엔진)
+
+Firefox에서 검증된 병렬 CSS 엔진:
+- Rayon 기반 병렬 스타일 계산
+- 수백만 규칙 처리 가능
+- Rust로 작성 (메모리 안전)
+
+### 1.3 WebRender (GPU 렌더러)
+
+Firefox에서 검증된 GPU 렌더러:
+- Vulkan/OpenGL 백엔드
+- 타일 기반 렌더링
+- 60fps 목표
+
+---
+
+## 2. OS 레벨 최적화
+
+### 2.1 GPU 스케줄러 통합
+
+```rust
+// kernel/src/gpu/scheduler.rs
+
+pub fn submit_browser_work(tab_id: TabId, commands: GpuCommands) {
+    let priority = if tab_id == foreground_tab() {
+        GpuPriority::High      // 포그라운드: 즉시 처리
+    } else if tab.is_playing_video() {
+        GpuPriority::Medium    // 비디오: 부드럽게
+    } else {
+        GpuPriority::Low       // 백그라운드: 나중에
+    };
+    
+    vulkan_queue.submit_with_priority(commands, priority);
+}
+```
+
+### 2.2 탭 메모리 관리
+
+```rust
+// kernel/src/memory/browser.rs
+
+pub fn on_tab_background(tab: &Tab) {
+    // 1. JavaScript 힙 압축
+    compress_js_heap(tab.js_context);
+    
+    // 2. 이미지 캐시 해제
+    drop_decoded_images(tab.image_cache);
+    
+    // 3. 5분 후 디스크 스왑
+    schedule_swap_to_disk(tab, Duration::minutes(5));
+}
+
+pub fn on_tab_foreground(tab: &Tab) {
+    // 즉시 복원 + CPU 우선순위 부스트
+    restore_from_disk(tab);
+    boost_process_priority(tab.process_id);
+}
+```
+
+### 2.3 Zero-Copy 네트워크→렌더링
+
+```rust
+// 기존: Network → CPU Buffer → Decode → GPU Upload
+// KPIO: Network → GPU Memory (DMA) → Decode (GPU) → Render
+
+pub fn load_image(url: &Url) -> GpuTexture {
+    let gpu_buffer = gpu_allocate_dma_buffer(expected_size);
+    network_fetch_to_gpu(url, gpu_buffer);  // DMA 직접 전송
+    gpu_decode_image(gpu_buffer)            // GPU 디코딩
+}
+```
+
+---
+
+## 3. WASM 런타임 통합
+
+### 3.1 공유 AOT 캐시
+
+```
+웹페이지 A의 wasm-module.wasm
+         │
+         ▼ AOT 컴파일
+┌─────────────────────────────┐
+│ /cache/wasm/abc123.aot     │ ← 시스템 전역 캐시
+└─────────────────────────────┘
+         │
+    ┌────┴────┐
+    ▼         ▼
+웹페이지 A  웹페이지 B (같은 모듈 사용 시 즉시 로드)
+```
+
+### 3.2 커널 WASM vs 브라우저 WASM
+
+| 구분 | 커널 WASM (wasmi) | 브라우저 WASM (SpiderMonkey) |
+|------|-------------------|------------------------------|
+| 용도 | 시스템 서비스 | 웹 앱 |
+| 성능 | 인터프리터 | JIT 컴파일 |
+| 보안 | 최고 (커널 컨텍스트) | 높음 (샌드박스) |
+| API | KPIO syscalls | Web APIs + WASI |
+
+---
+
+## 4. IPC 시스템 (기존 설계 유지)
 
 ### 1.1 Capability 기반 IPC
 
