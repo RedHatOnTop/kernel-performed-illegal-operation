@@ -1,0 +1,20 @@
+[package]
+name = "kpio-dom"
+version = "0.1.0"
+edition = "2021"
+description = "DOM implementation for KPIO OS"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "kpio_dom"
+path = "src/lib.rs"
+
+[dependencies]
+servo-types = { path = "../servo-types" }
+kpio-html = { path = "../kpio-html" }
+kpio-css = { path = "../kpio-css" }
+hashbrown = { workspace = true }
+
+[features]
+default = []
+std = []

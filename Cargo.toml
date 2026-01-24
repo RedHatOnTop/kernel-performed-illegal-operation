@@ -9,7 +9,12 @@ members = [
     "storage",
     "userlib",
     "servo-platform",
+    "servo-types",
+    "kpio-css",
+    "kpio-html",
+    "kpio-dom",
     "examples/hello-world",
+    # "examples/browser-integration-test" - 호스트 환경에서 별도로 테스트
 ]
 
 [workspace.package]

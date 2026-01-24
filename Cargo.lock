@@ -906,6 +906,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
+name = "kpio-css"
+version = "0.1.0"
+dependencies = [
+ "servo-types",
+]
+
+[[package]]
+name = "kpio-dom"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "kpio-css",
+ "kpio-html",
+ "servo-types",
+]
+
+[[package]]
 name = "kpio-graphics"
 version = "0.1.0"
 dependencies = [
@@ -915,6 +932,13 @@ dependencies = [
  "spin",
  "vello",
  "wgpu",
+]
+
+[[package]]
+name = "kpio-html"
+version = "0.1.0"
+dependencies = [
+ "servo-types",
 ]
 
 [[package]]
@@ -1532,6 +1556,10 @@ dependencies = [
  "serde_core",
  "zmij",
 ]
+
+[[package]]
+name = "servo-types"
+version = "0.1.0"
 
 [[package]]
 name = "shellexpand"

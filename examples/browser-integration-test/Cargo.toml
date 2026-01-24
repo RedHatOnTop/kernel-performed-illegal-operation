@@ -1,0 +1,15 @@
+[package]
+name = "browser-integration-test"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for KPIO browser engine"
+
+[dependencies]
+servo-types = { path = "../../servo-types" }
+kpio-css = { path = "../../kpio-css" }
+kpio-html = { path = "../../kpio-html" }
+kpio-dom = { path = "../../kpio-dom" }
+
+[[bin]]
+name = "browser-test"
+path = "src/main.rs"

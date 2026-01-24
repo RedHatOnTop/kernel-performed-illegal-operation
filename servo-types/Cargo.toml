@@ -1,0 +1,16 @@
+[package]
+name = "servo-types"
+version = "0.1.0"
+edition = "2021"
+description = "Servo-compatible fundamental types for KPIO OS"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "servo_types"
+path = "src/lib.rs"
+
+[dependencies]
+
+[features]
+default = []
+std = []

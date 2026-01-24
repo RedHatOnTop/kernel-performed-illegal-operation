@@ -1,0 +1,17 @@
+[package]
+name = "kpio-css"
+version = "0.1.0"
+edition = "2021"
+description = "CSS parsing and styling for KPIO OS"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "kpio_css"
+path = "src/lib.rs"
+
+[dependencies]
+servo-types = { path = "../servo-types" }
+
+[features]
+default = []
+std = []

@@ -1,0 +1,17 @@
+[package]
+name = "kpio-html"
+version = "0.1.0"
+edition = "2021"
+description = "HTML parsing for KPIO OS"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "kpio_html"
+path = "src/lib.rs"
+
+[dependencies]
+servo-types = { path = "../servo-types" }
+
+[features]
+default = []
+std = []
