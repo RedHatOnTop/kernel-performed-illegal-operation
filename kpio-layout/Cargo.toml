@@ -1,0 +1,16 @@
+[package]
+name = "kpio-layout"
+version = "0.1.0"
+edition = "2021"
+description = "CSS Layout Engine for KPIO OS - Box model, block/inline/flex layout"
+license = "MIT"
+
+[dependencies]
+# Core dependencies (no_std compatible)
+servo-types = { path = "../servo-types" }
+kpio-css = { path = "../kpio-css" }
+kpio-dom = { path = "../kpio-dom" }
+
+[features]
+default = []
+std = []

@@ -965,6 +965,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kpio-layout"
+version = "0.1.0"
+dependencies = [
+ "kpio-css",
+ "kpio-dom",
+ "servo-types",
+]
+
+[[package]]
 name = "kpio-network"
 version = "0.1.0"
 dependencies = [
