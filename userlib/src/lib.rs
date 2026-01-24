@@ -22,12 +22,17 @@
 #![no_std]
 #![allow(unsafe_op_in_unsafe_fn)]
 
+extern crate alloc;
+
 pub mod syscall;
 pub mod io;
 pub mod process;
 pub mod mem;
 pub mod ipc;
 pub mod thread;
+
+/// std compatibility layer for running std-based applications
+pub mod std;
 
 /// Re-export commonly used types.
 pub mod prelude {

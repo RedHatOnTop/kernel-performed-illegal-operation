@@ -3,6 +3,8 @@
 //! This module provides the low-level system call mechanism using
 //! the x86_64 `syscall` instruction.
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::arch::asm;
 
 /// System call numbers - must match kernel's SyscallNumber enum.
@@ -94,6 +96,8 @@ pub enum SyscallError {
     NotConnected = -107,
     /// I/O error.
     IoError = -5,
+    /// File already exists.
+    AlreadyExists = -17,
     /// Unknown error.
     Unknown = -255,
 }
@@ -265,4 +269,248 @@ pub unsafe fn syscall6(
         options(nostack, preserves_flags)
     );
     convert_result(ret)
+}
+
+// ============================================
+// High-level syscall wrappers for std compatibility
+// ============================================
+
+// --- Network ---
+
+pub fn net_connect(a: u8, b: u8, c: u8, d: u8, port: u16) -> SyscallResult {
+    let ip = ((a as u64) << 24) | ((b as u64) << 16) | ((c as u64) << 8) | (d as u64);
+    unsafe { syscall2(SyscallNumber::SocketConnect, ip, port as u64) }
+}
+
+pub fn net_bind(a: u8, b: u8, c: u8, d: u8, port: u16) -> SyscallResult {
+    let ip = ((a as u64) << 24) | ((b as u64) << 16) | ((c as u64) << 8) | (d as u64);
+    unsafe { syscall2(SyscallNumber::SocketBind, ip, port as u64) }
+}
+
+pub fn net_accept(fd: u64) -> Result<(u64, [u8; 4], u16), SyscallError> {
+    let result = unsafe { syscall1(SyscallNumber::SocketAccept, fd) }?;
+    // TODO: Parse result to extract fd, ip, port
+    Ok((result, [0, 0, 0, 0], 0))
+}
+
+pub fn net_send(fd: u64, buf: &[u8]) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::SocketSend, fd, buf.as_ptr() as u64, buf.len() as u64) }
+}
+
+pub fn net_recv(fd: u64, buf: &mut [u8]) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::SocketRecv, fd, buf.as_mut_ptr() as u64, buf.len() as u64) }
+}
+
+pub fn net_close(fd: u64) -> SyscallResult {
+    unsafe { syscall1(SyscallNumber::Close, fd) }
+}
+
+pub fn net_shutdown(fd: u64, how: u32) -> SyscallResult {
+    unsafe { syscall2(SyscallNumber::Close, fd, how as u64) }
+}
+
+pub fn net_dup(fd: u64) -> SyscallResult {
+    // TODO: Implement dup syscall
+    Ok(fd)
+}
+
+pub fn net_local_addr(fd: u64) -> Result<([u8; 4], u16), SyscallError> {
+    // TODO: Implement getsockname syscall
+    Ok(([0, 0, 0, 0], 0))
+}
+
+// --- File System ---
+
+pub fn fs_open(path: &str, flags: u32) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::Open, path.as_ptr() as u64, path.len() as u64, flags as u64) }
+}
+
+pub fn fs_close(fd: u64) -> SyscallResult {
+    unsafe { syscall1(SyscallNumber::Close, fd) }
+}
+
+pub fn fs_read(fd: u64, buf: &mut [u8]) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::Read, fd, buf.as_mut_ptr() as u64, buf.len() as u64) }
+}
+
+pub fn fs_write(fd: u64, buf: &[u8]) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::Write, fd, buf.as_ptr() as u64, buf.len() as u64) }
+}
+
+pub fn fs_seek(fd: u64, offset: i64, whence: u32) -> Result<u64, SyscallError> {
+    // TODO: Implement lseek syscall
+    Ok(offset as u64)
+}
+
+pub fn fs_sync(fd: u64) -> SyscallResult {
+    // TODO: Implement fsync syscall
+    Ok(0)
+}
+
+pub fn fs_stat(path: &str) -> Result<(u64, bool, bool), SyscallError> {
+    // TODO: Implement stat syscall
+    Ok((0, false, true))
+}
+
+pub fn fs_stat_fd(fd: u64) -> Result<(u64, bool, bool), SyscallError> {
+    // TODO: Implement fstat syscall
+    Ok((0, false, true))
+}
+
+pub fn fs_readdir(path: &str) -> Result<Vec<(String, bool)>, SyscallError> {
+    // TODO: Implement readdir syscall
+    Ok(Vec::new())
+}
+
+pub fn fs_mkdir(path: &str) -> SyscallResult {
+    // TODO: Implement mkdir syscall
+    Ok(0)
+}
+
+pub fn fs_mkdir_all(path: &str) -> SyscallResult {
+    // TODO: Implement mkdir -p equivalent
+    Ok(0)
+}
+
+pub fn fs_unlink(path: &str) -> SyscallResult {
+    // TODO: Implement unlink syscall
+    Ok(0)
+}
+
+pub fn fs_rmdir(path: &str) -> SyscallResult {
+    // TODO: Implement rmdir syscall
+    Ok(0)
+}
+
+pub fn fs_rename(from: &str, to: &str) -> SyscallResult {
+    // TODO: Implement rename syscall
+    Ok(0)
+}
+
+// --- Time ---
+
+pub fn time_monotonic() -> SyscallResult {
+    unsafe { syscall1(SyscallNumber::GetTime, 0) }
+}
+
+pub fn time_realtime() -> Result<(u64, u32), SyscallError> {
+    let result = unsafe { syscall1(SyscallNumber::GetTime, 1) }?;
+    Ok((result, 0))
+}
+
+pub fn sleep_ns(nanos: u64) -> SyscallResult {
+    unsafe { syscall1(SyscallNumber::Sleep, nanos) }
+}
+
+// --- Threading ---
+
+pub fn thread_id() -> SyscallResult {
+    // TODO: Implement gettid syscall
+    Ok(1)
+}
+
+pub fn sched_yield() -> SyscallResult {
+    unsafe { syscall0(SyscallNumber::Yield) }
+}
+
+pub fn thread_spawn(entry: usize, arg: usize, stack_size: usize) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::ThreadCreate, entry as u64, arg as u64, stack_size as u64) }
+}
+
+pub fn thread_exit(code: i32) -> ! {
+    unsafe { syscall1(SyscallNumber::ThreadExit, code as u64) };
+    loop { core::hint::spin_loop(); }
+}
+
+pub fn thread_join(handle: u64) -> SyscallResult {
+    unsafe { syscall1(SyscallNumber::ThreadJoin, handle) }
+}
+
+pub fn thread_is_finished(handle: u64) -> Result<bool, SyscallError> {
+    // TODO: Implement check
+    Ok(false)
+}
+
+pub fn thread_park() -> SyscallResult {
+    // TODO: Implement park syscall
+    Ok(0)
+}
+
+pub fn thread_park_timeout(nanos: u64) -> SyscallResult {
+    // TODO: Implement park_timeout syscall
+    Ok(0)
+}
+
+pub fn thread_unpark(id: u64) -> SyscallResult {
+    // TODO: Implement unpark syscall
+    Ok(0)
+}
+
+pub fn futex_wait(addr: usize, expected: u32) -> SyscallResult {
+    unsafe { syscall2(SyscallNumber::FutexWait, addr as u64, expected as u64) }
+}
+
+pub fn futex_wake(addr: usize, count: u32) -> SyscallResult {
+    unsafe { syscall2(SyscallNumber::FutexWake, addr as u64, count as u64) }
+}
+
+pub fn cpu_count() -> Result<usize, SyscallError> {
+    // TODO: Implement sysconf(_SC_NPROCESSORS_ONLN)
+    Ok(1)
+}
+
+// --- Environment ---
+
+pub fn get_args() -> Result<Vec<String>, SyscallError> {
+    // TODO: Implement getargs syscall
+    Ok(Vec::new())
+}
+
+pub fn env_get(key: &str) -> Result<String, SyscallError> {
+    // TODO: Implement getenv syscall
+    Err(SyscallError::NotFound)
+}
+
+pub fn env_set(key: &str, value: &str) -> SyscallResult {
+    // TODO: Implement setenv syscall
+    Ok(0)
+}
+
+pub fn env_remove(key: &str) -> SyscallResult {
+    // TODO: Implement unsetenv syscall
+    Ok(0)
+}
+
+pub fn env_list() -> Result<Vec<(String, String)>, SyscallError> {
+    // TODO: Implement environ iteration
+    Ok(Vec::new())
+}
+
+pub fn getcwd() -> Result<String, SyscallError> {
+    // TODO: Implement getcwd syscall
+    Ok(String::from("/"))
+}
+
+pub fn chdir(path: &str) -> SyscallResult {
+    // TODO: Implement chdir syscall
+    Ok(0)
+}
+
+pub fn current_exe() -> Result<String, SyscallError> {
+    // TODO: Implement /proc/self/exe equivalent
+    Ok(String::from("/bin/unknown"))
+}
+
+// --- IO ---
+
+pub fn stdin_read(buf: &mut [u8]) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::Read, 0, buf.as_mut_ptr() as u64, buf.len() as u64) }
+}
+
+pub fn stdout_write(buf: &[u8]) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::Write, 1, buf.as_ptr() as u64, buf.len() as u64) }
+}
+
+pub fn stderr_write(buf: &[u8]) -> SyscallResult {
+    unsafe { syscall3(SyscallNumber::Write, 2, buf.as_ptr() as u64, buf.len() as u64) }
 }
