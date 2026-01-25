@@ -219,7 +219,7 @@ pub enum NtfsAttrType {
 }
 
 /// NTFS attribute header (common part).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct NtfsAttrHeader {
     /// Attribute type.

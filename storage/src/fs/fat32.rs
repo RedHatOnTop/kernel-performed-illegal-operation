@@ -398,9 +398,15 @@ impl Fat32LfnEntry {
     /// Get characters from this entry.
     pub fn chars(&self) -> [u16; 13] {
         let mut result = [0u16; 13];
-        result[0..5].copy_from_slice(&self.name1);
-        result[5..11].copy_from_slice(&self.name2);
-        result[11..13].copy_from_slice(&self.name3);
+        // SAFETY: Read unaligned values from packed struct fields
+        unsafe {
+            let name1 = core::ptr::addr_of!(self.name1).read_unaligned();
+            let name2 = core::ptr::addr_of!(self.name2).read_unaligned();
+            let name3 = core::ptr::addr_of!(self.name3).read_unaligned();
+            result[0..5].copy_from_slice(&name1);
+            result[5..11].copy_from_slice(&name2);
+            result[11..13].copy_from_slice(&name3);
+        }
         result
     }
 }

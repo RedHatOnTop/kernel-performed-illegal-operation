@@ -3,6 +3,7 @@
 //! This module provides the bridge between WASM modules and
 //! kernel services through host functions.
 
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::instance::{HostFunction, Store, WasmValue};

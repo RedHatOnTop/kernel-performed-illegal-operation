@@ -299,6 +299,12 @@ pub struct NvmeQueue {
     cq_doorbell: *mut u32,
 }
 
+// SAFETY: NvmeQueue is designed to be used from a single thread at a time,
+// but the raw pointers point to memory-mapped registers that are inherently
+// thread-safe when properly synchronized at a higher level.
+unsafe impl Send for NvmeQueue {}
+unsafe impl Sync for NvmeQueue {}
+
 impl NvmeQueue {
     /// Create a new NVMe queue.
     pub fn new(
@@ -396,6 +402,10 @@ pub struct NvmeDevice {
     /// Device is initialized.
     initialized: bool,
 }
+
+// SAFETY: NvmeDevice access is synchronized through the storage subsystem.
+unsafe impl Send for NvmeDevice {}
+unsafe impl Sync for NvmeDevice {}
 
 impl NvmeDevice {
     /// Create a new NVMe device.

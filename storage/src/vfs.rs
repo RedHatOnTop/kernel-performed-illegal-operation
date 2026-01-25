@@ -25,7 +25,7 @@ pub const MAX_NAME_LEN: usize = 255;
 static MOUNT_TABLE: RwLock<MountTable> = RwLock::new(MountTable::new());
 
 /// Mount information.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct MountInfo {
     /// Mount point path.
     pub mount_point: [u8; 256],

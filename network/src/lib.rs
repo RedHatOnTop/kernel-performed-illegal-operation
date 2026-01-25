@@ -68,6 +68,12 @@ pub enum NetworkError {
     DhcpError(String),
     /// Driver error.
     DriverError(String),
+    /// Invalid packet.
+    InvalidPacket,
+    /// Not implemented.
+    NotImplemented,
+    /// DHCP NAK received.
+    DhcpNak,
 }
 
 /// IPv4 address.
@@ -134,6 +140,13 @@ pub enum IpAddr {
     V6(Ipv6Addr),
 }
 
+impl IpAddr {
+    /// Create an IPv4 address from bytes.
+    pub const fn from_v4_bytes(bytes: [u8; 4]) -> Self {
+        IpAddr::V4(Ipv4Addr(bytes))
+    }
+}
+
 /// Socket address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SocketAddr {
@@ -161,6 +174,12 @@ impl SocketAddr {
 /// MAC address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MacAddr(pub [u8; 6]);
+
+/// Type alias for backward compatibility.
+pub type IpAddress = IpAddr;
+
+/// Type alias for backward compatibility.
+pub type MacAddress = MacAddr;
 
 impl MacAddr {
     /// Broadcast address.

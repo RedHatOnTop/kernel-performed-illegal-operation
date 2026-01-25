@@ -232,8 +232,8 @@ pub struct ResolverConfig {
 impl Default for ResolverConfig {
     fn default() -> Self {
         ResolverConfig {
-            primary_server: IpAddress::V4([8, 8, 8, 8]), // Google DNS
-            secondary_server: Some(IpAddress::V4([8, 8, 4, 4])),
+            primary_server: IpAddress::V4(crate::Ipv4Addr([8, 8, 8, 8])), // Google DNS
+            secondary_server: Some(IpAddress::V4(crate::Ipv4Addr([8, 8, 4, 4]))),
             timeout_ms: 5000,
             retries: 3,
             use_tcp: false,
@@ -342,7 +342,7 @@ impl DnsResolver {
         // Check response code
         let rcode = header.response_code();
         if rcode != ResponseCode::NoError {
-            return Err(NetworkError::DnsError);
+            return Err(NetworkError::DnsError(alloc::string::String::from("Bad response code")));
         }
 
         Ok(DnsResponse {
@@ -377,7 +377,7 @@ pub struct DnsResponse {
 }
 
 /// DNS cache entry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct CacheEntry {
     /// Resolved addresses.
     pub addresses: [Option<IpAddress>; 4],

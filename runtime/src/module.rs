@@ -3,6 +3,7 @@
 //! This module handles parsing and validation of WASM binaries.
 
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::RuntimeError;

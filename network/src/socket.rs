@@ -7,7 +7,7 @@ use spin::Mutex;
 use crate::{NetworkError, SocketAddr};
 
 /// Socket handle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SocketHandle(pub u32);
 
 /// Socket type.

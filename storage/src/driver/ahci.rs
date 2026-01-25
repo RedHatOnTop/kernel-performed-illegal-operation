@@ -346,6 +346,10 @@ pub struct AhciPort {
     initialized: bool,
 }
 
+// SAFETY: AhciPort access is synchronized through the storage subsystem.
+unsafe impl Send for AhciPort {}
+unsafe impl Sync for AhciPort {}
+
 impl AhciPort {
     /// SATA signature.
     pub const SATA_SIG_ATA: u32 = 0x00000101;

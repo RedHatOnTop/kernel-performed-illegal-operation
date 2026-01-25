@@ -2,6 +2,7 @@
 //!
 //! This module handles allocation and access to WASM linear memory.
 
+use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 
