@@ -120,24 +120,32 @@ impl Compositor {
     
     /// Move a surface to a new position.
     pub fn move_surface(&mut self, id: SurfaceId, x: i32, y: i32) -> Result<(), GraphicsError> {
-        if let Some(state) = self.surfaces.get_mut(&id) {
+        // First, read the old state values
+        let damage_info = self.surfaces.get(&id).map(|state| {
+            (state.x, state.y, state.width, state.height)
+        });
+        
+        if let Some((old_x, old_y, width, height)) = damage_info {
             // Damage old position
             self.add_damage(DamageRect {
-                x: state.x,
-                y: state.y,
-                width: state.width,
-                height: state.height,
+                x: old_x,
+                y: old_y,
+                width,
+                height,
             });
             
-            state.x = x;
-            state.y = y;
+            // Update state
+            if let Some(state) = self.surfaces.get_mut(&id) {
+                state.x = x;
+                state.y = y;
+            }
             
             // Damage new position
             self.add_damage(DamageRect {
                 x,
                 y,
-                width: state.width,
-                height: state.height,
+                width,
+                height,
             });
         }
         
@@ -146,16 +154,23 @@ impl Compositor {
     
     /// Resize a surface.
     pub fn resize_surface(&mut self, id: SurfaceId, width: u32, height: u32) -> Result<(), GraphicsError> {
-        if let Some(state) = self.surfaces.get_mut(&id) {
+        // First, read the current state values
+        let damage_info = self.surfaces.get(&id).map(|state| {
+            (state.x, state.y, state.width, state.height)
+        });
+        
+        if let Some((x, y, old_width, old_height)) = damage_info {
             self.add_damage(DamageRect {
-                x: state.x,
-                y: state.y,
-                width: state.width.max(width),
-                height: state.height.max(height),
+                x,
+                y,
+                width: old_width.max(width),
+                height: old_height.max(height),
             });
             
-            state.width = width;
-            state.height = height;
+            if let Some(state) = self.surfaces.get_mut(&id) {
+                state.width = width;
+                state.height = height;
+            }
         }
         
         Ok(())
@@ -163,13 +178,20 @@ impl Compositor {
     
     /// Set surface visibility.
     pub fn set_surface_visible(&mut self, id: SurfaceId, visible: bool) -> Result<(), GraphicsError> {
-        if let Some(state) = self.surfaces.get_mut(&id) {
+        // First, read the current state values and update visibility
+        let damage_info = if let Some(state) = self.surfaces.get_mut(&id) {
             state.visible = visible;
+            Some((state.x, state.y, state.width, state.height))
+        } else {
+            None
+        };
+        
+        if let Some((x, y, width, height)) = damage_info {
             self.add_damage(DamageRect {
-                x: state.x,
-                y: state.y,
-                width: state.width,
-                height: state.height,
+                x,
+                y,
+                width,
+                height,
             });
         }
         
@@ -205,13 +227,20 @@ impl Compositor {
     
     /// Commit a surface buffer.
     pub fn commit_surface(&mut self, id: SurfaceId, buffer: u64) -> Result<(), GraphicsError> {
-        if let Some(state) = self.surfaces.get_mut(&id) {
+        // First, update state and get damage info
+        let damage_info = if let Some(state) = self.surfaces.get_mut(&id) {
             state.buffer = Some(buffer);
+            Some((state.x, state.y, state.width, state.height))
+        } else {
+            None
+        };
+        
+        if let Some((x, y, width, height)) = damage_info {
             self.add_damage(DamageRect {
-                x: state.x,
-                y: state.y,
-                width: state.width,
-                height: state.height,
+                x,
+                y,
+                width,
+                height,
             });
             self.frame_pending = true;
         }

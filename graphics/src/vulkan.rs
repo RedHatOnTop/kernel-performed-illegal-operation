@@ -5,6 +5,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use alloc::vec;
 use spin::Mutex;
 
 use crate::{GpuInfo, GpuType, GraphicsError};

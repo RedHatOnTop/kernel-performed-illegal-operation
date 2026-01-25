@@ -14,6 +14,7 @@
 //! - `buffer`: GPU buffer management
 //! - `command`: Command buffer submission
 //! - `render`: Rendering pipeline abstraction
+//! - `browser`: Browser display list renderer (kpio-layout integration)
 
 #![no_std]
 #![feature(alloc_error_handler)]
@@ -26,6 +27,7 @@ pub mod surface;
 pub mod buffer;
 pub mod command;
 pub mod render;
+pub mod browser;
 
 use alloc::string::String;
 use alloc::vec::Vec;

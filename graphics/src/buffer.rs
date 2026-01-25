@@ -68,7 +68,7 @@ pub struct Buffer {
 }
 
 /// Buffer handle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BufferHandle(pub u64);
 
 impl Buffer {
