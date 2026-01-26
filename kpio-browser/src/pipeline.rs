@@ -95,6 +95,16 @@ impl RenderPipeline {
         self.viewport_height = height;
     }
     
+    /// Get viewport width.
+    pub fn viewport_width(&self) -> f32 {
+        self.viewport_width
+    }
+    
+    /// Get viewport height.
+    pub fn viewport_height(&self) -> f32 {
+        self.viewport_height
+    }
+    
     /// Set background color.
     pub fn set_background(&mut self, color: PipelineColor) {
         self.background_color = color;

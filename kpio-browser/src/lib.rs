@@ -19,12 +19,16 @@ pub mod renderer;
 pub mod events;
 pub mod tabs;
 pub mod pipeline;
+pub mod input;
+pub mod loader;
 
 pub use browser::Browser;
 pub use document::Document;
 pub use window::Window;
 pub use navigation::Navigator;
 pub use pipeline::{RenderPipeline, PipelineError};
+pub use input::{InputManager, RawInputEvent, DomInputEvent, HitTestResult};
+pub use loader::{PageLoader, DocumentLoader, LoadResult, LoaderError};
 
 use alloc::string::String;
 
