@@ -1,0 +1,17 @@
+[package]
+name = "kpio-browser"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Team"]
+description = "Browser shell for KPIO OS"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+kpio-html = { path = "../kpio-html" }
+kpio-css = { path = "../kpio-css" }
+kpio-js = { path = "../kpio-js" }
+kpio-layout = { path = "../kpio-layout" }
+kpio-graphics = { path = "../graphics" }
+
+[features]
+default = []

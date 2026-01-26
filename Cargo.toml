@@ -14,6 +14,8 @@ members = [
     "kpio-html",
     "kpio-dom",
     "kpio-layout",
+    "kpio-js",
+    "kpio-browser",
     "examples/hello-world",
     # "examples/browser-integration-test" - 호스트 환경에서 별도로 테스트
 ]
