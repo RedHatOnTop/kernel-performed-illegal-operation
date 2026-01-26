@@ -914,6 +914,7 @@ dependencies = [
  "kpio-html",
  "kpio-js",
  "kpio-layout",
+ "libm",
 ]
 
 [[package]]

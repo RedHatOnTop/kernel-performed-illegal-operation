@@ -18,11 +18,13 @@ pub mod navigation;
 pub mod renderer;
 pub mod events;
 pub mod tabs;
+pub mod pipeline;
 
 pub use browser::Browser;
 pub use document::Document;
 pub use window::Window;
 pub use navigation::Navigator;
+pub use pipeline::{RenderPipeline, PipelineError};
 
 use alloc::string::String;
 

@@ -12,6 +12,7 @@ kpio-css = { path = "../kpio-css" }
 kpio-js = { path = "../kpio-js" }
 kpio-layout = { path = "../kpio-layout" }
 kpio-graphics = { path = "../graphics" }
+libm = "0.2"
 
 [features]
 default = []
