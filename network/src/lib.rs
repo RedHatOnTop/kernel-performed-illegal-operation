@@ -27,6 +27,7 @@ pub mod tcp;
 pub mod udp;
 pub mod dns;
 pub mod dhcp;
+pub mod http;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -226,3 +227,6 @@ pub fn init() -> Result<(), NetworkError> {
 pub fn interfaces() -> Vec<InterfaceConfig> {
     interface::list_interfaces()
 }
+
+// Re-export HTTP types for convenience
+pub use http::{HttpClient, HttpRequest, HttpResponse, HttpMethod, HttpError, HttpParser, Url, StatusCode};
