@@ -41,6 +41,8 @@ pub mod network;
 pub mod input;
 pub mod compositor;
 pub mod coordinator;
+pub mod memory;
 
 pub use protocol::{BrowserMessage, BrowserRequest, BrowserResponse};
 pub use coordinator::{BrowserCoordinator, TabId, TabInfo, TabState};
+pub use memory::{TabManager, TabProcess, TabMemoryStats, MemoryPressure, MemoryStats};

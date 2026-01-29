@@ -54,8 +54,10 @@ bitflags! {
         const TRANSFER = 0b00100000;
         /// Exclusive access.
         const EXCLUSIVE = 0b01000000;
+        /// Connect to service permission.
+        const CONNECT = 0b10000000;
         /// All rights.
-        const ALL = 0b01111111;
+        const ALL = 0b11111111;
     }
 }
 

@@ -14,6 +14,7 @@ pub mod document;
 pub mod text;
 pub mod traversal;
 pub mod style;
+pub mod events;
 
 pub use node::{Node, NodeType, NodeId};
 pub use element::{Element, ElementData};
@@ -21,6 +22,7 @@ pub use document::Document;
 pub use text::Text;
 pub use traversal::{TreeWalker, NodeIterator};
 pub use style::StyledNode;
+pub use events::{Event, EventType, EventPhase, EventDispatcher, EventTarget};
 
 /// Prelude for common imports
 pub mod prelude {

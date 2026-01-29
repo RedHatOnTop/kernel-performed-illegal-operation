@@ -8,6 +8,7 @@ pub mod capability;
 pub mod message;
 pub mod mqueue;
 pub mod shm;
+pub mod services;
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -19,6 +20,7 @@ pub use capability::{Capability, CapabilityId, CapabilityType, CapabilityRights}
 pub use message::{Message, MessageHeader};
 pub use mqueue::{MqId, MessageQueue, MqError};
 pub use shm::{ShmId, SharedMemoryRegion, ShmError};
+pub use services::{ServiceRegistry, ServiceId, ServiceInfo, ServiceError, ServiceConnection};
 
 /// Maximum message size in bytes.
 pub const MAX_MESSAGE_SIZE: usize = 64 * 1024; // 64 KB
