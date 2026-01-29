@@ -29,10 +29,12 @@ pub mod block;
 pub mod inline;
 pub mod flex;
 pub mod paint;
+pub mod parallel;
 
 pub use box_model::{Rect, EdgeSizes, BoxDimensions};
 pub use layout_box::{LayoutBox, BoxType};
 pub use paint::{DisplayList, DisplayCommand};
+pub use parallel::{ParallelScheduler, ParallelLayoutContext, LayoutTask};
 
 /// Prelude for common imports
 pub mod prelude {

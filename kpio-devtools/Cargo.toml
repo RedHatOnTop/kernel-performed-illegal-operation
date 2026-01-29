@@ -1,0 +1,15 @@
+[package]
+name = "kpio-devtools"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Team"]
+description = "Developer tools for KPIO browser"
+
+[dependencies]
+spin = "0.9"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = []

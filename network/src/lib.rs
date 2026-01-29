@@ -28,6 +28,7 @@ pub mod udp;
 pub mod dns;
 pub mod dhcp;
 pub mod http;
+pub mod tls;
 pub mod websocket;
 
 use alloc::string::String;

@@ -1,7 +1,7 @@
 //! KPIO WASM Runtime
 //!
 //! This crate provides the WebAssembly runtime for the KPIO operating system.
-//! It uses Wasmtime with Cranelift JIT compilation for executing WASM modules.
+//! It uses a tiered JIT compiler for executing WASM modules with high performance.
 //!
 //! # Architecture
 //!
@@ -14,6 +14,7 @@
 //! - `host`: Host function bindings for kernel services
 //! - `memory`: Linear memory management
 //! - `sandbox`: Security sandbox implementation
+//! - `jit`: JIT compiler with tiered compilation (baseline + optimizing)
 
 #![no_std]
 #![feature(alloc_error_handler)]
@@ -27,6 +28,8 @@ pub mod wasi;
 pub mod host;
 pub mod memory;
 pub mod sandbox;
+pub mod jit;
+pub mod service_worker;
 
 use alloc::string::String;
 use alloc::vec::Vec;

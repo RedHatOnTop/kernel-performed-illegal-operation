@@ -15,6 +15,7 @@
 //! - `command`: Command buffer submission
 //! - `render`: Rendering pipeline abstraction
 //! - `browser`: Browser display list renderer (kpio-layout integration)
+//! - `webrender`: WebRender-style GPU compositor with tile caching
 
 #![no_std]
 #![feature(alloc_error_handler)]
@@ -30,6 +31,7 @@ pub mod render;
 pub mod browser;
 pub mod font;
 pub mod animation;
+pub mod webrender;
 
 use alloc::string::String;
 use alloc::vec::Vec;

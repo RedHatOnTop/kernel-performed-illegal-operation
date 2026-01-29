@@ -1,0 +1,17 @@
+[package]
+name = "kpio-extensions"
+version = "0.1.0"
+edition = "2021"
+description = "Extension system for KPIO browser"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+spin = "0.9"
+hashbrown = "0.14"
+
+[features]
+default = []
+std = []

@@ -1,0 +1,20 @@
+[package]
+name = "kpio-fuzz"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Team"]
+description = "Fuzzing infrastructure for KPIO browser OS"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+spin = "0.9"
+hashbrown = "0.14"
+
+[features]
+default = []
+std = []
+coverage = []
+sanitizers = []

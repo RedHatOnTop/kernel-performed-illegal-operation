@@ -7,12 +7,57 @@
 //! - **BootInfoFrameAllocator**: Physical frame allocator using bootloader memory map
 //! - **Page Table Mapper**: Virtual memory management
 //! - **Heap**: Dynamic memory allocation (in allocator module)
+//! - **Slab**: Fixed-size object caching
+//! - **Buddy**: Power-of-two block allocator
+
+pub mod slab;
+pub mod buddy;
 
 use bootloader_api::info::MemoryRegionKind;
+use spin::Mutex;
 use x86_64::{
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
 };
+
+/// Global frame allocator for slab and buddy systems.
+static GLOBAL_FRAME_ALLOCATOR: Mutex<Option<GlobalFrameAllocator>> = Mutex::new(None);
+
+/// Simple global frame allocator.
+struct GlobalFrameAllocator {
+    next_frame: u64,
+    end_frame: u64,
+}
+
+impl GlobalFrameAllocator {
+    fn allocate(&mut self) -> Option<u64> {
+        if self.next_frame >= self.end_frame {
+            return None;
+        }
+        let frame = self.next_frame;
+        self.next_frame += 4096;
+        Some(frame)
+    }
+}
+
+/// Initialize the global frame allocator for slab/buddy.
+pub fn init_frame_allocator(start: u64, end: u64) {
+    *GLOBAL_FRAME_ALLOCATOR.lock() = Some(GlobalFrameAllocator {
+        next_frame: start,
+        end_frame: end,
+    });
+}
+
+/// Allocate a physical frame for slab allocator.
+pub fn allocate_frame() -> Option<usize> {
+    GLOBAL_FRAME_ALLOCATOR.lock().as_mut()?.allocate().map(|f| f as usize)
+}
+
+/// Free a physical frame.
+pub fn free_frame(_addr: usize) {
+    // In a real implementation, this would return the frame to the pool
+    // For now, we don't reclaim frames
+}
 
 /// 물리 메모리 오프셋 검증.
 ///

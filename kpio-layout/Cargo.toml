@@ -10,6 +10,7 @@ license = "MIT"
 servo-types = { path = "../servo-types" }
 kpio-css = { path = "../kpio-css" }
 kpio-dom = { path = "../kpio-dom" }
+spin = "0.9"
 
 [features]
 default = []

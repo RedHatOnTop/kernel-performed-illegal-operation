@@ -21,6 +21,14 @@ pub mod tabs;
 pub mod pipeline;
 pub mod input;
 pub mod loader;
+pub mod csp;
+pub mod ui;
+pub mod pwa;
+pub mod account;
+pub mod sync;
+pub mod telemetry;
+pub mod a11y;
+pub mod i18n;
 
 pub use browser::Browser;
 pub use document::Document;
@@ -28,6 +36,7 @@ pub use window::Window;
 pub use navigation::Navigator;
 pub use pipeline::{RenderPipeline, PipelineError};
 pub use input::{InputManager, RawInputEvent, DomInputEvent, HitTestResult};
+pub use csp::{CspPolicy, CspContext, CspCheck};
 pub use loader::{PageLoader, DocumentLoader, LoadResult, LoaderError};
 
 use alloc::string::String;

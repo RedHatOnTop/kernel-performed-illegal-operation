@@ -1,0 +1,21 @@
+[package]
+name = "kpio-e2e-tests"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Team"]
+description = "End-to-end testing framework for KPIO browser OS"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+spin = "0.9"
+hashbrown = "0.14"
+libm = "0.2"
+
+[dev-dependencies]
+
+[features]
+default = []
+std = []

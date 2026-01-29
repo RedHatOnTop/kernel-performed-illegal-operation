@@ -21,8 +21,11 @@ extern crate alloc;
 pub mod allocator;
 pub mod browser;
 pub mod driver;
+pub mod drivers;
 pub mod gdt;
+pub mod hw;
 pub mod interrupts;
+pub mod io;
 pub mod ipc;
 pub mod loader;
 pub mod memory;
@@ -32,6 +35,8 @@ pub mod security;
 pub mod serial;
 pub mod syscall;
 pub mod test;
+pub mod crash;
+pub mod update;
 
 #[cfg(test)]
 mod tests;

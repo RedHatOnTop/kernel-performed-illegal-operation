@@ -916,6 +916,7 @@ dependencies = [
  "kpio-layout",
  "kpio-network",
  "libm",
+ "spin",
 ]
 
 [[package]]
@@ -926,6 +927,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kpio-devtools"
+version = "0.1.0"
+dependencies = [
+ "spin",
+]
+
+[[package]]
 name = "kpio-dom"
 version = "0.1.0"
 dependencies = [
@@ -933,6 +941,31 @@ dependencies = [
  "kpio-css",
  "kpio-html",
  "servo-types",
+]
+
+[[package]]
+name = "kpio-e2e-tests"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "libm",
+ "spin",
+]
+
+[[package]]
+name = "kpio-extensions"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "spin",
+]
+
+[[package]]
+name = "kpio-fuzz"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "spin",
 ]
 
 [[package]]
@@ -993,6 +1026,7 @@ dependencies = [
  "kpio-css",
  "kpio-dom",
  "servo-types",
+ "spin",
 ]
 
 [[package]]
@@ -1020,11 +1054,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "kpio-safety"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "spin",
+]
+
+[[package]]
 name = "kpio-servo-platform"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.10.0",
  "log",
+ "spin",
+]
+
+[[package]]
+name = "kpio-wpt"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
  "spin",
 ]
 
