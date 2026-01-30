@@ -1,21 +1,21 @@
-# Phase 2 구현 체크리스트
+# Phase 2 Implementation Checklist
 
-**버전:** 1.0  
-**시작일:** 미정  
-**예상 기간:** 20주
+**Version:** 1.0  
+**Start Date:** TBD  
+**Estimated Duration:** 20 weeks
 
 ---
 
-## Phase 2.1: Userspace 기반 인프라 (4주)
+## Phase 2.1: Userspace Infrastructure (4 weeks)
 
-### Week 1-2: 프로세스 관리
+### Week 1-2: Process Management
 
-#### 1.1 ELF 로더
-- [ ] ELF64 헤더 파싱
-- [ ] 프로그램 헤더 처리
-- [ ] 섹션 로딩 (.text, .data, .bss, .rodata)
-- [ ] 재배치 처리 (R_X86_64_*)
-- [ ] 동적 링킹 지원 (선택적)
+#### 1.1 ELF Loader
+- [ ] Parse ELF64 headers
+- [ ] Process program headers
+- [ ] Load sections (.text, .data, .bss, .rodata)
+- [ ] Handle relocations (R_X86_64_*)
+- [ ] Support dynamic linking (optional)
 
 ```rust
 // kernel/src/loader/elf.rs
@@ -25,18 +25,18 @@ pub struct Elf64Loader {
 }
 ```
 
-#### 1.2 사용자 공간 메모리
-- [ ] 사용자 공간 가상 주소 레이아웃
-  - `0x0000_0000_0040_0000` - Text 시작
-  - `0x0000_7FFF_FFFF_F000` - 스택 시작
-- [ ] 페이지 테이블 분리 (커널/사용자)
-- [ ] Copy-on-Write 포크
+#### 1.2 Userspace memory
+- [ ] Define a userspace virtual address layout
+  - `0x0000_0000_0040_0000` - start of text
+  - `0x0000_7FFF_FFFF_F000` - start of stack
+- [ ] Separate page tables (kernel/userspace)
+- [ ] Copy-on-write fork
 
-#### 1.3 시스템 콜 인터페이스
-- [ ] syscall 진입점 (SYSCALL 명령어)
-- [ ] 시스템 콜 테이블
-- [ ] 인자 유효성 검사
-- [ ] 사용자 공간 포인터 검증
+#### 1.3 System call interface
+- [ ] Syscall entrypoint (SYSCALL instruction)
+- [ ] System call table
+- [ ] Argument validation
+- [ ] Userspace pointer validation
 
 ```rust
 // kernel/src/syscall/mod.rs
@@ -50,24 +50,24 @@ pub const SYS_MUNMAP: usize = 6;
 pub const SYS_THREAD_CREATE: usize = 7;
 pub const SYS_THREAD_EXIT: usize = 8;
 pub const SYS_FUTEX: usize = 9;
-// ... 50+ syscalls 예상
+// ... 50+ syscalls expected
 ```
 
-#### 1.4 기본 프로세스 관리
-- [ ] 프로세스 생성 (fork/exec 또는 spawn)
-- [ ] 프로세스 종료 (exit, wait)
-- [ ] 프로세스 ID 관리
-- [ ] 프로세스 상태 머신
+#### 1.4 Basic process management
+- [ ] Process creation (fork/exec or spawn)
+- [ ] Process exit (exit, wait)
+- [ ] Process ID management
+- [ ] Process state machine
 
 ---
 
-### Week 3-4: IPC 시스템
+### Week 3-4: IPC System
 
-#### 2.1 공유 메모리
-- [ ] `mmap` 시스템 콜 (MAP_SHARED)
-- [ ] 공유 메모리 객체 생성/열기
-- [ ] 물리 페이지 공유
-- [ ] 참조 카운팅
+#### 2.1 Shared memory
+- [ ] `mmap` system call (MAP_SHARED)
+- [ ] Create/open shared memory objects
+- [ ] Share physical pages
+- [ ] Reference counting
 
 ```rust
 // kernel/src/ipc/shm.rs
@@ -79,40 +79,40 @@ pub struct SharedMemory {
 }
 ```
 
-#### 2.2 Ring Buffer IPC
-- [ ] Lock-free SPSC 큐 구현
-- [ ] Lock-free MPSC 큐 구현
-- [ ] 이벤트 알림 (futex 기반)
-- [ ] 흐름 제어 (백프레셔)
+#### 2.2 Ring buffer IPC
+- [ ] Implement a lock-free SPSC queue
+- [ ] Implement a lock-free MPSC queue
+- [ ] Event notification (futex-based)
+- [ ] Flow control (backpressure)
 
-#### 2.3 Capability 시스템
-- [ ] Capability ID 생성
-- [ ] 권한 검사
-- [ ] 권한 위임 (diminish)
-- [ ] Capability 테이블
+#### 2.3 Capability system
+- [ ] Capability ID generation
+- [ ] Permission checks
+- [ ] Delegation with authority reduction (diminish)
+- [ ] Capability table
 
-#### 2.4 브라우저-커널 채널
-- [ ] `KernelToBrowser` 메시지 정의
-- [ ] `BrowserToKernel` 메시지 정의
-- [ ] 채널 초기화
-- [ ] 양방향 통신 테스트
+#### 2.4 Browser ↔ kernel channel
+- [ ] Define `KernelToBrowser` messages
+- [ ] Define `BrowserToKernel` messages
+- [ ] Channel initialization
+- [ ] Bidirectional communication test
 
 ---
 
-## Phase 2.2: Servo 포팅 (8주)
+## Phase 2.2: Servo Porting (8 weeks)
 
-### Week 5-8: 최소 Servo 빌드
+### Week 5-8: Minimal Servo Build
 
-#### 3.1 크로스 컴파일 환경
-- [ ] x86_64-unknown-kpio 타겟 정의
-- [ ] rust-std 빌드 스크립트
-- [ ] Cargo 설정 (.cargo/config.toml)
+#### 3.1 Cross-compilation environment
+- [ ] Define the x86_64-unknown-kpio target
+- [ ] Build script for rust-std
+- [ ] Cargo configuration (.cargo/config.toml)
 
-#### 3.2 libkpio (libc 대체)
-- [ ] 기본 타입 정의 (size_t, ssize_t, ...)
-- [ ] 문자열 함수 (strlen, memcpy, ...)
-- [ ] 메모리 할당 (malloc, free, realloc)
-- [ ] 환경 변수 스텁
+#### 3.2 libkpio (libc replacement)
+- [ ] Define basic types (size_t, ssize_t, ...)
+- [ ] String functions (strlen, memcpy, ...)
+- [ ] Memory allocation (malloc, free, realloc)
+- [ ] Environment variable stubs
 
 ```rust
 // userspace/libkpio/src/lib.rs
@@ -127,65 +127,65 @@ pub mod io;
 pub mod net;
 ```
 
-#### 3.3 std 기능 구현 (libkpio-std)
+#### 3.3 Implement `std` features (libkpio-std)
 
-**필수 모듈:**
-- [ ] `std::alloc` - GlobalAlloc 구현
-- [ ] `std::thread` - 스레드 생성/조인
+**Required modules:**
+- [ ] `std::alloc` - GlobalAlloc implementation
+- [ ] `std::thread` - thread create/join
 - [ ] `std::sync` - Mutex, Condvar, RwLock
 - [ ] `std::fs` - File, OpenOptions
 - [ ] `std::io` - Read, Write, Seek
 - [ ] `std::net` - TcpStream, UdpSocket
 - [ ] `std::time` - Instant, Duration
-- [ ] `std::env` - 환경 변수
+- [ ] `std::env` - environment variables
 
-**선택 모듈 (나중에):**
-- [ ] `std::process` - 프로세스 생성
-- [ ] `std::os::unix` - Unix 확장
+**Optional modules (later):**
+- [ ] `std::process` - process creation
+- [ ] `std::os::unix` - Unix extensions
 
-#### 3.4 Servo 컴파일 테스트
-- [ ] html5ever 컴파일
-- [ ] cssparser 컴파일
-- [ ] 최소 servo 빌드 (console 로깅만)
-
----
-
-### Week 9-12: 렌더링 파이프라인
-
-#### 4.1 Vulkan 드라이버 (Userspace)
-- [ ] VirtIO-GPU Vulkan 확장 조사
-- [ ] Vulkan 로더 (libvulkan)
-- [ ] VkInstance 생성
-- [ ] VkDevice 생성
-- [ ] VkQueue 획득
-
-#### 4.2 surfman 포팅
-- [ ] 플랫폼 백엔드 추가 (KPIO)
-- [ ] Surface 생성
-- [ ] 컨텍스트 관리
-
-#### 4.3 WebRender 통합
-- [ ] WebRender 빌드
-- [ ] 기본 렌더링 테스트 (단색 사각형)
-- [ ] 텍스트 렌더링
-- [ ] 이미지 렌더링
-
-#### 4.4 기본 페이지 렌더링
-- [ ] about:blank 렌더링
-- [ ] 간단한 HTML 페이지
-- [ ] CSS 스타일 적용
-- [ ] 이벤트 처리 (클릭)
+#### 3.4 Servo compilation tests
+- [ ] Build html5ever
+- [ ] Build cssparser
+- [ ] Minimal Servo build (console logging only)
 
 ---
 
-## Phase 2.3: OS 통합 최적화 (8주)
+### Week 9-12: Rendering Pipeline
 
-### Week 13-16: GPU 스케줄러
+#### 4.1 Vulkan driver (userspace)
+- [ ] Investigate VirtIO-GPU Vulkan extensions
+- [ ] Vulkan loader (libvulkan)
+- [ ] Create VkInstance
+- [ ] Create VkDevice
+- [ ] Acquire VkQueue
 
-#### 5.1 GPU 우선순위 큐
-- [ ] 우선순위 레벨 정의 (High, Medium, Low)
-- [ ] 탭별 큐 분리
-- [ ] 선점형 스케줄링
+#### 4.2 Port surfman
+- [ ] Add platform backend (KPIO)
+- [ ] Create surfaces
+- [ ] Context management
+
+#### 4.3 Integrate WebRender
+- [ ] Build WebRender
+- [ ] Basic rendering test (solid rectangle)
+- [ ] Text rendering
+- [ ] Image rendering
+
+#### 4.4 Render a basic page
+- [ ] Render about:blank
+- [ ] Render a simple HTML page
+- [ ] Apply CSS styling
+- [ ] Handle basic input events (click)
+
+---
+
+## Phase 2.3: OS Integration Optimizations (8 weeks)
+
+### Week 13-16: GPU Scheduler
+
+#### 5.1 GPU priority queues
+- [ ] Define priority levels (High, Medium, Low)
+- [ ] Separate per-tab queues
+- [ ] Preemptive scheduling
 
 ```rust
 // kernel/src/gpu/scheduler.rs
@@ -196,34 +196,34 @@ pub struct GpuScheduler {
 }
 ```
 
-#### 5.2 포그라운드 탭 부스팅
-- [ ] 활성 탭 감지
-- [ ] GPU 시간 할당 조정
-- [ ] 프레임 데드라인 우선순위
+#### 5.2 Foreground tab boosting
+- [ ] Detect the active tab
+- [ ] Adjust GPU time allocation
+- [ ] Prioritize frame deadlines
 
-#### 5.3 백그라운드 탭 스로틀링
-- [ ] requestAnimationFrame 스로틀
-- [ ] GPU 작업 지연
-- [ ] 전력 절약 모드
+#### 5.3 Background tab throttling
+- [ ] Throttle requestAnimationFrame
+- [ ] Delay GPU work
+- [ ] Power-saving mode
 
-#### 5.4 VSync 동기화
-- [ ] 디스플레이 새로고침 속도 감지
-- [ ] 프레임 제출 타이밍
-- [ ] 티어링 방지
+#### 5.4 VSync synchronization
+- [ ] Detect display refresh rate
+- [ ] Frame submission timing
+- [ ] Prevent tearing
 
 ---
 
-### Week 17-20: 메모리 최적화
+### Week 17-20: Memory Optimizations
 
-#### 6.1 탭별 메모리 추적
-- [ ] 프로세스별 메모리 사용량
-- [ ] JS 힙 크기 추적
-- [ ] 이미지 캐시 추적
+#### 6.1 Per-tab memory tracking
+- [ ] Memory usage per process
+- [ ] Track JS heap size
+- [ ] Track image cache usage
 
-#### 6.2 백그라운드 탭 압축
-- [ ] LZ4 압축
-- [ ] 압축 트리거 조건
-- [ ] 복원 성능 최적화
+#### 6.2 Background tab compression
+- [ ] LZ4 compression
+- [ ] Compression trigger conditions
+- [ ] Restore performance optimization
 
 ```rust
 // kernel/src/memory/tab_manager.rs
@@ -234,168 +234,27 @@ pub struct TabMemoryManager {
 }
 ```
 
-#### 6.3 휴면 탭 디스크 스왑
-- [ ] 스왑 파일 관리
-- [ ] 탭 상태 직렬화
-- [ ] 복원 시간 최적화 (<1초)
+#### 6.3 Hibernated tab disk swap
+- [ ] Swap file management
+- [ ] Tab state serialization
+- [ ] Optimize restore time (<1s)
 
-#### 6.4 WASM AOT 캐시
-- [ ] 모듈 해시 계산
-- [ ] AOT 코드 저장/로드
-- [ ] 캐시 무효화 정책
-- [ ] 디스크 캐시
-
----
-
-## 마일스톤
-
-| 마일스톤 | 주차 | 검증 방법 |
-|----------|------|----------|
-| **M1: Hello Userspace** | 2주차 | ELF 바이너리 실행, "Hello" 출력 |
-| **M2: IPC Works** | 4주차 | 두 프로세스 간 메시지 전달 |
-| **M3: html5ever Runs** | 6주차 | HTML 파싱, DOM 출력 |
-| **M4: Vulkan Triangle** | 10주차 | 삼각형 렌더링 |
-| **M5: Basic Page** | 12주차 | 간단한 웹페이지 렌더링 |
-| **M6: Google Loads** | 16주차 | google.com 로딩 (느려도 OK) |
-| **M7: Performance** | 20주차 | 성능 목표 50% 달성 |
+#### 6.4 WASM AOT cache
+- [ ] Compute module hashes
+- [ ] Store/load AOT code
+- [ ] Cache invalidation policy
+- [ ] Disk cache
 
 ---
 
-## 테스트 계획
+## Milestones
 
-### 단위 테스트
-```rust
-// kernel/src/loader/elf_tests.rs
-#[test]
-fn test_elf_header_parsing() { ... }
-
-#[test]
-fn test_section_loading() { ... }
-
-#[test]
-fn test_relocation() { ... }
-```
-
-### 통합 테스트
-```bash
-# tests/userspace/hello_world.sh
-cargo build --target x86_64-unknown-kpio
-./scripts/run-qemu.sh tests/hello_world.elf
-# 예상 출력: "Hello from userspace!"
-```
-
-### 성능 테스트
-```rust
-// tests/benchmark/page_load.rs
-#[bench]
-fn bench_about_blank_load() { ... }
-
-#[bench]
-fn bench_google_load() { ... }
-
-#[bench]
-fn bench_memory_per_tab() { ... }
-```
-
----
-
-## 파일 구조 (예상)
-
-```
-kernel/
-├── src/
-│   ├── loader/
-│   │   ├── mod.rs
-│   │   └── elf.rs           # ELF 로더
-│   ├── process/
-│   │   ├── mod.rs
-│   │   ├── manager.rs       # 프로세스 관리자
-│   │   └── context.rs       # 컨텍스트 스위칭
-│   ├── syscall/
-│   │   ├── mod.rs
-│   │   ├── table.rs         # 시스템 콜 테이블
-│   │   ├── memory.rs        # mmap, munmap
-│   │   ├── io.rs            # read, write
-│   │   └── thread.rs        # 스레드 syscalls
-│   ├── ipc/
-│   │   ├── mod.rs
-│   │   ├── shm.rs           # 공유 메모리
-│   │   ├── channel.rs       # Ring buffer IPC
-│   │   ├── capability.rs    # Capability 시스템
-│   │   └── browser.rs       # 브라우저 채널
-│   └── gpu/
-│       ├── mod.rs
-│       └── scheduler.rs     # GPU 스케줄러
-
-userspace/
-├── libkpio/                  # libc 대체
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs
-│       ├── alloc.rs
-│       ├── syscall.rs
-│       └── ...
-├── libkpio-std/              # std 포팅
-│   ├── Cargo.toml
-│   └── src/
-│       └── ...
-└── servo_browser/            # Servo 포팅
-    ├── Cargo.toml
-    └── src/
-        ├── main.rs
-        └── kpio_platform/    # KPIO 플랫폼 레이어
-```
-
----
-
-## 의존성 그래프
-
-```
-                    ┌──────────────┐
-                    │ servo_browser│
-                    └──────┬───────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-              ▼            ▼            ▼
-        ┌──────────┐ ┌──────────┐ ┌──────────┐
-        │ Servo    │ │libkpio-  │ │ Vulkan   │
-        │Components│ │std       │ │ Driver   │
-        └────┬─────┘ └────┬─────┘ └────┬─────┘
-             │            │            │
-             │            ▼            │
-             │      ┌──────────┐       │
-             │      │ libkpio  │       │
-             │      └────┬─────┘       │
-             │           │             │
-             └───────────┼─────────────┘
-                         │
-                         ▼
-              ┌────────────────────┐
-              │   KPIO Kernel      │
-              │  (syscall layer)   │
-              └────────────────────┘
-```
-
----
-
-## 위험 완화 체크포인트
-
-### 4주차 체크포인트
-- [ ] ELF 로더 동작 확인?
-- [ ] IPC 기본 동작 확인?
-- **실패 시:** 기반 인프라 재설계
-
-### 8주차 체크포인트  
-- [ ] html5ever 컴파일 성공?
-- [ ] 기본 파싱 동작?
-- **실패 시:** Servo 대신 경량 HTML 파서 고려
-
-### 12주차 체크포인트
-- [ ] Vulkan 삼각형 렌더링 성공?
-- [ ] 기본 페이지 표시?
-- **실패 시:** 소프트웨어 렌더링 fallback
-
-### 20주차 체크포인트
-- [ ] 성능 목표 50% 달성?
-- **실패 시:** 최적화 기간 연장 또는 목표 조정
+| Milestone | Week | Verification |
+|----------|------|--------------|
+| **M1: Hello Userspace** | Week 2 | Execute an ELF binary and print \"Hello\" |
+| **M2: IPC Works** | Week 4 | Message passing between two processes |
+| **M3: html5ever Runs** | Week 6 | Parse HTML and dump the DOM |
+| **M4: Vulkan Triangle** | Week 10 | Render a triangle |
+| **M5: Basic Page** | Week 12 | Render a simple web page |
+| **M6: Google Loads** | Week 16 | Load google.com (slow is fine) |
+| **M7: Performance** | Week 20 | Reach 50% of performance targets |

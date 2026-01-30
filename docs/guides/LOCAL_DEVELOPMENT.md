@@ -1,206 +1,205 @@
-# KPIO 로컬 개발 환경 설정 가이드
+# KPIO Local Development Environment Guide
 
-이 문서는 KPIO 커널의 로컬 개발 및 테스트 환경 설정 방법을 설명합니다.
+This document explains how to set up a local development and testing environment for the KPIO kernel.
 
-## 필수 요구사항
+## Prerequisites
 
-### 1. Rust 툴체인
+### 1. Rust toolchain
 
 ```powershell
-# rustup 설치 (없는 경우)
-# https://rustup.rs 에서 rustup-init.exe 다운로드
+# Install rustup (if not installed)
+# Download rustup-init.exe from https://rustup.rs
 
-# nightly 툴체인 설치
+# Install a nightly toolchain
 rustup toolchain install nightly-2026-01-01
 
-# 필수 컴포넌트 설치
+# Install required components
 rustup component add rust-src --toolchain nightly-2026-01-01
 rustup component add llvm-tools --toolchain nightly-2026-01-01
 ```
 
-### 2. QEMU (x86_64 에뮬레이터)
+### 2. QEMU (x86_64 emulator)
 
 ```powershell
-# winget으로 설치 (권장)
+# Install via winget (recommended)
 winget install SoftwareFreedomConservancy.QEMU
 
-# 또는 Chocolatey
+# Or via Chocolatey
 choco install qemu
 
-# 또는 Scoop
+# Or via Scoop
 scoop install qemu
 ```
 
-설치 후 PATH에 추가되었는지 확인:
+After installing, verify it is available on PATH:
 ```powershell
 qemu-system-x86_64 --version
 ```
 
-### 3. OVMF (UEFI 펌웨어)
+### 3. OVMF (UEFI firmware)
 
-QEMU 설치 시 일반적으로 함께 설치됩니다. 다음 위치에서 확인:
+OVMF is usually installed with QEMU. Check these locations:
 
 - `C:\Program Files\qemu\share\edk2-x86_64-code.fd`
 - `C:\Program Files\QEMU\share\OVMF.fd`
 
-없는 경우 수동 다운로드:
+If it is missing, download it manually:
 ```powershell
-# 자동 다운로드 (setup-dev-env.ps1이 시도)
+# Automatic download (attempted by setup-dev-env.ps1)
 .\scripts\setup-dev-env.ps1
 
-# 또는 수동 다운로드
+# Or manual download
 # https://retrage.github.io/edk2-nightly/bin/RELEASEX64_OVMF.fd
-# -> $HOME\.kpio\OVMF.fd 에 저장
+# -> save to $HOME\.kpio\OVMF.fd
 ```
 
-## 자동 설정
+## Automatic Setup
 
-모든 도구를 자동으로 확인하고 설치하려면:
+To automatically validate and install all tools:
 
 ```powershell
 .\scripts\setup-dev-env.ps1
 ```
 
-## 스크립트 목록
+## Script List
 
-| 스크립트 | 설명 |
-|---------|------|
-| `setup-dev-env.ps1` | 개발 환경 설정 및 도구 설치 |
-| `build-image.ps1` | 커널 빌드 + 디스크 이미지 생성 |
-| `run-qemu.ps1` | QEMU에서 커널 실행 |
-| `quick-run.ps1` | 빌드 + 즉시 실행 (간편 버전) |
-| `run-tests.ps1` | 테스트 빌드 확인 |
-| `create-uefi-image.ps1` | ESP 디렉토리 구조 생성 |
+| Script | Description |
+|--------|-------------|
+| `setup-dev-env.ps1` | Configure the dev environment and install tools |
+| `build-image.ps1` | Build the kernel + create a disk image |
+| `run-qemu.ps1` | Run the kernel in QEMU |
+| `quick-run.ps1` | Build + run immediately (convenience) |
+| `run-tests.ps1` | Verify test builds |
+| `create-uefi-image.ps1` | Create the ESP directory layout |
 
-## 빠른 시작
+## Quick Start
 
-### 1. 개발 환경 설정
+### 1. Set up the development environment
 
 ```powershell
 .\scripts\setup-dev-env.ps1
 ```
 
-### 2. 커널 빌드
+### 2. Build the kernel
 
 ```powershell
 cargo build -p kpio-kernel --release
 ```
 
-### 3. 간편 실행
+### 3. Quick run
 
 ```powershell
 .\scripts\quick-run.ps1
 ```
 
-### 4. 전체 빌드 + 실행
+### 4. Full build + run
 
 ```powershell
-# 디스크 이미지 생성
+# Build the disk image
 .\scripts\build-image.ps1
 
-# QEMU 실행
+# Run QEMU
 .\scripts\run-qemu.ps1
 ```
 
-## 디버깅
+## Debugging
 
-### GDB 연결
+### Connect GDB
 
 ```powershell
-# 터미널 1: QEMU 디버그 모드 시작
+# Terminal 1: start QEMU in debug mode
 .\scripts\run-qemu.ps1 -Debug
 
-# 터미널 2: GDB 연결
+# Terminal 2: connect GDB
 gdb -ex "target remote :1234" -ex "symbol-file target/x86_64-unknown-none/release/kernel"
 ```
 
-### 시리얼 출력 확인
+### Serial output
 
-QEMU는 `-serial stdio` 옵션으로 시리얼 출력을 터미널에 표시합니다.
-커널의 `serial_println!` 매크로 출력이 여기에 나타납니다.
+QEMU can print serial output to the terminal via `-serial stdio`.
+Output from the kernel's `serial_println!` macro appears there.
 
-### 그래픽 없이 실행
+### Run without graphics
 
 ```powershell
 .\scripts\run-qemu.ps1 -NoGraphic
 ```
 
-## 테스트
+## Tests
 
-### 테스트 종료 코드
+### Test exit codes
 
-| 코드 | 의미 |
-|------|------|
-| 33 | 테스트 성공 (QemuExitCode::Success) |
-| 35 | 테스트 실패 (QemuExitCode::Failed) |
+| Code | Meaning |
+|------|---------|
+| 33 | Test success (QemuExitCode::Success) |
+| 35 | Test failure (QemuExitCode::Failed) |
 
-### 테스트 실행
+### Running tests
 
-커널 테스트는 `#[cfg(test)]` 모드에서 QEMU를 통해 실행됩니다:
+Kernel tests run via QEMU in `#[cfg(test)]` mode:
 
 ```powershell
-# 테스트 빌드 확인
+# Verify the test build
 .\scripts\run-tests.ps1
 
-# QEMU에서 테스트 실행
+# Run tests in QEMU
 .\scripts\quick-run.ps1
 ```
 
-## 문제 해결
+## Troubleshooting
 
-### QEMU가 인식되지 않음
+### QEMU is not found
 
 ```powershell
-# PATH에 QEMU 추가
+# Add QEMU to PATH
 $env:PATH = "C:\Program Files\qemu;$env:PATH"
 
-# 영구 설정 (관리자 권한 필요)
+# Persist the setting (requires administrator privileges)
 [Environment]::SetEnvironmentVariable("PATH", "C:\Program Files\qemu;$([Environment]::GetEnvironmentVariable('PATH', 'Machine'))", "Machine")
 ```
 
-### OVMF를 찾을 수 없음
+### OVMF cannot be found
 
 ```powershell
-# OVMF 수동 다운로드
+# Download OVMF manually
 Invoke-WebRequest -Uri "https://retrage.github.io/edk2-nightly/bin/RELEASEX64_OVMF.fd" -OutFile "$HOME\.kpio\OVMF.fd"
 ```
 
-### 커널이 부팅되지 않음
+### The kernel does not boot
 
-1. 시리얼 출력 확인 (`-serial stdio`)
-2. QEMU 창의 디버그 콘솔 확인 (Ctrl+Alt+2)
-3. GDB 연결하여 단계별 디버깅
+1. Check serial output (`-serial stdio`)
+2. Check the QEMU debug console (Ctrl+Alt+2)
+3. Connect GDB and debug step-by-step
 
-### bootloader 빌드 실패
+### Bootloader build failure
 
-`tools/boot` 빌드가 실패하는 경우 `quick-run.ps1`을 사용하여 
-QEMU의 직접 커널 로딩 기능으로 테스트할 수 있습니다:
+If building `tools/boot` fails, you can use `quick-run.ps1` to test via QEMU's direct kernel loading:
 
 ```powershell
 .\scripts\quick-run.ps1
 ```
 
-## 구조
+## Layout
 
 ```
 scripts/
-├── setup-dev-env.ps1      # 개발 환경 설정
-├── build-image.ps1        # 디스크 이미지 빌드
-├── run-qemu.ps1           # QEMU 실행
-├── quick-run.ps1          # 빌드 + 즉시 실행
-├── run-tests.ps1          # 테스트 실행
-└── create-uefi-image.ps1  # ESP 구조 생성
+├── setup-dev-env.ps1      # environment setup
+├── build-image.ps1        # disk image build
+├── run-qemu.ps1           # run QEMU
+├── quick-run.ps1          # build + run (quick path)
+├── run-tests.ps1          # run tests
+└── create-uefi-image.ps1  # create ESP directory layout
 
-tools/boot/                # 부트로더 이미지 빌더
+tools/boot/                # bootloader image builder
 ├── Cargo.toml
 └── src/main.rs
 
 target/
 ├── x86_64-unknown-none/release/
-│   ├── kernel             # 커널 ELF
-│   ├── kpio-uefi.img      # UEFI 디스크 이미지
-│   └── kpio-bios.img      # BIOS 디스크 이미지
-└── esp/                   # ESP 디렉토리 (FAT 가상)
+│   ├── kernel             # kernel ELF
+│   ├── kpio-uefi.img      # UEFI disk image
+│   └── kpio-bios.img      # BIOS disk image
+└── esp/                   # ESP directory (virtual FAT)
     ├── EFI/BOOT/BOOTX64.EFI
     └── kernel
 ```

@@ -1,78 +1,78 @@
-# Phase 2: Servo Browser Integration Architecture Design
+# Phase 2: Servo 브라우저 통합 아키텍처 설계
 
-**Version:** 1.0  
-**Status:** 📋 Design complete, implementation pending  
-**Last Updated:** 2025-01-07
-
----
-
-## 1. Overview
-
-### 1.1 Goals
-
-Integrate the Servo browser engine into KPIO to achieve OS-level browser optimizations:
-
-| Goal | Typical browsers | KPIO target | Improvement |
-|------|------------------|------------|-------------|
-| Tab cold start | 2-3s | 0.5s | **4x** |
-| Memory per tab | 100-300MB | 30-80MB | **3x** |
-| GPU latency | 8-16ms | 2-4ms | **4x** |
-
-### 1.2 Architecture decisions (summary)
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Browser engine | Servo (full stack) | Firefox-proven, Rust-based |
-| Execution environment | **Userspace process** | Servo requires `std` |
-| IPC | Shared memory + channels | zero-copy performance |
-| GPU API | Vulkan-only | modern, low-level control |
-| JS engine | SpiderMonkey (via Servo) | full web compatibility |
+**버전:** 1.0  
+**상태:** 📋 설계 완료, 구현 대기  
+**최종 수정:** 2025-01-07
 
 ---
 
-## 2. Key Findings (Servo Research)
+## 1. 개요
 
-### 2.1 Servo cannot run `no_std`
+### 1.1 목표
 
-Servo and its major components depend heavily on the `std` library:
+KPIO 운영체제에 Servo 브라우저 엔진을 통합하여 OS 수준의 브라우저 최적화 달성:
+
+| 목표 | 기존 브라우저 | KPIO 목표 | 개선율 |
+|------|--------------|-----------|--------|
+| 탭 콜드 스타트 | 2-3초 | 0.5초 | **4x** |
+| 탭당 메모리 | 100-300MB | 30-80MB | **3x** |
+| GPU 레이턴시 | 8-16ms | 2-4ms | **4x** |
+
+### 1.2 아키텍처 결정 요약
+
+| 결정 사항 | 선택 | 이유 |
+|----------|------|------|
+| 브라우저 엔진 | Servo (전체) | Firefox 검증, Rust 기반 |
+| 실행 환경 | **Userspace Process** | Servo는 std 필수 |
+| IPC 방식 | Shared Memory + Channels | Zero-copy 성능 |
+| GPU API | Vulkan (전용) | 현대적, 저수준 제어 |
+| JS 엔진 | SpiderMonkey (Servo 포함) | 완전한 웹 호환성 |
+
+---
+
+## 2. 핵심 발견 사항 (Servo 조사 결과)
+
+### 2.1 Servo는 no_std 불가능
+
+Servo 및 주요 컴포넌트는 `std` 라이브러리에 강하게 의존:
 
 ```rust
-// Inside html5ever - std dependencies
+// html5ever 내부 - std 의존성
 use std::io::{self, Read};
 use std::fs::File;
 use std::collections::HashMap;
 
-// Servo itself
-use tokio::runtime::Runtime;     // async runtime
-use hyper::Client;               // HTTP client
-use url::Url;                    // URL parsing
+// Servo 자체
+use tokio::runtime::Runtime;     // async 런타임
+use hyper::Client;               // HTTP 클라이언트
+use url::Url;                    // URL 파싱
 ```
 
-**Conclusion:** Servo must run as a **userspace process**.
+**결론:** Servo는 반드시 **Userspace Process**에서 실행해야 함
 
-### 2.2 Servo component dependency map
+### 2.2 Servo 컴포넌트 의존성 맵
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                             Servo                               │
+│                         Servo                                    │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │ components/servo (main entry)                               ││
+│  │ components/servo (메인 엔트리)                               ││
 │  │  ├─ ServoBuilder, Servo, WebView, WebViewDelegate           ││
-│  │  ├─ constellation (tab/frame management)                    ││
-│  │  └─ embedder_traits (embedder interface)                    ││
+│  │  ├─ constellation (탭/프레임 관리)                          ││
+│  │  └─ embedder_traits (임베더 인터페이스)                     ││
 │  └─────────────────────────────────────────────────────────────┘│
 │                              │                                   │
 │          ┌──────────────────┼──────────────────┐                │
 │          ▼                  ▼                  ▼                │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
 │  │ html5ever     │  │ stylo         │  │ webrender     │       │
-│  │ (HTML parsing)│  │ (CSS engine)  │  │ (GPU rendering)│      │
+│  │ (HTML 파싱)   │  │ (CSS 엔진)    │  │ (GPU 렌더링) │       │
 │  └───────────────┘  └───────────────┘  └───────────────┘       │
 │          │                  │                  │                │
 │          ▼                  ▼                  ▼                │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
-│  │ markup5ever   │  │ rayon         │  │ gfx-rs/wgpu    │       │
-│  │ tendril       │  │ (parallelism) │  │ surfman        │       │
+│  │ markup5ever   │  │ rayon         │  │ gfx-rs/wgpu   │       │
+│  │ tendril       │  │ (병렬화)      │  │ surfman       │       │
 │  └───────────────┘  └───────────────┘  └───────────────┘       │
 │                              │                                   │
 │                              ▼                                   │
@@ -82,57 +82,57 @@ use url::Url;                    // URL parsing
 │                     └───────────────┘                           │
 └─────────────────────────────────────────────────────────────────┘
                               │
-                              │ IPC (shared memory)
+                              │ IPC (Shared Memory)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                           KPIO Kernel                            │
+│                      KPIO Kernel                                 │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌───────────┐ │
 │  │ GPU         │ │ Memory      │ │ Network     │ │ VirtIO    │ │
 │  │ Scheduler   │ │ Manager     │ │ Stack       │ │ Block     │ │
 │  └─────────────┘ └─────────────┘ └─────────────┘ └───────────┘ │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────────────┐│
 │  │ wasmi       │ │ IPC         │ │ Process Manager             ││
-│  │ (kernel WASM)│ │ Subsystem   │ │ (Servo process management)  ││
+│  │ (커널 WASM) │ │ Subsystem   │ │ (Servo 프로세스 관리)       ││
 │  └─────────────┘ └─────────────┘ └─────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.3 Servo embedding API
+### 2.3 Servo 임베딩 API
 
-Servo provides a clean embedding API:
+Servo는 깔끔한 임베딩 API 제공:
 
 ```rust
-// Servo initialization (based on winit_minimal.rs)
+// Servo 초기화 (winit_minimal.rs 예제 기반)
 let servo = ServoBuilder::default()
     .opts(opts)
     .preferences(preferences)
     .event_loop_waker(Box::new(waker))
     .build();
 
-// Create a WebView
+// WebView 생성
 let webview = WebViewBuilder::new(&servo, rendering_context.clone())
     .delegate(delegate)
     .url(url)
     .hidpi_scale_factor(Scale::new(1.0))
     .build();
 
-// Drive the event loop
+// 이벤트 루프 회전
 servo.spin_event_loop(/* should block */ false);
 webview.paint();
 ```
 
 ---
 
-## 3. System Architecture
+## 3. 시스템 아키텍처
 
-### 3.1 Process model
+### 3.1 프로세스 모델
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                           KPIO System                             │
+│                        KPIO System                                │
 │                                                                   │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │                   User Space (Ring 3)                        │ │
+│  │                    User Space (Ring 3)                       │ │
 │  │                                                              │ │
 │  │  ┌──────────────────────────────────────────────────────┐   │ │
 │  │  │              servo_browser Process                    │   │ │
@@ -156,10 +156,10 @@ webview.paint();
 │  └──────────────────────────┼───────────────────────────────────┘ │
 │                             │                                     │
 │  ┌──────────────────────────┼───────────────────────────────────┐ │
-│  │                  Kernel Space (Ring 0)                        │ │
+│  │                   Kernel Space (Ring 0)                       │ │
 │  │                          │                                    │ │
 │  │  ┌─────────────────────────────────────────────────────────┐ │ │
-│  │  │                Browser Support Layer                     │ │ │
+│  │  │              Browser Support Layer                       │ │ │
 │  │  │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌──────────┐ │ │ │
 │  │  │  │ GPU       │ │ Tab Memory│ │ WASM AOT  │ │ Zero-Copy│ │ │ │
 │  │  │  │ Scheduler │ │ Manager   │ │ Cache     │ │ Network  │ │ │ │
@@ -167,73 +167,71 @@ webview.paint();
 │  │  └─────────────────────────────────────────────────────────┘ │ │
 │  │                                                               │ │
 │  │  ┌─────────────────────────────────────────────────────────┐ │ │
-│  │  │                     Core Kernel                          │ │ │
-│  │  │     Memory | Scheduler | VirtIO | PCI | APIC | wasmi     │ │ │
+│  │  │                   Core Kernel                            │ │ │
+│  │  │   Memory | Scheduler | VirtIO | PCI | APIC | wasmi      │ │ │
 │  │  └─────────────────────────────────────────────────────────┘ │ │
 │  └───────────────────────────────────────────────────────────────┘ │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 IPC design: Kernel ↔ Browser
+### 3.2 IPC 설계: Kernel ↔ Browser
 
 ```rust
 // kernel/src/ipc/browser_channel.rs
-//
-// Shared-memory channel message formats (repr(C)) for zero-copy IPC.
 
-/// Kernel → browser commands
+/// 커널→브라우저 명령
 #[repr(C)]
 pub enum KernelToBrowser {
-    /// Memory pressure notification
-    MemoryPressure {
+    /// 탭 메모리 압력 알림
+    MemoryPressure { 
         level: MemoryPressureLevel,
         suggested_target_mb: u32,
     },
-
-    /// GPU priority change
+    
+    /// GPU 우선순위 변경
     GpuPriorityChanged {
         tab_id: u32,
         new_priority: GpuPriority,
     },
-
-    /// Network data arrival (zero-copy)
+    
+    /// 네트워크 데이터 도착 (Zero-copy)
     NetworkDataReady {
         request_id: u64,
         shared_buffer_offset: u64,
         length: u64,
     },
-
-    /// WASM AOT cache hit
+    
+    /// WASM AOT 캐시 히트
     WasmCacheHit {
         module_hash: [u8; 32],
         cached_code_offset: u64,
     },
 }
 
-/// Browser → kernel requests
+/// 브라우저→커널 요청
 #[repr(C)]
 pub enum BrowserToKernel {
-    /// Tab state change notification
+    /// 탭 상태 변경 알림
     TabStateChanged {
         tab_id: u32,
         state: TabState,
     },
-
-    /// Submit GPU work
+    
+    /// GPU 작업 제출
     SubmitGpuWork {
         tab_id: u32,
         command_buffer_offset: u64,
         length: u64,
     },
-
-    /// Network request
+    
+    /// 네트워크 요청
     NetworkRequest {
         request_id: u64,
         url_offset: u64,
         url_length: u32,
     },
-
-    /// Request AOT compilation of a WASM module
+    
+    /// WASM 모듈 AOT 컴파일 요청
     WasmCompileRequest {
         module_hash: [u8; 32],
         wasm_offset: u64,
@@ -241,108 +239,108 @@ pub enum BrowserToKernel {
     },
 }
 
-/// Tab state
+/// 탭 상태
 #[repr(C)]
 pub enum TabState {
-    Foreground,          // active tab
-    Background,          // background
-    BackgroundPlaying,   // background + media playback
-    Hibernated,          // hibernated (memory reclaimed)
+    Foreground,          // 활성 탭
+    Background,          // 백그라운드
+    BackgroundPlaying,   // 백그라운드 + 미디어 재생
+    Hibernated,          // 휴면 (메모리 해제됨)
 }
 ```
 
-### 3.3 Shared memory layout
+### 3.3 공유 메모리 레이아웃
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                      Shared Memory Region                         │
-│                          (16 MB)                                  │
+│                    Shared Memory Region                          │
+│                        (16 MB)                                   │
 ├──────────────────────────────────────────────────────────────────┤
-│ Offset 0x0000000 - 0x0001000: Control Block (4 KB)               │
-│   ├─ kernel_to_browser_head: AtomicU32                           │
-│   ├─ kernel_to_browser_tail: AtomicU32                           │
-│   ├─ browser_to_kernel_head: AtomicU32                           │
-│   ├─ browser_to_kernel_tail: AtomicU32                           │
-│   └─ flags: AtomicU32                                            │
+│ Offset 0x0000000 - 0x0001000: Control Block (4 KB)              │
+│   ├─ kernel_to_browser_head: AtomicU32                          │
+│   ├─ kernel_to_browser_tail: AtomicU32                          │
+│   ├─ browser_to_kernel_head: AtomicU32                          │
+│   ├─ browser_to_kernel_tail: AtomicU32                          │
+│   └─ flags: AtomicU32                                           │
 ├──────────────────────────────────────────────────────────────────┤
-│ Offset 0x0001000 - 0x0101000: K→B Ring Buffer (1 MB)            │
-│   └─ KernelToBrowser messages                                    │
+│ Offset 0x0001000 - 0x0101000: K→B Ring Buffer (1 MB)           │
+│   └─ KernelToBrowser messages                                   │
 ├──────────────────────────────────────────────────────────────────┤
-│ Offset 0x0101000 - 0x0201000: B→K Ring Buffer (1 MB)            │
-│   └─ BrowserToKernel messages                                    │
+│ Offset 0x0101000 - 0x0201000: B→K Ring Buffer (1 MB)           │
+│   └─ BrowserToKernel messages                                   │
 ├──────────────────────────────────────────────────────────────────┤
-│ Offset 0x0201000 - 0x0401000: Network Buffers (2 MB)            │
-│   └─ Zero-copy network data                                      │
+│ Offset 0x0201000 - 0x0401000: Network Buffers (2 MB)           │
+│   └─ Zero-copy network data                                     │
 ├──────────────────────────────────────────────────────────────────┤
-│ Offset 0x0401000 - 0x0801000: GPU Command Buffers (4 MB)        │
-│   └─ Vulkan secondary command buffers                            │
+│ Offset 0x0401000 - 0x0801000: GPU Command Buffers (4 MB)       │
+│   └─ Vulkan secondary command buffers                           │
 ├──────────────────────────────────────────────────────────────────┤
-│ Offset 0x0801000 - 0x1000000: WASM Module Cache (8 MB)          │
-│   └─ AOT compiled WASM modules                                   │
+│ Offset 0x0801000 - 0x1000000: WASM Module Cache (8 MB)         │
+│   └─ AOT compiled WASM modules                                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Implementation Order (Dependency-Driven)
+## 4. 구현 순서 (의존성 기반)
 
-### Phase 2.1: Infrastructure (4 weeks)
-
-```
-Week 1-2: Userspace environment
-├── [ ] Implement ELF loader
-├── [ ] System call interface
-├── [ ] Userspace memory mapping
-└── [ ] Basic process management
-
-Week 3-4: IPC system
-├── [ ] Shared memory mapping
-├── [ ] Ring buffer IPC
-├── [ ] Capability system
-└── [ ] Browser ↔ kernel channel
-```
-
-### Phase 2.2: Servo porting (8 weeks)
+### Phase 2.1: 기반 인프라 (4주)
 
 ```
-Week 5-8: Minimal Servo build
-├── [ ] Servo cross-compilation target (x86_64-unknown-kpio)
-├── [ ] libc replacement (KPIO syscalls)
-├── [ ] Minimal std features
-│     ├── [ ] Memory allocation (dlmalloc → KPIO heap syscall)
-│     ├── [ ] Threading (pthread → KPIO thread syscall)
-│     ├── [ ] File I/O (fd → KPIO file syscall)
-│     └── [ ] Networking (socket → KPIO net syscall)
-└── [ ] Servo compilation smoke tests
+Week 1-2: Userspace 환경
+├── [ ] ELF 로더 구현
+├── [ ] 시스템 콜 인터페이스
+├── [ ] 사용자 공간 메모리 맵핑
+└── [ ] 기본 프로세스 관리
 
-Week 9-12: Rendering pipeline
-├── [ ] Vulkan driver (userspace side)
-├── [ ] Port surfman (Vulkan backend)
-├── [ ] Integrate WebRender
-└── [ ] Basic page rendering tests
+Week 3-4: IPC 시스템
+├── [ ] 공유 메모리 매핑
+├── [ ] Ring Buffer IPC
+├── [ ] Capability 시스템
+└── [ ] 브라우저-커널 채널
 ```
 
-### Phase 2.3: OS integration optimizations (8 weeks)
+### Phase 2.2: Servo 포팅 (8주)
 
 ```
-Week 13-16: GPU scheduler
-├── [ ] Per-tab GPU priority queues
-├── [ ] Foreground tab boosting
-├── [ ] Background tab throttling
-└── [ ] VSync synchronization
+Week 5-8: 최소 Servo 빌드
+├── [ ] Servo 크로스 컴파일 환경 (x86_64-unknown-kpio)
+├── [ ] libc 대체 구현 (KPIO syscalls)
+├── [ ] 기본 std 기능 구현
+│     ├── [ ] 메모리 할당 (dlmalloc → KPIO heap syscall)
+│     ├── [ ] 스레딩 (pthread → KPIO thread syscall)
+│     ├── [ ] 파일 I/O (fd → KPIO file syscall)
+│     └── [ ] 네트워크 (socket → KPIO net syscall)
+└── [ ] Servo 컴파일 테스트
 
-Week 17-20: Memory optimizations
-├── [ ] Per-tab memory tracking
-├── [ ] Background tab compression
-├── [ ] Hibernated tab disk swap
-└── [ ] WASM AOT cache system
+Week 9-12: 렌더링 파이프라인
+├── [ ] Vulkan 드라이버 (Userspace 부분)
+├── [ ] surfman 포팅 (Vulkan 백엔드)
+├── [ ] WebRender 통합
+└── [ ] 기본 페이지 렌더링 테스트
+```
+
+### Phase 2.3: OS 통합 최적화 (8주)
+
+```
+Week 13-16: GPU 스케줄러
+├── [ ] 탭별 GPU 우선순위 큐
+├── [ ] 포그라운드 탭 부스팅
+├── [ ] 백그라운드 탭 스로틀링
+└── [ ] VSync 동기화
+
+Week 17-20: 메모리 최적화
+├── [ ] 탭별 메모리 추적
+├── [ ] 백그라운드 탭 압축
+├── [ ] 휴면 탭 디스크 스왑
+└── [ ] WASM AOT 캐시 시스템
 ```
 
 ---
 
-## 5. Cross-Compilation Target Setup
+## 5. 크로스 컴파일 타겟 설정
 
-### 5.1 New target definition: x86_64-unknown-kpio
+### 5.1 새 타겟 정의: x86_64-unknown-kpio
 
 ```json
 // x86_64-unknown-kpio.json
@@ -370,19 +368,19 @@ Week 17-20: Memory optimizations
 }
 ```
 
-### 5.2 Strategy for porting the `std` library
+### 5.2 std 라이브러리 포팅 전략
 
 ```rust
 // userspace/libkpio/src/sys/kpio/mod.rs
-//
-// KPIO system call wrappers - platform layer for Rust std
 
-/// Memory allocation
+//! KPIO 시스템 콜 래퍼 - Rust std를 위한 플랫폼 레이어
+
+/// 메모리 할당
 pub unsafe fn alloc(size: usize, align: usize) -> *mut u8 {
     syscall2(SYS_ALLOC, size, align) as *mut u8
 }
 
-/// Spawn a thread
+/// 스레드 생성
 pub fn spawn_thread(entry: fn(), stack_size: usize) -> Result<ThreadId, Error> {
     let tid = unsafe { syscall2(SYS_THREAD_CREATE, entry as usize, stack_size) };
     if tid < 0 {
@@ -392,10 +390,10 @@ pub fn spawn_thread(entry: fn(), stack_size: usize) -> Result<ThreadId, Error> {
     }
 }
 
-/// Open a file
+/// 파일 열기
 pub fn open(path: &str, flags: OpenFlags) -> Result<Fd, Error> {
-    let fd = unsafe {
-        syscall3(SYS_OPEN, path.as_ptr() as usize, path.len(), flags.bits() as usize)
+    let fd = unsafe { 
+        syscall3(SYS_OPEN, path.as_ptr() as usize, path.len(), flags.bits() as usize) 
     };
     if fd < 0 {
         Err(Error::from_syscall(fd))
@@ -407,61 +405,61 @@ pub fn open(path: &str, flags: OpenFlags) -> Result<Fd, Error> {
 
 ---
 
-## 6. Risks and Mitigations
+## 6. 위험 요소 및 완화 전략
 
-### 6.1 Risk list
+### 6.1 위험 목록
 
-| Risk | Impact | Likelihood | Mitigation |
-|------|--------|------------|------------|
-| Servo build complexity | High | High | incremental approach; start minimal |
-| SpiderMonkey JIT | High | Medium | interpreter fallback mode |
-| Vulkan driver bugs | Medium | Medium | start with VirtIO-GPU; real GPUs later |
-| Missing performance targets | Medium | Low | profile-driven optimization |
+| 위험 | 영향도 | 확률 | 완화 전략 |
+|------|--------|------|----------|
+| Servo 빌드 복잡성 | 높음 | 높음 | 점진적 접근, 최소 기능부터 |
+| SpiderMonkey JIT | 높음 | 중간 | 인터프리터 모드 fallback |
+| Vulkan 드라이버 버그 | 중간 | 중간 | VirtIO-GPU 먼저, 실제 GPU 나중 |
+| 성능 목표 미달 | 중간 | 낮음 | 프로파일링 기반 최적화 |
 
-### 6.2 Fallback plans
+### 6.2 Fallback 계획
 
-If full Servo integration fails:
+만약 Servo 전체 통합이 실패할 경우:
 
-1. **Option A: html5ever + inline CSS only**
-   - HTML parsing only
-   - only simple inline styles
-   - no JavaScript
-   - basic document viewer level
+1. **Option A: html5ever + CSS inline styles only**
+   - HTML 파싱만 사용
+   - CSS는 간단한 인라인 스타일만
+   - JavaScript 없음
+   - 기본 문서 뷰어 수준
 
-2. **Option B: WebView via IPC to a host browser**
-   - delegate rendering to a host OS browser
-   - KPIO optimizes networking/cache only
-   - runs only in virtualization environments
+2. **Option B: WebView via IPC to host browser**
+   - 호스트 OS 브라우저에 렌더링 위임
+   - KPIO는 네트워크/캐시만 최적화
+   - 가상화 환경에서만 동작
 
 ---
 
-## 7. Performance Benchmark Plan
+## 7. 성능 벤치마크 계획
 
-### 7.1 Metrics
+### 7.1 측정 항목
 
 ```rust
-/// Performance metrics
+/// 성능 메트릭
 pub struct BrowserMetrics {
-    /// Cold start time (load about:blank)
+    /// 콜드 스타트 시간 (about:blank 로드)
     pub cold_start_ms: u32,
-
-    /// Page fully loaded (google.com)
+    
+    /// 페이지 로드 완료 (google.com)
     pub page_load_ms: u32,
-
-    /// Baseline memory per tab
+    
+    /// 탭당 기본 메모리
     pub base_memory_mb: u32,
-
-    /// Memory for 10 tabs
+    
+    /// 10탭 메모리
     pub ten_tabs_memory_mb: u32,
-
-    /// Frame latency (p99), target 60fps
+    
+    /// 프레임 레이턴시 (60fps 목표)
     pub frame_latency_p99_ms: f32,
-
-    /// Input latency (p99)
+    
+    /// 입력 레이턴시
     pub input_latency_p99_ms: f32,
 }
 
-/// Target metrics (vs Chrome)
+/// 타겟 메트릭 (Chrome 대비)
 pub const TARGET_METRICS: BrowserMetrics = BrowserMetrics {
     cold_start_ms: 500,           // Chrome ~2000
     page_load_ms: 1500,           // Chrome ~2500
@@ -472,68 +470,68 @@ pub const TARGET_METRICS: BrowserMetrics = BrowserMetrics {
 };
 ```
 
-### 7.2 Test sites
+### 7.2 테스트 사이트
 
-1. **about:blank** - baseline
-2. **google.com** - search
-3. **wikipedia.org** - document site
-4. **youtube.com** - media
-5. **github.com** - complex UI
-6. **Speedometer 3.0** - JavaScript benchmark
-
----
-
-## 8. Next Steps
-
-### Work that can start immediately
-
-1. **Implement an ELF loader** (kernel)
-   - first item in Phase 2.1
-   - no dependencies
-
-2. **Design the system call table** (kernel)
-   - list the syscalls Servo requires
-   - define the POSIX-compatible subset
-
-3. **x86_64-unknown-kpio target** (build system)
-   - Cargo configuration
-   - minimal libkpio stub
-
-### Additional research needed
-
-1. Exact Servo dependency analysis (full Cargo.toml graph)
-2. SpiderMonkey build requirements
-3. WebRender Vulkan backend status
+1. **about:blank** - 기본 성능
+2. **google.com** - 검색
+3. **wikipedia.org** - 문서
+4. **youtube.com** - 미디어
+5. **github.com** - 복잡한 UI
+6. **Speedometer 3.0** - JavaScript 벤치마크
 
 ---
 
-## Appendix A: Servo crate dependencies
+## 8. 다음 단계
+
+### 즉시 시작 가능한 작업
+
+1. **ELF 로더 구현** (커널)
+   - Phase 2.1의 첫 번째 작업
+   - 의존성: 없음
+   
+2. **시스템 콜 테이블 설계** (커널)
+   - Servo 필요 syscalls 목록화
+   - POSIX 호환 부분집합
+
+3. **x86_64-unknown-kpio 타겟** (빌드 시스템)
+   - Cargo 설정
+   - 최소 libkpio 스텁
+
+### 필요한 추가 연구
+
+1. Servo 정확한 의존성 분석 (Cargo.toml 전체)
+2. SpiderMonkey 빌드 요구사항
+3. WebRender Vulkan 백엔드 상태
+
+---
+
+## 부록 A: Servo 크레이트 의존성
 
 ```
-servo (main)
+servo (메인)
 ├── components/servo
 ├── components/constellation
-├── components/script (SpiderMonkey bindings)
-├── components/layout (layout engine)
-├── components/gfx (fonts, images)
-├── components/net (network)
+├── components/script (SpiderMonkey 바인딩)
+├── components/layout (레이아웃 엔진)
+├── components/gfx (폰트, 이미지)
+├── components/net (네트워크)
 ├── components/style (Stylo)
-├── components/webrender (includes WebRender)
-└── external dependencies
-    ├── html5ever (HTML parsing)
-    ├── cssparser (CSS parsing)
-    ├── selectors (CSS selectors)
-    ├── tokio (async runtime)
+├── components/webrender (WebRender 포함)
+└── 외부 의존성
+    ├── html5ever (HTML 파싱)
+    ├── cssparser (CSS 파싱)
+    ├── selectors (CSS 선택자)
+    ├── tokio (async 런타임)
     ├── hyper (HTTP)
     ├── rustls (TLS)
-    ├── image (image decoding)
-    ├── font-kit (font loading)
-    └── rayon (parallel processing)
+    ├── image (이미지 디코딩)
+    ├── font-kit (폰트 로딩)
+    └── rayon (병렬 처리)
 ```
 
-## Appendix B: References
+## 부록 B: 참고 자료
 
-- Servo source: https://github.com/servo/servo
-- Servo embedding example: components/servo/examples/winit_minimal.rs
-- WebRender: https://github.com/nickolasDC/nickolasDC-webrender (Firefox integration)
+- Servo 소스: https://github.com/servo/servo
+- Servo 임베딩 예제: components/servo/examples/winit_minimal.rs
+- WebRender: https://github.com/nickolasDC/nickolasDC-webrender (Firefox 통합)
 - html5ever: https://github.com/servo/html5ever

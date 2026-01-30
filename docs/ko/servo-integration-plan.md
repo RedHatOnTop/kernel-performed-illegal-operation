@@ -2,17 +2,17 @@
 
 ## Overview
 
-Servo is a large browser engine that runs in a `std` environment.
-Because the KPIO kernel is `no_std`, Servo cannot run inside the kernel directly.
+Servo는 std 환경에서 동작하는 대규모 브라우저 엔진입니다.
+KPIO는 no_std 커널이므로, Servo를 직접 커널에서 실행할 수 없습니다.
 
-## Integration Strategy
+## 통합 전략
 
 ### Phase 3.1: Platform Abstraction Layer ✅
-- `servo-platform` crate created
-- Implemented the net, gpu, fs, thread, time, window, and ipc modules
+- `servo-platform` 크레이트 생성 완료
+- net, gpu, fs, thread, time, window, ipc 모듈 구현
 
-### Phase 3.2: KPIO Userspace Runtime (Current)
-Servo runs in KPIO **userspace**:
+### Phase 3.2: KPIO Userspace Runtime (현재 단계)
+Servo는 KPIO **userspace**에서 실행됩니다:
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -39,58 +39,58 @@ Servo runs in KPIO **userspace**:
 
 ### Phase 3.3: Minimal Servo Build
 
-Goal: Build only the minimum set of Servo components and test HTML rendering.
+목표: 최소 Servo 컴포넌트만 빌드하여 HTML 렌더링 테스트
 
-**Required components:**
-1. `components/shared/base` - core types
-2. `components/url` - URL parsing
-3. `components/geometry` - geometry math
-4. `components/pixels` - pixel manipulation
-5. `components/fonts` - font handling
+**필수 컴포넌트:**
+1. `components/shared/base` - 기본 타입
+2. `components/url` - URL 파싱
+3. `components/geometry` - 기하학 연산
+4. `components/pixels` - 픽셀 조작
+5. `components/fonts` - 폰트 처리
 
-**Optional components (later):**
-- `components/script` - JavaScript (requires SpiderMonkey)
-- `components/net` - networking
-- `components/layout` - CSS layout
+**선택적 컴포넌트 (후순위):**
+- `components/script` - JavaScript (SpiderMonkey 필요)
+- `components/net` - 네트워킹
+- `components/layout` - CSS 레이아웃
 
 ### Phase 3.4: Custom Servo Port
 
-Create a `ports/kpio/` directory and implement a KPIO-specific port.
+`ports/kpio/` 디렉토리 생성하여 KPIO 전용 포트 개발
 
-## Practical MVP Goals
+## 현실적 MVP 목표
 
-### Step 1: Static HTML rendering
-- Parse static HTML without JavaScript
-- Compute CSS layout
-- Render to the screen
+### 단계 1: 정적 HTML 렌더링
+- JavaScript 없이 정적 HTML 파싱
+- CSS 레이아웃 계산
+- 화면에 렌더링
 
-### Step 2: Basic interaction
-- mouse click
-- scrolling
-- link navigation
+### 단계 2: 기본 상호작용
+- 마우스 클릭
+- 스크롤
+- 링크 탐색
 
-### Step 3: JavaScript support
-- Integrate SpiderMonkey (most complex)
+### 단계 3: JavaScript 지원
+- SpiderMonkey 통합 (가장 복잡)
 
-## Alternative Strategies
+## 대안 전략
 
-If integrating the full Servo stack is too complex:
+Servo 전체 통합이 너무 복잡하면:
 
-### Option A: Use only HTML5ever + WebRender
-- `html5ever`: HTML parser (can be `no_std`)
-- `webrender`: GPU renderer (requires `std`, but may be simplified)
+### Option A: HTML5ever + WebRender만 사용
+- `html5ever`: HTML 파서 (no_std 가능)
+- `webrender`: GPU 렌더러 (std 필요하지만 단순화 가능)
 
-### Option B: Implement a lightweight browser engine in-house
-- custom HTML parser
-- custom CSS engine
-- software renderer
+### Option B: 경량 브라우저 엔진 직접 구현
+- 커스텀 HTML 파서
+- 커스텀 CSS 엔진
+- 소프트웨어 렌더러
 
-### Option C: Web rendering server approach
-- run Servo in a separate process
-- send only rendered images back to KPIO
+### Option C: 웹 렌더링 서버 방식
+- 별도 프로세스에서 Servo 실행
+- 렌더링된 이미지만 KPIO로 전송
 
-## Next Steps
+## 다음 단계
 
-1. Test building Servo's `html5ever` crate standalone
-2. Verify what `std` support is available in KPIO userspace
-3. Prototype the minimal rendering pipeline
+1. Servo의 `html5ever` 크레이트 단독 빌드 테스트
+2. KPIO userspace에서 std 지원 여부 확인
+3. 최소 렌더링 파이프라인 프로토타입
