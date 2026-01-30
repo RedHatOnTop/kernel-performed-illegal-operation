@@ -25,8 +25,7 @@ pub mod csp;
 pub mod ui;
 pub mod pwa;
 pub mod account;
-pub mod sync;
-pub mod telemetry;
+pub mod design;
 pub mod a11y;
 pub mod i18n;
 
