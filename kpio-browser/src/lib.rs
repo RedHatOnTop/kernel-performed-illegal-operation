@@ -28,6 +28,7 @@ pub mod account;
 pub mod design;
 pub mod a11y;
 pub mod i18n;
+pub mod apps;
 
 pub use browser::Browser;
 pub use document::Document;

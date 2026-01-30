@@ -2,6 +2,16 @@
 //!
 //! Manages browser state and coordinates components.
 
+pub mod extensions;
+pub mod tab_suspension;
+pub mod tracking_protection;
+pub mod private_mode;
+
+pub use extensions::*;
+pub use tab_suspension::*;
+pub use tracking_protection::*;
+pub use private_mode::*;
+
 use alloc::string::{String, ToString};
 
 use crate::BrowserConfig;
@@ -20,6 +30,14 @@ pub struct Browser {
     navigator: Navigator,
     /// Browser state.
     state: BrowserState,
+    /// Extension manager.
+    pub extensions: ExtensionManager,
+    /// Tab suspension manager.
+    pub tab_suspension: TabSuspensionManager,
+    /// Tracking protection.
+    pub tracking_protection: TrackingProtection,
+    /// Private browsing manager.
+    pub private_browsing: PrivateBrowsingManager,
 }
 
 /// Browser state.
@@ -52,6 +70,10 @@ impl Browser {
             active_tab: 0,
             navigator: Navigator::new(),
             state: BrowserState::Idle,
+            extensions: ExtensionManager::new(),
+            tab_suspension: TabSuspensionManager::new(),
+            tracking_protection: TrackingProtection::new(),
+            private_browsing: PrivateBrowsingManager::new(),
         }
     }
     
@@ -116,6 +138,14 @@ impl Browser {
         let idx = self.tabs.new_tab();
         self.active_tab = idx;
         idx
+    }
+    
+    /// Create a new private tab.
+    pub fn new_private_tab(&mut self, timestamp: u64) -> (usize, u64) {
+        let session_id = self.private_browsing.create_session(timestamp);
+        let tab_idx = self.tabs.new_tab();
+        self.active_tab = tab_idx;
+        (tab_idx, session_id)
     }
     
     /// Close a tab.
@@ -203,6 +233,27 @@ impl Browser {
         } else {
             Err(BrowserError::NoActiveTab)
         }
+    }
+    
+    /// Check if current tab is private.
+    pub fn is_private_tab(&self) -> bool {
+        // Would check tab's session association
+        false
+    }
+    
+    /// Get tracking protection stats.
+    pub fn blocked_trackers_count(&self) -> u64 {
+        self.tracking_protection.total_blocked
+    }
+    
+    /// Get suspended tabs count.
+    pub fn suspended_tabs_count(&self) -> usize {
+        self.tab_suspension.suspended_count()
+    }
+    
+    /// Get enabled extensions count.
+    pub fn enabled_extensions_count(&self) -> usize {
+        self.extensions.enabled.len()
     }
 }
 
