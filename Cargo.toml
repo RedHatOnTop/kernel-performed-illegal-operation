@@ -25,6 +25,7 @@ members = [
     "tests/wpt",
     "tests/safety",
     "fuzz",
+    # "tools/pentest" - 호스트 환경에서 독립 빌드 (std 필요)
 ]
 
 [workspace.package]
