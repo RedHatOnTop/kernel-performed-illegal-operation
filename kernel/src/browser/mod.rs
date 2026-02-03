@@ -43,6 +43,7 @@ pub mod compositor;
 pub mod coordinator;
 pub mod memory;
 pub mod origin;
+pub mod integration;
 
 pub use protocol::{BrowserMessage, BrowserRequest, BrowserResponse};
 pub use coordinator::{BrowserCoordinator, TabId, TabInfo, TabState};

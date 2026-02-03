@@ -29,6 +29,10 @@ pub mod design;
 pub mod a11y;
 pub mod i18n;
 pub mod apps;
+pub mod kernel_bridge;
+pub mod fs_bridge;
+pub mod network_bridge;
+pub mod input_bridge;
 
 pub use browser::Browser;
 pub use document::Document;
