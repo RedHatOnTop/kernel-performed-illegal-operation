@@ -32,6 +32,7 @@ pub mod browser;
 pub mod font;
 pub mod animation;
 pub mod webrender;
+pub mod optimization;
 
 use alloc::string::String;
 use alloc::vec::Vec;

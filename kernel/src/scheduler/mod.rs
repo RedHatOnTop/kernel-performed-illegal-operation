@@ -7,6 +7,7 @@ pub mod context;
 pub mod task;
 pub mod priority;
 pub mod round_robin;
+pub mod optimization;
 
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;

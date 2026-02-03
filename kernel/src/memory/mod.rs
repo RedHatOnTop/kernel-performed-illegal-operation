@@ -9,9 +9,11 @@
 //! - **Heap**: Dynamic memory allocation (in allocator module)
 //! - **Slab**: Fixed-size object caching
 //! - **Buddy**: Power-of-two block allocator
+//! - **Optimization**: Memory compression and reclamation
 
 pub mod slab;
 pub mod buddy;
+pub mod optimization;
 
 use bootloader_api::info::MemoryRegionKind;
 use spin::Mutex;
