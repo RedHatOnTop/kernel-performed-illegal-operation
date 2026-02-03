@@ -13,6 +13,7 @@ pub mod performance;
 pub mod harness;
 pub mod assertions;
 pub mod fixtures;
+pub mod integration;
 
 use alloc::string::String;
 use alloc::vec::Vec;
