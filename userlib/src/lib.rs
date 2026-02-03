@@ -30,6 +30,7 @@ pub mod process;
 pub mod mem;
 pub mod ipc;
 pub mod thread;
+pub mod allocator;
 
 /// std compatibility layer for running std-based applications
 pub mod std;
@@ -40,3 +41,7 @@ pub mod prelude {
     pub use crate::syscall::SyscallError;
     pub use crate::process::{getpid, exit};
 }
+
+// Global allocator for userspace applications
+#[global_allocator]
+static ALLOCATOR: allocator::UserAllocator = allocator::UserAllocator::new();

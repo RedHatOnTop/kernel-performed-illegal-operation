@@ -2,6 +2,8 @@
 //!
 //! Non-Volatile Memory Express driver for NVMe SSDs.
 
+#![allow(clippy::while_immutable_condition)]
+
 use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
@@ -449,9 +451,14 @@ pub unsafe fn init_controller(mmio_base: u64) -> Result<NvmeController, &'static
     // Disable controller
     unsafe { (*regs).cc = 0 };
     
-    // Wait for controller to be ready
+    // Wait for controller to be ready (with timeout)
+    let mut timeout = 10_000_000u32; // Arbitrary timeout count
     while unsafe { (*regs).csts } & 1 != 0 {
-        // Spin wait (in real driver: use proper timeout)
+        timeout = timeout.saturating_sub(1);
+        if timeout == 0 {
+            return Err("NVMe controller timeout waiting for disable");
+        }
+        core::hint::spin_loop();
     }
 
     // For now, return an error as full initialization not implemented
