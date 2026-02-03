@@ -1,5 +1,10 @@
-//! 커널 통합 테스트 모듈
+//! Kernel Unit Tests Module
 //!
-//! 이 모듈은 커널의 다양한 기능을 테스트합니다.
+//! Comprehensive unit tests for kernel subsystems.
 
 mod basic;
+mod memory_tests;
+mod process_tests;
+mod ipc_tests;
+mod syscall_tests;
+mod scheduler_tests;

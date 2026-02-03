@@ -12,6 +12,9 @@ pub mod tokenizer;
 pub mod tree_builder;
 pub mod parser;
 
+#[cfg(test)]
+mod tests;
+
 pub use tokenizer::{Tokenizer, Token};
 pub use tree_builder::{TreeBuilder, TreeSink, NodeId};
 pub use parser::{HtmlParser, ParseError};

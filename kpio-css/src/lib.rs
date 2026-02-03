@@ -16,6 +16,9 @@ pub mod stylesheet;
 pub mod cascade;
 pub mod computed;
 
+#[cfg(test)]
+mod tests;
+
 pub use parser::{CssParser, ParseError};
 pub use selector::{Selector, SelectorList, Specificity};
 pub use properties::{PropertyId, PropertyDeclaration};

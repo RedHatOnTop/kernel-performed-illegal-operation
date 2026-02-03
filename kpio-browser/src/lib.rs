@@ -34,6 +34,9 @@ pub mod fs_bridge;
 pub mod network_bridge;
 pub mod input_bridge;
 
+#[cfg(test)]
+mod tests;
+
 pub use browser::Browser;
 pub use document::Document;
 pub use window::Window;
