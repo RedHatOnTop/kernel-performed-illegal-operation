@@ -37,6 +37,7 @@ pub mod syscall;
 pub mod test;
 pub mod crash;
 pub mod update;
+pub mod i18n;
 
 #[cfg(test)]
 mod tests;
