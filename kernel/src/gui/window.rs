@@ -3,8 +3,78 @@
 //! Windowing primitives for GUI applications.
 
 use super::render::{Color, Renderer};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+
+/// Get folder contents for virtual filesystem
+fn get_folder_contents(path: &str) -> Vec<String> {
+    match path {
+        "/" => alloc::vec![
+            String::from("home"),
+            String::from("etc"),
+            String::from("usr"),
+            String::from("var"),
+            String::from("tmp"),
+        ],
+        "/home" => alloc::vec![
+            String::from(".."),
+            String::from("Documents"),
+            String::from("Downloads"),
+            String::from("Pictures"),
+            String::from("Music"),
+            String::from("Videos"),
+        ],
+        "/home/Documents" => alloc::vec![
+            String::from(".."),
+            String::from("readme.txt"),
+            String::from("notes.txt"),
+            String::from("report.pdf"),
+        ],
+        "/home/Downloads" => alloc::vec![
+            String::from(".."),
+            String::from("installer.exe"),
+            String::from("archive.zip"),
+        ],
+        "/home/Pictures" => alloc::vec![
+            String::from(".."),
+            String::from("vacation.jpg"),
+            String::from("screenshot.png"),
+        ],
+        "/home/Music" => alloc::vec![
+            String::from(".."),
+            String::from("track01.mp3"),
+            String::from("album/"),
+        ],
+        "/home/Videos" => alloc::vec![
+            String::from(".."),
+            String::from("tutorial.mp4"),
+        ],
+        "/etc" => alloc::vec![
+            String::from(".."),
+            String::from("passwd"),
+            String::from("hosts"),
+            String::from("config/"),
+        ],
+        "/usr" => alloc::vec![
+            String::from(".."),
+            String::from("bin/"),
+            String::from("lib/"),
+            String::from("share/"),
+        ],
+        "/var" => alloc::vec![
+            String::from(".."),
+            String::from("log/"),
+            String::from("cache/"),
+        ],
+        "/tmp" => alloc::vec![
+            String::from(".."),
+        ],
+        _ => {
+            // Default: show parent link
+            alloc::vec![String::from("..")]
+        }
+    }
+}
 
 /// Window identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -257,10 +327,76 @@ impl Window {
     }
 
     /// Handle click
-    pub fn on_click(&mut self, local_x: i32, local_y: i32, _pressed: bool) {
-        // Check close button (top right)
-        if local_y < 24 && local_x >= (self.width as i32 - 24) {
-            // Close button clicked - handled by GUI system
+    pub fn on_click(&mut self, local_x: i32, local_y: i32, pressed: bool) {
+        if !pressed {
+            return;
+        }
+        
+        let title_bar_height = 24;
+        let content_y = local_y - title_bar_height;
+        
+        if content_y < 0 {
+            // Clicked on title bar - handled elsewhere
+            return;
+        }
+        
+        match &mut self.content {
+            WindowContent::FileManager { path, items } => {
+                // Address bar click
+                if content_y >= 5 && content_y < 29 {
+                    // Focus address bar (future: allow editing path)
+                    return;
+                }
+                
+                // Item click (items start at y=45)
+                let item_start_y = 45;
+                let item_height = 24;
+                
+                if content_y >= item_start_y {
+                    let idx = ((content_y - item_start_y) / item_height) as usize;
+                    if idx < items.len() {
+                        // Navigate into folder
+                        let item = items[idx].clone();
+                        if item == ".." {
+                            // Go up one level
+                            if let Some(last_slash) = path.rfind('/') {
+                                if last_slash > 0 {
+                                    *path = path[..last_slash].to_string();
+                                } else {
+                                    *path = String::from("/");
+                                }
+                            }
+                        } else {
+                            // Navigate into folder
+                            if *path == "/" {
+                                *path = alloc::format!("/{}", item);
+                            } else {
+                                *path = alloc::format!("{}/{}", path, item);
+                            }
+                        }
+                        
+                        // Update items based on new path
+                        *items = get_folder_contents(path);
+                    }
+                }
+            }
+            WindowContent::Settings => {
+                // Settings category click
+                let item_start_y = 50;
+                let item_height = 50;
+                
+                if content_y >= item_start_y {
+                    let _idx = ((content_y - item_start_y) / item_height) as usize;
+                    // Future: Open settings sub-panel
+                }
+            }
+            WindowContent::Browser { .. } => {
+                // Click in address bar area
+                if content_y >= 5 && content_y < 29 {
+                    // Focus address bar
+                }
+            }
+            _ => {}
         }
     }
 
@@ -486,19 +622,92 @@ impl Window {
                 renderer.draw_text(x + 5, line_y, &input_line, Color::rgb(0, 255, 0));
             }
             WindowContent::FileManager { path, items } => {
-                // Draw path bar
-                renderer.fill_rect(x + 5, y + 5, self.width - 10, 24, Color::WHITE);
+                // Draw toolbar/path bar
+                renderer.fill_rect(x + 5, y + 5, self.width - 10, 24, Color::rgb(240, 240, 240));
                 renderer.draw_rect(x + 5, y + 5, self.width - 10, 24, Color::GRAY);
-                renderer.draw_text(x + 10, y + 9, path, Color::BLACK);
+                
+                // Draw back button
+                renderer.fill_rect(x + 8, y + 8, 18, 18, Color::LIGHT_GRAY);
+                renderer.draw_text(x + 12, y + 9, "<", Color::BLACK);
+                
+                // Draw path
+                renderer.draw_text(x + 35, y + 9, path, Color::BLACK);
 
-                // Draw folder icon and items
-                let mut item_y = y + 45;
-                for item in items {
-                    // Draw folder icon (simple square)
-                    renderer.fill_rect(x + 10, item_y, 16, 14, Color::rgb(255, 200, 50));
+                // Draw column headers
+                let header_y = y + 35;
+                renderer.fill_rect(x + 5, header_y, self.width - 10, 20, Color::rgb(230, 230, 230));
+                renderer.draw_text(x + 10, header_y + 3, "Name", Color::DARK_GRAY);
+                renderer.draw_text(x + 350, header_y + 3, "Type", Color::DARK_GRAY);
+                renderer.draw_text(x + 500, header_y + 3, "Size", Color::DARK_GRAY);
+
+                // Draw items
+                let mut item_y = y + 60;
+                for (i, item) in items.iter().enumerate() {
+                    let is_folder = item == ".." || !item.contains('.');
+                    let is_selected = i == 0; // TODO: track selection
+                    
+                    // Alternate row colors
+                    let row_color = if i % 2 == 0 {
+                        Color::WHITE
+                    } else {
+                        Color::rgb(248, 248, 248)
+                    };
+                    renderer.fill_rect(x + 5, item_y - 2, self.width - 10, 22, row_color);
+                    
+                    // Draw icon
+                    if item == ".." {
+                        // Up arrow icon
+                        renderer.fill_rect(x + 12, item_y + 2, 14, 12, Color::rgb(100, 149, 237));
+                        renderer.draw_text(x + 14, item_y, "^", Color::WHITE);
+                    } else if is_folder {
+                        // Folder icon (yellow)
+                        renderer.fill_rect(x + 10, item_y, 16, 14, Color::rgb(255, 200, 50));
+                        renderer.draw_rect(x + 10, item_y, 16, 14, Color::rgb(200, 150, 0));
+                    } else {
+                        // File icon (white with border)
+                        renderer.fill_rect(x + 10, item_y, 16, 14, Color::WHITE);
+                        renderer.draw_rect(x + 10, item_y, 16, 14, Color::GRAY);
+                    }
+                    
+                    // Draw name
                     renderer.draw_text(x + 32, item_y, item, Color::BLACK);
+                    
+                    // Draw type
+                    let file_type = if item == ".." {
+                        "Parent"
+                    } else if is_folder {
+                        "Folder"
+                    } else if item.ends_with(".txt") {
+                        "Text"
+                    } else if item.ends_with(".pdf") {
+                        "PDF"
+                    } else if item.ends_with(".jpg") || item.ends_with(".png") {
+                        "Image"
+                    } else if item.ends_with(".mp3") {
+                        "Audio"
+                    } else if item.ends_with(".mp4") {
+                        "Video"
+                    } else if item.ends_with(".zip") {
+                        "Archive"
+                    } else if item.ends_with(".exe") {
+                        "Executable"
+                    } else {
+                        "File"
+                    };
+                    renderer.draw_text(x + 350, item_y, file_type, Color::DARK_GRAY);
+                    
+                    // Draw size (placeholder)
+                    let size = if is_folder { "-" } else { "4 KB" };
+                    renderer.draw_text(x + 500, item_y, size, Color::DARK_GRAY);
+                    
                     item_y += 24;
                 }
+                
+                // Draw status bar
+                let status_y = (y + self.height as i32 - 24 - 24).max(item_y + 10);
+                renderer.fill_rect(x, status_y, self.width, 20, Color::rgb(240, 240, 240));
+                renderer.draw_text(x + 10, status_y + 3, 
+                    &alloc::format!("{} items", items.len()), Color::DARK_GRAY);
             }
             WindowContent::Settings => {
                 // Draw header
