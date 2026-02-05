@@ -4,3 +4,4 @@
 
 pub mod pci;
 pub mod virtio;
+pub mod ps2_mouse;

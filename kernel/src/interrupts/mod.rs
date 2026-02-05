@@ -15,9 +15,10 @@ mod pic;
 pub mod apic;
 pub mod ioapic;
 
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicPtr, Ordering};
 use crate::gdt;
 use lazy_static::lazy_static;
+use spin::Mutex;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 /// Interrupt index type for IDT indexing.
@@ -26,6 +27,7 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 pub enum InterruptIndex {
     Timer = 32,
     Keyboard = 33,
+    Mouse = 44,  // IRQ 12
 }
 
 impl InterruptIndex {
@@ -44,6 +46,8 @@ pub mod vectors {
     pub const TIMER: u8 = 32;
     /// Keyboard interrupt vector (PS/2).
     pub const KEYBOARD: u8 = 33;
+    /// Mouse interrupt vector (PS/2).
+    pub const MOUSE: u8 = 44;
     /// Spurious interrupt vector.
     pub const SPURIOUS: u8 = 0xFF;
 }
@@ -54,6 +58,34 @@ static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 /// Get the current timer tick count.
 pub fn timer_ticks() -> u64 {
     TIMER_TICKS.load(Ordering::Relaxed)
+}
+
+// ==================== GUI Callback System ====================
+
+/// Keyboard event callback type
+pub type KeyCallback = fn(char, u8, bool);
+/// Mouse byte callback type  
+pub type MouseByteCallback = fn(u8);
+/// Timer callback type
+pub type TimerCallback = fn();
+
+static KEY_CALLBACK: Mutex<Option<KeyCallback>> = Mutex::new(None);
+static MOUSE_CALLBACK: Mutex<Option<MouseByteCallback>> = Mutex::new(None);
+static TIMER_CALLBACK: Mutex<Option<TimerCallback>> = Mutex::new(None);
+
+/// Register keyboard callback
+pub fn register_key_callback(cb: KeyCallback) {
+    *KEY_CALLBACK.lock() = Some(cb);
+}
+
+/// Register mouse callback
+pub fn register_mouse_callback(cb: MouseByteCallback) {
+    *MOUSE_CALLBACK.lock() = Some(cb);
+}
+
+/// Register timer callback
+pub fn register_timer_callback(cb: TimerCallback) {
+    *TIMER_CALLBACK.lock() = Some(cb);
 }
 
 lazy_static! {
@@ -76,6 +108,7 @@ lazy_static! {
         // Hardware interrupts (vectors 32-255)
         idt[InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
         idt[InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
+        idt[InterruptIndex::Mouse.as_u8()].set_handler_fn(mouse_interrupt_handler);
         
         // Spurious interrupt handler (vector 0xFF)
         idt[vectors::SPURIOUS].set_handler_fn(spurious_interrupt_handler);
@@ -242,6 +275,11 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
         crate::serial_println!("[TIMER] Tick {}", ticks);
     }
     
+    // Call timer callback (for GUI processing)
+    if let Some(cb) = *TIMER_CALLBACK.lock() {
+        cb();
+    }
+    
     // Send EOI to Local APIC
     apic::end_of_interrupt();
 }
@@ -253,9 +291,48 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     let mut port: Port<u8> = Port::new(0x60);
     let scancode = unsafe { port.read() };
     
-    crate::serial_println!("[KBD] Scancode: {:#x}", scancode);
+    // Convert scancode to character (basic US QWERTY layout)
+    let pressed = scancode & 0x80 == 0;
+    let key = scancode & 0x7F;
+    
+    // Basic scancode to ASCII mapping
+    let ch = match key {
+        0x02 => '1', 0x03 => '2', 0x04 => '3', 0x05 => '4', 0x06 => '5',
+        0x07 => '6', 0x08 => '7', 0x09 => '8', 0x0A => '9', 0x0B => '0',
+        0x10 => 'q', 0x11 => 'w', 0x12 => 'e', 0x13 => 'r', 0x14 => 't',
+        0x15 => 'y', 0x16 => 'u', 0x17 => 'i', 0x18 => 'o', 0x19 => 'p',
+        0x1E => 'a', 0x1F => 's', 0x20 => 'd', 0x21 => 'f', 0x22 => 'g',
+        0x23 => 'h', 0x24 => 'j', 0x25 => 'k', 0x26 => 'l',
+        0x2C => 'z', 0x2D => 'x', 0x2E => 'c', 0x2F => 'v', 0x30 => 'b',
+        0x31 => 'n', 0x32 => 'm',
+        0x39 => ' ',  // space
+        0x1C => '\n', // enter
+        0x0E => '\x08', // backspace
+        _ => '\0',
+    };
+    
+    // Call keyboard callback
+    if let Some(cb) = *KEY_CALLBACK.lock() {
+        cb(ch, scancode, pressed);
+    }
     
     // Send EOI to Local APIC.
+    apic::end_of_interrupt();
+}
+
+extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    use x86_64::instructions::port::Port;
+    
+    // Read data from PS/2 mouse controller
+    let mut port: Port<u8> = Port::new(0x60);
+    let byte = unsafe { port.read() };
+    
+    // Call mouse callback
+    if let Some(cb) = *MOUSE_CALLBACK.lock() {
+        cb(byte);
+    }
+    
+    // Send EOI to Local APIC
     apic::end_of_interrupt();
 }
 

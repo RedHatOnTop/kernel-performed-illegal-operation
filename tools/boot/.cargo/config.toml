@@ -4,5 +4,9 @@
 [build]
 target = "x86_64-pc-windows-msvc"
 
+# 부모 워크스페이스의 build-std 설정을 빈 배열로 덮어쓰기
+[unstable]
+build-std = []
+
 [env]
 # build.rs가 사용할 설정은 별도로 관리됨
