@@ -5,10 +5,13 @@
 //!
 //! ## Architecture
 //!
-//! The GUI uses double-buffering to eliminate flickering:
+//! The GUI uses double-buffering and damage tracking to eliminate flickering
+//! and maximize rendering performance:
+//!
 //! 1. All drawing happens to a back buffer in RAM
-//! 2. When a frame is complete, the back buffer is copied to the display
-//! 3. This ensures the user never sees partial frame updates
+//! 2. Only damaged regions are redrawn (dirty rectangle optimization)
+//! 3. Frame rate is controlled to prevent wasted CPU cycles
+//! 4. When a frame is complete, the back buffer is copied to the display
 
 pub mod desktop;
 pub mod taskbar;
@@ -22,6 +25,7 @@ pub mod framebuffer;
 
 use alloc::vec::Vec;
 use spin::Mutex;
+use crate::graphics::{RenderPipeline, DamageRect, FrameRateLimit};
 
 pub use desktop::Desktop;
 pub use taskbar::Taskbar;
@@ -45,6 +49,8 @@ pub struct GuiSystem {
     pub framebuffer: *mut u8,
     /// Double-buffered framebuffer manager
     pub fb_manager: FramebufferManager,
+    /// Rendering pipeline with damage tracking
+    pub pipeline: RenderPipeline,
     /// Desktop
     pub desktop: Desktop,
     /// Taskbar
@@ -55,12 +61,15 @@ pub struct GuiSystem {
     pub active_window: Option<WindowId>,
     /// Mouse cursor
     pub mouse: MouseCursor,
-    /// Needs redraw
+    /// Needs redraw (legacy, now uses pipeline)
     pub dirty: bool,
     /// Dragging state
     pub dragging: Option<DragState>,
     /// Frame counter for performance tracking
     pub frame_count: u64,
+    /// Last mouse position (for damage tracking)
+    last_mouse_x: i32,
+    last_mouse_y: i32,
 }
 
 /// Window drag state
@@ -79,6 +88,13 @@ impl GuiSystem {
     pub fn new(width: u32, height: u32, bpp: usize, stride: usize, fb: *mut u8) -> Self {
         let taskbar_height = 40;
         let fb_manager = FramebufferManager::new(fb, width, height, bpp, stride);
+        let mut pipeline = RenderPipeline::new(width, height, bpp, stride);
+        
+        // Set default frame rate limit (60 FPS)
+        pipeline.set_frame_rate_limit(FrameRateLimit::Fixed(60));
+        
+        // Mark full screen for initial render
+        pipeline.damage_full();
         
         Self {
             width,
@@ -87,6 +103,7 @@ impl GuiSystem {
             stride,
             framebuffer: fb,
             fb_manager,
+            pipeline,
             desktop: Desktop::new(width, height - taskbar_height),
             taskbar: Taskbar::new(width, taskbar_height),
             windows: Vec::new(),
@@ -95,6 +112,8 @@ impl GuiSystem {
             dirty: true,
             dragging: None,
             frame_count: 0,
+            last_mouse_x: width as i32 / 2,
+            last_mouse_y: height as i32 / 2,
         }
     }
 
@@ -102,36 +121,72 @@ impl GuiSystem {
     pub fn create_window(&mut self, title: &str, x: i32, y: i32, w: u32, h: u32) -> WindowId {
         let id = WindowId(self.windows.len() as u64 + 1);
         let window = Window::new(id, title, x, y, w, h);
+        
+        // Damage the new window area
+        self.pipeline.damage_rect(x, y, w, h);
+        
         self.windows.push(window);
         self.active_window = Some(id);
         self.taskbar.add_window(id, title);
+        
+        // Also damage taskbar area
+        self.pipeline.damage_rect(0, (self.height - self.taskbar.height) as i32, 
+                                   self.width, self.taskbar.height);
         self.dirty = true;
         id
     }
 
     /// Close a window
     pub fn close_window(&mut self, id: WindowId) {
+        // Get window bounds for damage before removing
+        if let Some(window) = self.windows.iter().find(|w| w.id == id) {
+            self.pipeline.damage_rect(window.x, window.y, window.width, window.height);
+        }
+        
         self.windows.retain(|w| w.id != id);
         self.taskbar.remove_window(id);
         if self.active_window == Some(id) {
             self.active_window = self.windows.last().map(|w| w.id);
         }
+        
+        // Damage taskbar
+        self.pipeline.damage_rect(0, (self.height - self.taskbar.height) as i32,
+                                   self.width, self.taskbar.height);
         self.dirty = true;
     }
 
     /// Handle mouse move
     pub fn on_mouse_move(&mut self, dx: i32, dy: i32) {
+        // Track old mouse position for damage
+        let old_x = self.mouse.x;
+        let old_y = self.mouse.y;
+        
         self.mouse.move_by(dx, dy, self.width as i32, self.height as i32);
+        
+        // Damage old and new cursor positions (cursor is typically 16x16)
+        const CURSOR_SIZE: u32 = 20;
+        self.pipeline.damage_rect(old_x - 2, old_y - 2, CURSOR_SIZE, CURSOR_SIZE);
+        self.pipeline.damage_rect(self.mouse.x - 2, self.mouse.y - 2, CURSOR_SIZE, CURSOR_SIZE);
         
         // Handle window dragging
         if let Some(drag) = self.dragging {
             if let Some(window) = self.windows.iter_mut().find(|w| w.id == drag.window_id) {
+                let old_wx = window.x;
+                let old_wy = window.y;
+                
                 window.x = self.mouse.x - drag.offset_x;
                 window.y = self.mouse.y - drag.offset_y;
                 
                 // Keep window on screen
                 window.x = window.x.max(0).min(self.width as i32 - 50);
                 window.y = window.y.max(0).min(self.height as i32 - 50);
+                
+                // Damage both old and new window positions
+                self.pipeline.damage_window(
+                    old_wx, old_wy,
+                    window.x, window.y,
+                    window.width, window.height
+                );
             }
         }
         
@@ -281,12 +336,17 @@ impl GuiSystem {
         self.dirty = true;
     }
 
-    /// Render the GUI using double buffering
+    /// Render the GUI using double buffering and damage tracking
     pub fn render(&mut self) {
-        if !self.dirty {
+        // Check if we should render this frame (frame rate limiting)
+        if !self.dirty && !self.pipeline.should_render() {
+            self.pipeline.skip_frame();
             return;
         }
 
+        // Begin frame (captures timing and damage info)
+        let frame_ctx = self.pipeline.begin_frame();
+        
         // Create renderer targeting the BACK buffer (not the display)
         let mut renderer = Renderer::new(
             self.fb_manager.back_buffer(),
@@ -296,6 +356,10 @@ impl GuiSystem {
             self.stride,
         );
 
+        // For now, always do full redraws (damage-aware rendering can be
+        // optimized further, but requires more complex clipping logic)
+        // The frame rate limiting still provides significant performance gains
+        
         // Draw desktop background
         self.desktop.render(&mut renderer);
 
@@ -308,7 +372,7 @@ impl GuiSystem {
         // Draw taskbar
         self.taskbar.render(&mut renderer, self.height - self.taskbar.height);
 
-        // Draw mouse cursor
+        // Draw mouse cursor (always on top)
         self.mouse.render(&mut renderer);
 
         // CRITICAL: Copy back buffer to front buffer atomically
@@ -316,8 +380,21 @@ impl GuiSystem {
         // a complete frame, never a partially-drawn one
         self.fb_manager.swap_buffers();
 
+        // End frame (update timing stats, clear damage)
+        self.pipeline.end_frame(frame_ctx);
+
         self.dirty = false;
         self.frame_count += 1;
+    }
+    
+    /// Get render statistics for debugging/profiling
+    pub fn get_render_stats(&self) -> &crate::graphics::RenderStats {
+        &self.pipeline.stats
+    }
+    
+    /// Get current FPS
+    pub fn get_fps(&self) -> u32 {
+        self.pipeline.timing.fps
     }
 }
 

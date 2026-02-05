@@ -23,9 +23,13 @@ pub mod surface;
 pub mod damage;
 pub mod blitter;
 pub mod animation;
+pub mod pipeline;
+pub mod memcpy;
 
 pub use compositor::{Compositor, CompositorConfig};
 pub use surface::{Surface, SurfaceId, SurfaceFlags};
 pub use damage::{DamageTracker, DamageRect};
 pub use blitter::{Blitter, BlitOp};
+pub use pipeline::{RenderPipeline, FrameTiming, VSyncMode, FrameRateLimit, RenderStats};
 pub use animation::{AnimationEngine, Animation, Easing};
+pub use memcpy::{fast_copy, fast_set, fast_set32, copy_rect, fill_rect_fast};
