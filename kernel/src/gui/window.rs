@@ -30,6 +30,15 @@ pub struct Window {
     pub content: WindowContent,
     /// Input text buffer for text input
     pub input_buffer: String,
+    /// Saved position for restore from maximized/minimized
+    saved_x: i32,
+    saved_y: i32,
+    saved_width: u32,
+    saved_height: u32,
+    /// Hovered button (-1=none, 0=close, 1=maximize, 2=minimize)
+    pub hovered_button: i8,
+    /// Scroll position for content
+    pub scroll_y: i32,
 }
 
 /// Window content types
@@ -59,6 +68,12 @@ impl Window {
             state: WindowState::Normal,
             content: WindowContent::Text(String::from("Window content here")),
             input_buffer: String::new(),
+            saved_x: x,
+            saved_y: y,
+            saved_width: width,
+            saved_height: height,
+            hovered_button: -1,
+            scroll_y: 0,
         }
     }
 
@@ -77,6 +92,12 @@ impl Window {
                 content: String::from("Welcome to KPIO Browser"),
             },
             input_buffer: String::new(),
+            saved_x: x,
+            saved_y: y,
+            saved_width: 800,
+            saved_height: 600,
+            hovered_button: -1,
+            scroll_y: 0,
         }
     }
 
@@ -100,6 +121,12 @@ impl Window {
                 cursor_pos: 0,
             },
             input_buffer: String::new(),
+            saved_x: x,
+            saved_y: y,
+            saved_width: 640,
+            saved_height: 400,
+            hovered_button: -1,
+            scroll_y: 0,
         }
     }
 
@@ -124,6 +151,12 @@ impl Window {
                 ],
             },
             input_buffer: String::new(),
+            saved_x: x,
+            saved_y: y,
+            saved_width: 700,
+            saved_height: 500,
+            hovered_button: -1,
+            scroll_y: 0,
         }
     }
 
@@ -139,6 +172,81 @@ impl Window {
             state: WindowState::Normal,
             content: WindowContent::Settings,
             input_buffer: String::new(),
+            saved_x: x,
+            saved_y: y,
+            saved_width: 600,
+            saved_height: 450,
+            hovered_button: -1,
+            scroll_y: 0,
+        }
+    }
+
+    /// Minimize window
+    pub fn minimize(&mut self) {
+        if self.state != WindowState::Minimized {
+            if self.state == WindowState::Normal {
+                self.saved_x = self.x;
+                self.saved_y = self.y;
+                self.saved_width = self.width;
+                self.saved_height = self.height;
+            }
+            self.state = WindowState::Minimized;
+        }
+    }
+
+    /// Maximize window (needs screen dimensions)
+    pub fn maximize(&mut self, screen_w: u32, screen_h: u32, taskbar_h: u32) {
+        if self.state == WindowState::Maximized {
+            // Restore to normal
+            self.x = self.saved_x;
+            self.y = self.saved_y;
+            self.width = self.saved_width;
+            self.height = self.saved_height;
+            self.state = WindowState::Normal;
+        } else {
+            // Save current state if normal
+            if self.state == WindowState::Normal {
+                self.saved_x = self.x;
+                self.saved_y = self.y;
+                self.saved_width = self.width;
+                self.saved_height = self.height;
+            }
+            // Maximize
+            self.x = 0;
+            self.y = 0;
+            self.width = screen_w;
+            self.height = screen_h - taskbar_h;
+            self.state = WindowState::Maximized;
+        }
+    }
+
+    /// Restore window from minimized
+    pub fn restore(&mut self) {
+        if self.state == WindowState::Minimized {
+            self.state = WindowState::Normal;
+        }
+    }
+
+    /// Check if visible (not minimized)
+    pub fn is_visible(&self) -> bool {
+        self.state != WindowState::Minimized
+    }
+
+    /// Update button hover state
+    pub fn update_hover(&mut self, local_x: i32, local_y: i32) {
+        self.hovered_button = -1;
+        if local_y < 24 && local_y >= 0 {
+            let close_x = self.width as i32 - 24;
+            let max_x = close_x - 24;
+            let min_x = max_x - 24;
+            
+            if local_x >= close_x && local_x < close_x + 24 {
+                self.hovered_button = 0; // Close
+            } else if local_x >= max_x && local_x < max_x + 24 {
+                self.hovered_button = 1; // Maximize
+            } else if local_x >= min_x && local_x < min_x + 24 {
+                self.hovered_button = 2; // Minimize
+            }
         }
     }
 

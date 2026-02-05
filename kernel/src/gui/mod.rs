@@ -228,10 +228,18 @@ impl GuiSystem {
             if y >= (self.height - self.taskbar.height) as i32 {
                 let clicked_id = self.taskbar.on_click(x, y - (self.height - self.taskbar.height) as i32);
                 
-                // If clicked a taskbar item, focus that window
+                // If clicked a taskbar item, focus that window or restore if minimized
                 if let Some(idx) = clicked_id {
                     if idx < self.taskbar.items.len() {
                         let window_id = self.taskbar.items[idx].window_id;
+                        
+                        // Restore if minimized
+                        if let Some(window) = self.windows.iter_mut().find(|w| w.id == window_id) {
+                            if !window.is_visible() {
+                                window.restore();
+                            }
+                        }
+                        
                         self.active_window = Some(window_id);
                         
                         // Bring window to front
@@ -246,10 +254,10 @@ impl GuiSystem {
                 return;
             }
 
-            // Check window clicks (reverse order for top window first)
+            // Check window clicks (reverse order for top window first, only visible)
             let mut clicked_window_id = None;
             for window in self.windows.iter().rev() {
-                if window.contains(x, y) {
+                if window.is_visible() && window.contains(x, y) {
                     clicked_window_id = Some(window.id);
                     break;
                 }
@@ -259,6 +267,10 @@ impl GuiSystem {
                 self.active_window = Some(id);
                 
                 // Find window and process click
+                let screen_w = self.width;
+                let screen_h = self.height;
+                let taskbar_h = self.taskbar.height;
+                
                 if let Some(window) = self.windows.iter_mut().find(|w| w.id == id) {
                     let local_x = x - window.x;
                     let local_y = y - window.y;
@@ -280,6 +292,19 @@ impl GuiSystem {
                         if self.active_window == Some(id_to_close) {
                             self.active_window = self.windows.last().map(|w| w.id);
                         }
+                    }
+                    // Check maximize button
+                    else if local_y < 24 && local_x >= window.width as i32 - 48 && local_x < window.width as i32 - 24 {
+                        window.maximize(screen_w, screen_h, taskbar_h);
+                    }
+                    // Check minimize button
+                    else if local_y < 24 && local_x >= window.width as i32 - 72 && local_x < window.width as i32 - 48 {
+                        window.minimize();
+                        // Set active to another visible window
+                        self.active_window = self.windows.iter()
+                            .rev()
+                            .find(|w| w.is_visible() && w.id != id)
+                            .map(|w| w.id);
                     }
                     else {
                         window.on_click(local_x, local_y, pressed);
@@ -363,8 +388,11 @@ impl GuiSystem {
         // Draw desktop background
         self.desktop.render(&mut renderer);
 
-        // Draw windows
+        // Draw windows (skip minimized)
         for window in &self.windows {
+            if !window.is_visible() {
+                continue;
+            }
             let is_active = self.active_window == Some(window.id);
             window.render(&mut renderer, is_active);
         }
