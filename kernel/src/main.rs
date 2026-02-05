@@ -32,6 +32,7 @@ extern crate alloc;
 mod allocator;
 mod driver;
 mod gdt;
+mod graphics;
 mod gui;
 mod interrupts;
 mod memory;
