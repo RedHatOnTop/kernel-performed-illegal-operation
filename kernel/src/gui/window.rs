@@ -1,8 +1,10 @@
 //! Window System
 //!
-//! Windowing primitives for GUI applications.
+//! Modern window manager with rounded corners, soft shadows,
+//! themed title bars and polished application content areas.
 
 use super::render::{Color, Renderer};
+use super::theme::{Surface, Text, Accent, Shadow, Spacing, Radius, Size, TermTheme, IconColor, Shadows};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -305,16 +307,18 @@ impl Window {
     /// Update button hover state
     pub fn update_hover(&mut self, local_x: i32, local_y: i32) {
         self.hovered_button = -1;
-        if local_y < 24 && local_y >= 0 {
-            let close_x = self.width as i32 - 24;
-            let max_x = close_x - 24;
-            let min_x = max_x - 24;
-            
-            if local_x >= close_x && local_x < close_x + 24 {
+        let tb = Size::TITLE_BAR_HEIGHT as i32;
+        let bw = Size::WIN_BTN_W as i32;
+        if local_y < tb && local_y >= 0 {
+            let close_x = self.width as i32 - bw;
+            let max_x = close_x - bw;
+            let min_x = max_x - bw;
+
+            if local_x >= close_x && local_x < close_x + bw {
                 self.hovered_button = 0; // Close
-            } else if local_x >= max_x && local_x < max_x + 24 {
+            } else if local_x >= max_x && local_x < max_x + bw {
                 self.hovered_button = 1; // Maximize
-            } else if local_x >= min_x && local_x < min_x + 24 {
+            } else if local_x >= min_x && local_x < min_x + bw {
                 self.hovered_button = 2; // Minimize
             }
         }
@@ -332,7 +336,7 @@ impl Window {
             return;
         }
         
-        let title_bar_height = 24;
+        let title_bar_height = Size::TITLE_BAR_HEIGHT as i32;
         let content_y = local_y - title_bar_height;
         
         if content_y < 0 {
@@ -532,204 +536,246 @@ impl Window {
 
     /// Render window
     pub fn render(&self, renderer: &mut Renderer, is_active: bool) {
-        let title_bar_height = 24;
-        
-        // Draw shadow
-        renderer.fill_rect(self.x + 4, self.y + 4, self.width, self.height, Color::rgba(0, 0, 0, 100));
+        let tb = Size::TITLE_BAR_HEIGHT;
+        let r = Radius::WINDOW;
+        let bw = Size::WIN_BTN_W;
+        let bh = Size::WIN_BTN_H;
 
-        // Draw window border
-        renderer.fill_rect(self.x - 1, self.y - 1, self.width + 2, self.height + 2, Color::DARK_GRAY);
+        // ── Shadow ──
+        let shadow = Shadows::WINDOW;
+        renderer.draw_shadow_box(
+            self.x, self.y, self.width, self.height,
+            r, shadow.offset_x, shadow.offset_y, shadow.blur, shadow.color,
+        );
 
-        // Draw title bar
+        // ── Window body ──
+        renderer.fill_rounded_rect_aa(self.x, self.y, self.width, self.height, r,
+                                       Surface::WINDOW_BG);
+
+        // ── Title bar ──
         let title_color = if is_active {
-            Color::WINDOW_TITLE_ACTIVE
+            Surface::WINDOW_TITLE_ACTIVE
         } else {
-            Color::WINDOW_TITLE_INACTIVE
+            Surface::WINDOW_TITLE_INACTIVE
         };
-        renderer.fill_rect(self.x, self.y, self.width, title_bar_height, title_color);
+        // Fill top portion with title-bar colour (only top corners rounded)
+        renderer.fill_rounded_rect_aa(self.x, self.y, self.width, tb, r, title_color);
+        // Flatten the bottom half of the title-bar rounded rect
+        renderer.fill_rect(self.x, self.y + r as i32, self.width, tb - r, title_color);
 
-        // Draw title text
-        renderer.draw_text(self.x + 8, self.y + 4, &self.title, Color::WHITE);
+        // Title bar separator
+        renderer.draw_hline(self.x, self.y + tb as i32 - 1, self.width,
+                            Color::rgba(0, 0, 0, 12));
 
-        // Draw close button
-        let close_x = self.x + self.width as i32 - 24;
-        renderer.fill_rect(close_x, self.y, 24, title_bar_height, Color::CLOSE_BUTTON_HOVER);
-        renderer.draw_text(close_x + 8, self.y + 4, "X", Color::WHITE);
+        // Title text (vertically centered)
+        renderer.draw_text(self.x + Spacing::MD as i32, self.y + (tb as i32 - 8) / 2,
+                           &self.title, Text::PRIMARY);
 
-        // Draw minimize button
-        let min_x = close_x - 24;
-        renderer.fill_rect(min_x, self.y, 24, title_bar_height, Color::BUTTON_HOVER);
-        renderer.draw_text(min_x + 8, self.y + 4, "_", Color::BLACK);
+        // ── Window control buttons ──
+        let close_x = self.x + self.width as i32 - bw as i32;
+        let max_x = close_x - bw as i32;
+        let min_x = max_x - bw as i32;
 
-        // Draw maximize button
-        let max_x = min_x - 24;
-        renderer.fill_rect(max_x, self.y, 24, title_bar_height, Color::BUTTON_HOVER);
-        renderer.draw_text(max_x + 8, self.y + 4, "O", Color::BLACK);
+        // Close button
+        let close_bg = if self.hovered_button == 0 {
+            Accent::DANGER
+        } else {
+            Color::TRANSPARENT
+        };
+        renderer.fill_rect(close_x, self.y, bw, bh, close_bg);
+        let close_text_c = if self.hovered_button == 0 { Text::ON_ACCENT } else { Text::SECONDARY };
+        renderer.draw_text(close_x + (bw as i32 - 8) / 2, self.y + (bh as i32 - 8) / 2,
+                           "X", close_text_c);
 
-        // Draw window content area
-        let content_y = self.y + title_bar_height as i32;
-        let content_height = self.height - title_bar_height;
-        renderer.fill_rect(self.x, content_y, self.width, content_height, Color::WINDOW_BG);
+        // Maximize button
+        let max_bg = if self.hovered_button == 1 {
+            Color::rgba(0, 0, 0, 15)
+        } else {
+            Color::TRANSPARENT
+        };
+        renderer.fill_rect(max_x, self.y, bw, bh, max_bg);
+        renderer.draw_text(max_x + (bw as i32 - 8) / 2, self.y + (bh as i32 - 8) / 2,
+                           "O", Text::SECONDARY);
 
-        // Render content
+        // Minimize button
+        let min_bg = if self.hovered_button == 2 {
+            Color::rgba(0, 0, 0, 15)
+        } else {
+            Color::TRANSPARENT
+        };
+        renderer.fill_rect(min_x, self.y, bw, bh, min_bg);
+        renderer.draw_text(min_x + (bw as i32 - 8) / 2, self.y + (bh as i32 - 8) / 2,
+                           "_", Text::SECONDARY);
+
+        // ── Border ──
+        let border_c = if is_active {
+            Surface::WINDOW_BORDER_ACTIVE
+        } else {
+            Surface::WINDOW_BORDER_INACTIVE
+        };
+        renderer.draw_rounded_rect_aa(self.x, self.y, self.width, self.height, r, border_c);
+
+        // ── Content area ──
+        let content_y = self.y + tb as i32;
+        let content_height = self.height.saturating_sub(tb);
         self.render_content(renderer, self.x, content_y, self.width, content_height);
     }
 
     /// Render window content
-    fn render_content(&self, renderer: &mut Renderer, x: i32, y: i32, _w: u32, _h: u32) {
+    fn render_content(&self, renderer: &mut Renderer, x: i32, y: i32, w: u32, h: u32) {
         match &self.content {
             WindowContent::Text(text) => {
-                renderer.draw_text(x + 10, y + 10, text, Color::BLACK);
+                renderer.draw_text(x + Spacing::MD as i32, y + Spacing::MD as i32, text, Text::PRIMARY);
             }
             WindowContent::Browser { url, content } => {
-                // Draw address bar background
-                renderer.fill_rect(x + 5, y + 5, self.width - 10, 24, Color::WHITE);
-                renderer.draw_rect(x + 5, y + 5, self.width - 10, 24, Color::GRAY);
-                
-                // Show input buffer if typing, otherwise show URL
+                // ── Address bar ──
+                let bar_h = Size::INPUT_HEIGHT;
+                let bar_x = x + Spacing::SM as i32;
+                let bar_y = y + Spacing::SM as i32;
+                let bar_w = w - Spacing::LG;
+                renderer.fill_rounded_rect_aa(bar_x, bar_y, bar_w, bar_h, Radius::INPUT,
+                                               Surface::INPUT_BG);
+                renderer.draw_rounded_rect_aa(bar_x, bar_y, bar_w, bar_h, Radius::INPUT,
+                                               Surface::INPUT_BORDER);
+
                 let display_url = if !self.input_buffer.is_empty() {
                     alloc::format!("{}|", self.input_buffer)
                 } else {
                     url.clone()
                 };
-                renderer.draw_text(x + 10, y + 9, &display_url, Color::BLACK);
+                renderer.draw_text(bar_x + Spacing::SM as i32,
+                                   bar_y + (bar_h as i32 - 8) / 2,
+                                   &display_url, Text::PRIMARY);
 
-                // Draw content area with multiline support
-                let mut line_y = y + 40;
+                // ── Page content ──
+                let mut line_y = y + Spacing::SM as i32 + bar_h as i32 + Spacing::SM as i32;
                 for line in content.lines() {
-                    renderer.draw_text(x + 10, line_y, line, Color::BLACK);
-                    line_y += 14;
+                    renderer.draw_text(x + Spacing::MD as i32, line_y, line, Text::PRIMARY);
+                    line_y += 16;
                 }
             }
             WindowContent::Terminal { lines, .. } => {
-                // Draw terminal background
-                let content_height = self.height.saturating_sub(24);
-                renderer.fill_rect(x, y, self.width, content_height, Color::BLACK);
+                // ── Terminal background ──
+                let r_bot = Radius::WINDOW;
+                renderer.fill_rounded_rect_aa(x, y, w, h, 0, TermTheme::BG);
+                // Re-round bottom corners only by drawing a small rounded rect at bottom
+                renderer.fill_rounded_rect_aa(x, y + h as i32 - r_bot as i32 * 2,
+                                               w, r_bot * 2, r_bot, TermTheme::BG);
 
-                // Calculate visible lines
-                let max_lines = (content_height / 12) as usize;
-                let visible_lines: Vec<&String> = lines.iter().rev().take(max_lines.saturating_sub(1)).collect();
-                
-                // Draw lines (oldest first)
-                let mut line_y = y + 5;
-                for line in visible_lines.iter().rev() {
-                    renderer.draw_text(x + 5, line_y, line, Color::rgb(0, 255, 0));
-                    line_y += 12;
+                // Visible lines
+                let max_lines = (h / 14) as usize;
+                let visible: Vec<&String> = lines.iter().rev().take(max_lines.saturating_sub(1)).collect();
+
+                let mut ly = y + Spacing::SM as i32;
+                for line in visible.iter().rev() {
+                    let c = if line.starts_with("$") { TermTheme::PROMPT }
+                            else if line.starts_with("kpio:") { TermTheme::ERROR }
+                            else { TermTheme::FG };
+                    renderer.draw_text(x + Spacing::SM as i32, ly, line, c);
+                    ly += 14;
                 }
-                
-                // Draw current input line with cursor
+
+                // Current input
                 let input_line = alloc::format!("$ {}|", self.input_buffer);
-                renderer.draw_text(x + 5, line_y, &input_line, Color::rgb(0, 255, 0));
+                renderer.draw_text(x + Spacing::SM as i32, ly, &input_line, TermTheme::PROMPT);
             }
             WindowContent::FileManager { path, items } => {
-                // Draw toolbar/path bar
-                renderer.fill_rect(x + 5, y + 5, self.width - 10, 24, Color::rgb(240, 240, 240));
-                renderer.draw_rect(x + 5, y + 5, self.width - 10, 24, Color::GRAY);
-                
-                // Draw back button
-                renderer.fill_rect(x + 8, y + 8, 18, 18, Color::LIGHT_GRAY);
-                renderer.draw_text(x + 12, y + 9, "<", Color::BLACK);
-                
-                // Draw path
-                renderer.draw_text(x + 35, y + 9, path, Color::BLACK);
+                // ── Path / toolbar bar ──
+                let bar_h = Size::INPUT_HEIGHT;
+                let bar_x = x + Spacing::SM as i32;
+                let bar_y = y + Spacing::SM as i32;
+                let bar_w = w - Spacing::LG;
+                renderer.fill_rounded_rect_aa(bar_x, bar_y, bar_w, bar_h, Radius::INPUT,
+                                               Surface::INPUT_BG);
+                renderer.draw_rounded_rect_aa(bar_x, bar_y, bar_w, bar_h, Radius::INPUT,
+                                               Surface::INPUT_BORDER);
 
-                // Draw column headers
-                let header_y = y + 35;
-                renderer.fill_rect(x + 5, header_y, self.width - 10, 20, Color::rgb(230, 230, 230));
-                renderer.draw_text(x + 10, header_y + 3, "Name", Color::DARK_GRAY);
-                renderer.draw_text(x + 350, header_y + 3, "Type", Color::DARK_GRAY);
-                renderer.draw_text(x + 500, header_y + 3, "Size", Color::DARK_GRAY);
+                // Back button
+                renderer.fill_rounded_rect_aa(bar_x + 2, bar_y + 2, 22, bar_h - 4,
+                                               Radius::SM, Surface::PANEL);
+                renderer.draw_text(bar_x + 8, bar_y + (bar_h as i32 - 8) / 2, "<", Text::SECONDARY);
 
-                // Draw items
-                let mut item_y = y + 60;
+                // Path
+                renderer.draw_text(bar_x + 30, bar_y + (bar_h as i32 - 8) / 2, path, Text::PRIMARY);
+
+                // ── Column headers ──
+                let hdr_y = bar_y + bar_h as i32 + Spacing::XXS as i32;
+                renderer.fill_rect(x + Spacing::SM as i32, hdr_y, bar_w, 20, Surface::PANEL);
+                renderer.draw_text(x + Spacing::LG as i32, hdr_y + 4, "Name", Text::SECONDARY);
+                renderer.draw_text(x + 350, hdr_y + 4, "Type", Text::SECONDARY);
+                renderer.draw_text(x + 500, hdr_y + 4, "Size", Text::SECONDARY);
+
+                // ── Items ──
+                let mut iy = hdr_y + 24;
                 for (i, item) in items.iter().enumerate() {
                     let is_folder = item == ".." || !item.contains('.');
-                    let is_selected = i == 0; // TODO: track selection
-                    
-                    // Alternate row colors
-                    let row_color = if i % 2 == 0 {
-                        Color::WHITE
-                    } else {
-                        Color::rgb(248, 248, 248)
-                    };
-                    renderer.fill_rect(x + 5, item_y - 2, self.width - 10, 22, row_color);
-                    
-                    // Draw icon
+                    let row_bg = if i % 2 == 0 { Surface::WINDOW_BG } else { Surface::PANEL };
+                    renderer.fill_rect(x + Spacing::SM as i32, iy - 2, bar_w, 22, row_bg);
+
+                    // Mini icon
                     if item == ".." {
-                        // Up arrow icon
-                        renderer.fill_rect(x + 12, item_y + 2, 14, 12, Color::rgb(100, 149, 237));
-                        renderer.draw_text(x + 14, item_y, "^", Color::WHITE);
+                        renderer.fill_rounded_rect_aa(x + 12, iy, 14, 14, 3, Accent::PRIMARY.with_alpha(60));
+                        renderer.draw_text(x + 15, iy + 1, "^", Text::ON_ACCENT);
                     } else if is_folder {
-                        // Folder icon (yellow)
-                        renderer.fill_rect(x + 10, item_y, 16, 14, Color::rgb(255, 200, 50));
-                        renderer.draw_rect(x + 10, item_y, 16, 14, Color::rgb(200, 150, 0));
+                        renderer.fill_rounded_rect_aa(x + 12, iy, 14, 14, 3, IconColor::FOLDER);
                     } else {
-                        // File icon (white with border)
-                        renderer.fill_rect(x + 10, item_y, 16, 14, Color::WHITE);
-                        renderer.draw_rect(x + 10, item_y, 16, 14, Color::GRAY);
+                        renderer.fill_rounded_rect_aa(x + 12, iy, 14, 14, 3, IconColor::FILE);
                     }
-                    
-                    // Draw name
-                    renderer.draw_text(x + 32, item_y, item, Color::BLACK);
-                    
-                    // Draw type
-                    let file_type = if item == ".." {
-                        "Parent"
-                    } else if is_folder {
-                        "Folder"
-                    } else if item.ends_with(".txt") {
-                        "Text"
-                    } else if item.ends_with(".pdf") {
-                        "PDF"
-                    } else if item.ends_with(".jpg") || item.ends_with(".png") {
-                        "Image"
-                    } else if item.ends_with(".mp3") {
-                        "Audio"
-                    } else if item.ends_with(".mp4") {
-                        "Video"
-                    } else if item.ends_with(".zip") {
-                        "Archive"
-                    } else if item.ends_with(".exe") {
-                        "Executable"
-                    } else {
-                        "File"
-                    };
-                    renderer.draw_text(x + 350, item_y, file_type, Color::DARK_GRAY);
-                    
-                    // Draw size (placeholder)
+
+                    renderer.draw_text(x + 32, iy + 1, item, Text::PRIMARY);
+
+                    let ftype = if item == ".." { "Parent" }
+                        else if is_folder { "Folder" }
+                        else if item.ends_with(".txt") { "Text" }
+                        else if item.ends_with(".pdf") { "PDF" }
+                        else if item.ends_with(".jpg") || item.ends_with(".png") { "Image" }
+                        else if item.ends_with(".mp3") { "Audio" }
+                        else if item.ends_with(".mp4") { "Video" }
+                        else if item.ends_with(".zip") { "Archive" }
+                        else if item.ends_with(".exe") { "Executable" }
+                        else { "File" };
+                    renderer.draw_text(x + 350, iy + 1, ftype, Text::SECONDARY);
+
                     let size = if is_folder { "-" } else { "4 KB" };
-                    renderer.draw_text(x + 500, item_y, size, Color::DARK_GRAY);
-                    
-                    item_y += 24;
+                    renderer.draw_text(x + 500, iy + 1, size, Text::SECONDARY);
+
+                    iy += 24;
                 }
-                
-                // Draw status bar
-                let status_y = (y + self.height as i32 - 24 - 24).max(item_y + 10);
-                renderer.fill_rect(x, status_y, self.width, 20, Color::rgb(240, 240, 240));
-                renderer.draw_text(x + 10, status_y + 3, 
-                    &alloc::format!("{} items", items.len()), Color::DARK_GRAY);
+
+                // Status bar
+                let status_y = (y + h as i32 - 24).max(iy + 8);
+                renderer.fill_rect(x, status_y, w, 22, Surface::PANEL);
+                renderer.draw_text(x + Spacing::MD as i32, status_y + 4,
+                    &alloc::format!("{} items", items.len()), Text::SECONDARY);
             }
             WindowContent::Settings => {
-                // Draw header
-                renderer.draw_text_scaled(x + 10, y + 10, "Settings", Color::BLACK, 2);
-                
-                // Draw setting categories
+                // ── Header ──
+                renderer.draw_text_scaled(x + Spacing::LG as i32, y + Spacing::MD as i32,
+                                          "Settings", Text::PRIMARY, 2);
+
+                // ── Category cards ──
                 let categories = [
-                    ("Display", "Resolution, brightness, theme"),
-                    ("Sound", "Volume, output device"),
-                    ("Network", "WiFi, Ethernet, VPN"),
-                    ("System", "Updates, backup, security"),
-                    ("About", "KPIO OS version 1.0"),
+                    ("Display",  "Resolution, brightness, theme"),
+                    ("Sound",    "Volume, output device"),
+                    ("Network",  "WiFi, Ethernet, VPN"),
+                    ("System",   "Updates, backup, security"),
+                    ("About",    "KPIO OS version 1.0"),
                 ];
-                
-                let mut item_y = y + 50;
+                let card_w = w - Spacing::XL * 2;
+                let card_h = 46u32;
+                let mut cy = y + 44;
                 for (name, desc) in categories {
-                    // Draw category box
-                    renderer.fill_rect(x + 10, item_y, self.width - 20, 40, Color::rgb(250, 250, 250));
-                    renderer.draw_rect(x + 10, item_y, self.width - 20, 40, Color::LIGHT_GRAY);
-                    renderer.draw_text(x + 20, item_y + 5, name, Color::BLACK);
-                    renderer.draw_text(x + 20, item_y + 20, desc, Color::GRAY);
-                    item_y += 50;
+                    renderer.fill_rounded_rect_aa(
+                        x + Spacing::LG as i32, cy, card_w, card_h,
+                        Radius::MD, Surface::PANEL,
+                    );
+                    renderer.draw_rounded_rect_aa(
+                        x + Spacing::LG as i32, cy, card_w, card_h,
+                        Radius::MD, Color::rgba(0, 0, 0, 10),
+                    );
+                    renderer.draw_text(x + Spacing::XL as i32, cy + 8, name, Text::PRIMARY);
+                    renderer.draw_text(x + Spacing::XL as i32, cy + 24, desc, Text::MUTED);
+                    cy += card_h as i32 + Spacing::SM as i32;
                 }
             }
         }

@@ -22,6 +22,7 @@ pub mod mouse;
 pub mod input;
 pub mod boot_animation;
 pub mod framebuffer;
+pub mod theme;
 
 use alloc::vec::Vec;
 use spin::Mutex;
@@ -86,7 +87,7 @@ unsafe impl Sync for GuiSystem {}
 impl GuiSystem {
     /// Create new GUI system
     pub fn new(width: u32, height: u32, bpp: usize, stride: usize, fb: *mut u8) -> Self {
-        let taskbar_height = 40;
+        let taskbar_height = theme::Size::TASKBAR_HEIGHT;
         let fb_manager = FramebufferManager::new(fb, width, height, bpp, stride);
         let mut pipeline = RenderPipeline::new(width, height, bpp, stride);
         

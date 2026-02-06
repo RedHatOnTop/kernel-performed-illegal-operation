@@ -1,8 +1,10 @@
 //! Taskbar
 //!
-//! Bottom taskbar with start menu, running apps, and system tray.
+//! Modern bottom taskbar with frosted glass appearance, rounded items,
+//! start menu and system tray.
 
 use super::render::{Color, Renderer};
+use super::theme::{Surface, Text, Accent, Radius, Spacing, Size};
 use super::WindowId;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -50,7 +52,7 @@ impl Taskbar {
             StartMenuItem { name: String::from("Files"), app_type: AppType::Files },
             StartMenuItem { name: String::from("Settings"), app_type: AppType::Settings },
         ];
-        
+
         Self {
             width,
             height,
@@ -84,77 +86,90 @@ impl Taskbar {
         }
 
         // Check taskbar items
-        let item_width = 120;
-        let start_x = 52;
-        let idx = ((x - start_x) / item_width) as usize;
-        
+        let item_width = 130i32;
+        let start_x = 54i32;
+        let idx = ((x - start_x) / (item_width + 4)) as usize;
+
         if idx < self.items.len() {
             self.hovered_item = Some(idx);
             return Some(idx);
         }
-        
+
         None
     }
 
     /// Render taskbar
     pub fn render(&self, renderer: &mut Renderer, y_offset: u32) {
         let y = y_offset as i32;
+        let h = Size::TASKBAR_HEIGHT;
 
-        // Draw start menu if open
+        // Draw start menu if open (before taskbar so it sits above)
         if self.start_menu_open {
             self.render_start_menu(renderer, y);
         }
 
-        // Draw background
-        renderer.fill_rect(0, y, self.width, self.height, Color::TASKBAR_BG);
-        
-        // Draw top border
-        renderer.draw_hline(0, y, self.width, Color::rgb(60, 60, 60));
+        // ── Background (frosted glass effect) ──
+        renderer.fill_rect(0, y, self.width, h, Surface::TASKBAR);
 
-        // Draw start button
+        // Subtle top highlight line
+        renderer.draw_hline(0, y, self.width, Surface::TASKBAR_BORDER);
+
+        // ── Start button ──
         self.render_start_button(renderer, y);
 
-        // Draw taskbar items
-        let item_width = 120;
-        let mut x = 52i32;
-        
+        // ── Running-app items ──
+        let item_width = 130i32;
+        let mut x = 54i32;
         for (i, item) in self.items.iter().enumerate() {
-            let is_hovered = self.hovered_item == Some(i);
-            self.render_item(renderer, x, y, item_width, &item.title, is_hovered);
-            x += item_width + 2;
+            let hovered = self.hovered_item == Some(i);
+            self.render_item(renderer, x, y, item_width, &item.title, hovered);
+            x += item_width + 4;
         }
 
-        // Draw clock on the right
+        // ── Clock / system tray ──
         self.render_clock(renderer, y);
     }
-    
-    /// Render start menu
+
+    // ── Start menu ──────────────────────────────────────────────
+
     fn render_start_menu(&self, renderer: &mut Renderer, taskbar_y: i32) {
-        let menu_width = 200u32;
-        let menu_height = 200u32;
-        let menu_x = 0i32;
-        let menu_y = taskbar_y - menu_height as i32;
-        
-        // Draw menu background
-        renderer.fill_rect(menu_x, menu_y, menu_width, menu_height, Color::rgb(40, 40, 40));
-        renderer.draw_rect(menu_x, menu_y, menu_width, menu_height, Color::rgb(80, 80, 80));
-        
-        // Draw header
-        renderer.fill_rect(menu_x, menu_y, menu_width, 40, Color::rgb(0, 100, 180));
-        renderer.draw_text_scaled(menu_x + 10, menu_y + 8, "KPIO", Color::WHITE, 2);
-        
-        // Draw menu items
-        let mut item_y = menu_y + 50;
+        let mw = Size::MENU_WIDTH;
+        let item_h = Size::MENU_ITEM_HEIGHT;
+        let header_h = 48u32;
+        let items_h = self.start_menu_items.len() as u32 * item_h + Spacing::SM;
+        let mh = header_h + items_h + Spacing::SM;
+        let mx = Spacing::SM as i32;
+        let my = taskbar_y - mh as i32 - Spacing::SM as i32;
+
+        // Shadow
+        renderer.draw_shadow_box(mx, my, mw, mh, Radius::MENU, 0, 6, 20,
+                                  Color::rgba(0, 0, 0, 55));
+
+        // Background
+        renderer.fill_rounded_rect_aa(mx, my, mw, mh, Radius::MENU, Surface::MENU_BG);
+        renderer.draw_rounded_rect_aa(mx, my, mw, mh, Radius::MENU,
+                                       Color::rgba(255, 255, 255, 10));
+
+        // Header gradient
+        renderer.fill_rounded_rect_aa(mx + 1, my + 1, mw - 2, header_h - 1,
+                                        Radius::MENU, Surface::MENU_HEADER);
+        renderer.draw_text_scaled(mx + Spacing::MD as i32, my + 12, "KPIO",
+                                   Text::ON_ACCENT, 2);
+
+        // Menu items
+        let mut iy = my + header_h as i32 + Spacing::XXS as i32;
         for (i, item) in self.start_menu_items.iter().enumerate() {
-            let bg = if self.hovered_start_item == Some(i) {
-                Color::rgb(60, 60, 60)
-            } else {
-                Color::rgb(40, 40, 40)
-            };
-            
-            renderer.fill_rect(menu_x + 5, item_y, menu_width - 10, 30, bg);
-            renderer.draw_text(menu_x + 15, item_y + 8, &item.name, Color::WHITE);
-            item_y += 35;
+            let hovered = self.hovered_start_item == Some(i);
+            if hovered {
+                renderer.fill_rounded_rect_aa(
+                    mx + Spacing::XXS as i32, iy,
+                    mw - Spacing::SM, item_h,
+                    Radius::SM, Surface::MENU_HOVER,
+                );
+            }
+            renderer.draw_text(mx + Spacing::LG as i32, iy + (item_h as i32 - 8) / 2,
+                               &item.name, Text::ON_DARK);
+            iy += item_h as i32;
         }
     }
 
@@ -163,64 +178,77 @@ impl Taskbar {
         if !self.start_menu_open {
             return None;
         }
-        
+
         let taskbar_y = (screen_height - self.height) as i32;
-        let menu_y = taskbar_y - 200;
-        
-        // Check if click is in menu area
-        if x >= 0 && x < 200 && y >= menu_y && y < taskbar_y {
-            let item_y_start = menu_y + 50;
-            let idx = ((y - item_y_start) / 35) as usize;
-            
-            if idx < self.start_menu_items.len() {
-                let app_type = self.start_menu_items[idx].app_type;
-                self.start_menu_open = false;
-                return Some(app_type);
+        let item_h = Size::MENU_ITEM_HEIGHT;
+        let header_h = 48u32;
+        let items_h = self.start_menu_items.len() as u32 * item_h + Spacing::SM;
+        let mh = header_h + items_h + Spacing::SM;
+        let mw = Size::MENU_WIDTH;
+        let mx = Spacing::SM as i32;
+        let my = taskbar_y - mh as i32 - Spacing::SM as i32;
+
+        if x >= mx && x < mx + mw as i32 && y >= my && y < my + mh as i32 {
+            let item_start = my + header_h as i32 + Spacing::XXS as i32;
+            if y >= item_start {
+                let idx = ((y - item_start) / item_h as i32) as usize;
+                if idx < self.start_menu_items.len() {
+                    let app_type = self.start_menu_items[idx].app_type;
+                    self.start_menu_open = false;
+                    return Some(app_type);
+                }
             }
         }
-        
+
         None
     }
 
-    /// Render start button
+    // ── Start button ────────────────────────────────────────────
+
     fn render_start_button(&self, renderer: &mut Renderer, y: i32) {
+        let bw = 44u32;
+        let bh = Size::TASKBAR_HEIGHT - 8;
+        let bx = Spacing::SM as i32;
+        let by = y + 4;
+
         let bg = if self.start_menu_open {
-            Color::rgb(50, 50, 50)
+            Surface::TASKBAR_ACTIVE
         } else {
-            Color::TASKBAR_BG
+            Surface::TASKBAR_ITEM
         };
-        
-        renderer.fill_rect(2, y + 2, 44, self.height - 4, bg);
-        
-        // Draw KPIO logo
-        renderer.draw_text_scaled(8, y + 8, "K", Color::rgb(0, 150, 255), 3);
+        renderer.fill_rounded_rect_aa(bx, by, bw, bh, Radius::TASKBAR_ITEM, bg);
+
+        // "K" logo
+        renderer.draw_text_scaled(bx + 10, by + 4, "K", Accent::PRIMARY, 3);
     }
 
-    /// Render taskbar item
-    fn render_item(&self, renderer: &mut Renderer, x: i32, y: i32, width: i32, title: &str, hovered: bool) {
-        let bg = if hovered {
-            Color::rgb(60, 60, 60)
-        } else {
-            Color::rgb(45, 45, 45)
-        };
+    // ── Taskbar item ────────────────────────────────────────────
 
-        renderer.fill_rect(x, y + 4, width as u32, self.height - 8, bg);
-        
-        // Truncate title if too long
-        let max_chars = (width / 8 - 2) as usize;
-        let display_title: String = if title.len() > max_chars {
-            title.chars().take(max_chars - 2).collect::<String>() + ".."
+    fn render_item(&self, renderer: &mut Renderer, x: i32, y: i32, width: i32, title: &str, hovered: bool) {
+        let ih = Size::TASKBAR_HEIGHT - 8;
+        let iy = y + 4;
+
+        let bg = if hovered { Surface::TASKBAR_HOVER } else { Surface::TASKBAR_ITEM };
+        renderer.fill_rounded_rect_aa(x, iy, width as u32, ih, Radius::TASKBAR_ITEM, bg);
+
+        // Truncate title
+        let max_chars = ((width - 12) / 8) as usize;
+        let display: String = if title.len() > max_chars {
+            title.chars().take(max_chars.saturating_sub(2)).collect::<String>() + ".."
         } else {
             String::from(title)
         };
-        
-        renderer.draw_text(x + 4, y + 12, &display_title, Color::WHITE);
+        renderer.draw_text(x + 8, iy as i32 + (ih as i32 - 8) / 2, &display, Text::ON_DARK);
+
+        // Active indicator dot
+        renderer.fill_circle_aa(x + width / 2, y + Size::TASKBAR_HEIGHT as i32 - 4, 2, Accent::PRIMARY);
     }
 
-    /// Render clock
+    // ── Clock ───────────────────────────────────────────────────
+
     fn render_clock(&self, renderer: &mut Renderer, y: i32) {
-        // Simple static clock for now
-        let clock_x = (self.width - 60) as i32;
-        renderer.draw_text(clock_x, y + 12, "12:00", Color::WHITE);
+        let clock_x = (self.width - 56) as i32;
+        let cy = y + (Size::TASKBAR_HEIGHT as i32 - 8) / 2;
+        renderer.draw_text(clock_x, cy, "12:00", Text::ON_DARK);
     }
 }

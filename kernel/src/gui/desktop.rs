@@ -1,8 +1,9 @@
 //! Desktop Environment
 //!
-//! Main desktop shell with wallpaper and icons.
+//! Modern desktop shell with smooth gradient background and stylish icons.
 
 use super::render::{Color, Renderer};
+use super::theme::{Surface, Text, Accent, IconColor, Radius, Spacing, Size};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -121,6 +122,17 @@ impl IconType {
             ],
         }
     }
+    
+    /// Get the accent colour for this icon type
+    pub fn color(&self) -> Color {
+        match self {
+            IconType::Files    => IconColor::FILES,
+            IconType::Browser  => IconColor::BROWSER,
+            IconType::Terminal => IconColor::TERMINAL,
+            IconType::Settings => IconColor::SETTINGS,
+            IconType::Trash    => IconColor::TRASH,
+        }
+    }
 }
 
 /// Desktop state
@@ -133,93 +145,56 @@ pub struct Desktop {
 impl Desktop {
     /// Create new desktop
     pub fn new(width: u32, height: u32) -> Self {
+        let gap = Size::DESKTOP_ICON_GAP as i32;
         let icons = alloc::vec![
-            DesktopIcon {
-                name: String::from("Files"),
-                x: 20,
-                y: 20,
-                icon_type: IconType::Files,
-            },
-            DesktopIcon {
-                name: String::from("Browser"),
-                x: 20,
-                y: 100,
-                icon_type: IconType::Browser,
-            },
-            DesktopIcon {
-                name: String::from("Terminal"),
-                x: 20,
-                y: 180,
-                icon_type: IconType::Terminal,
-            },
-            DesktopIcon {
-                name: String::from("Settings"),
-                x: 20,
-                y: 260,
-                icon_type: IconType::Settings,
-            },
-            DesktopIcon {
-                name: String::from("Trash"),
-                x: 20,
-                y: 340,
-                icon_type: IconType::Trash,
-            },
+            DesktopIcon { name: String::from("Files"),    x: 24, y: 24,              icon_type: IconType::Files },
+            DesktopIcon { name: String::from("Browser"),  x: 24, y: 24 + gap,        icon_type: IconType::Browser },
+            DesktopIcon { name: String::from("Terminal"), x: 24, y: 24 + gap * 2,    icon_type: IconType::Terminal },
+            DesktopIcon { name: String::from("Settings"),x: 24, y: 24 + gap * 3,    icon_type: IconType::Settings },
+            DesktopIcon { name: String::from("Trash"),   x: 24, y: 24 + gap * 4,    icon_type: IconType::Trash },
         ];
-
-        Self {
-            width,
-            height,
-            icons,
-        }
+        Self { width, height, icons }
     }
 
-    /// Render desktop
+    /// Render desktop with smooth gradient background
     pub fn render(&self, renderer: &mut Renderer) {
-        // Draw background gradient
-        for y in 0..self.height {
-            let factor = y as f32 / self.height as f32;
-            let r = (0.0 + factor * 20.0) as u8;
-            let g = (30.0 + factor * 30.0) as u8;
-            let b = (60.0 + factor * 60.0) as u8;
-            let color = Color::rgb(r, g, b);
-            
-            renderer.draw_hline(0, y as i32, self.width, color);
-        }
+        // Smooth gradient background
+        renderer.fill_gradient_v(0, 0, self.width, self.height,
+            Surface::DESKTOP_TOP, Surface::DESKTOP_BOTTOM);
 
-        // Draw icons
+        // Render desktop icons
         for icon in &self.icons {
             self.render_icon(renderer, icon);
         }
     }
 
-    /// Render a single icon
+    /// Render a single modern-style desktop icon
     fn render_icon(&self, renderer: &mut Renderer, icon: &DesktopIcon) {
+        let icon_area = Size::ICON_AREA;
+        let icon_size = Size::ICON_SIZE;
         let pattern = icon.icon_type.get_pattern();
-        
-        // Draw icon background
-        renderer.fill_rect(icon.x - 4, icon.y - 4, 56, 64, Color::rgba(255, 255, 255, 30));
-        
-        // Draw icon (scaled 3x)
-        let scale = 3;
-        for (row, &bits) in pattern.iter().enumerate() {
-            for col in 0..16 {
-                if (bits >> (15 - col)) & 1 == 1 {
-                    for sy in 0..scale {
-                        for sx in 0..scale {
-                            renderer.set_pixel(
-                                icon.x + col * scale + sx,
-                                icon.y + row as i32 * scale + sy,
-                                Color::WHITE,
-                            );
-                        }
-                    }
-                }
-            }
-        }
+        let tint = icon.icon_type.color();
 
-        // Draw icon name
-        let text_x = icon.x;
-        let text_y = icon.y + 50;
-        renderer.draw_text(text_x, text_y, &icon.name, Color::WHITE);
+        // Translucent background pill behind the icon
+        renderer.fill_rounded_rect_aa(
+            icon.x - 4, icon.y - 4,
+            icon_area, icon_area + 16,
+            Radius::ICON,
+            Color::rgba(255, 255, 255, 14),
+        );
+
+        // Draw the icon bitmap, scaled 2× with AA fringe
+        let scale = 2i32;
+        let ix = icon.x + (icon_area as i32 - 16 * scale) / 2;
+        let iy = icon.y + 4;
+        renderer.draw_icon_scaled(ix, iy, &pattern, tint, scale);
+
+        // Icon label (centered below)
+        let name_len = icon.name.len() as i32 * 8;
+        let name_x = icon.x + (icon_area as i32 - name_len) / 2;
+        let name_y = icon.y + icon_area as i32 - 6;
+        // Text shadow for readability
+        renderer.draw_text(name_x + 1, name_y + 1, &icon.name, Color::rgba(0, 0, 0, 120));
+        renderer.draw_text(name_x, name_y, &icon.name, Text::ON_DARK);
     }
 }
