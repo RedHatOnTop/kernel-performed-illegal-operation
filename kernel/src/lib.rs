@@ -34,6 +34,7 @@ pub mod scheduler;
 pub mod security;
 pub mod serial;
 pub mod syscall;
+pub mod terminal;
 pub mod test;
 pub mod crash;
 pub mod update;

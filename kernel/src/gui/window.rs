@@ -5,77 +5,37 @@
 
 use super::render::{Color, Renderer};
 use super::theme::{Surface, Text, Accent, Shadow, Spacing, Radius, Size, TermTheme, IconColor, Shadows};
+use crate::terminal;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-/// Get folder contents for virtual filesystem
+/// Get folder contents from the in-memory filesystem
 fn get_folder_contents(path: &str) -> Vec<String> {
-    match path {
-        "/" => alloc::vec![
-            String::from("home"),
-            String::from("etc"),
-            String::from("usr"),
-            String::from("var"),
-            String::from("tmp"),
-        ],
-        "/home" => alloc::vec![
-            String::from(".."),
-            String::from("Documents"),
-            String::from("Downloads"),
-            String::from("Pictures"),
-            String::from("Music"),
-            String::from("Videos"),
-        ],
-        "/home/Documents" => alloc::vec![
-            String::from(".."),
-            String::from("readme.txt"),
-            String::from("notes.txt"),
-            String::from("report.pdf"),
-        ],
-        "/home/Downloads" => alloc::vec![
-            String::from(".."),
-            String::from("installer.exe"),
-            String::from("archive.zip"),
-        ],
-        "/home/Pictures" => alloc::vec![
-            String::from(".."),
-            String::from("vacation.jpg"),
-            String::from("screenshot.png"),
-        ],
-        "/home/Music" => alloc::vec![
-            String::from(".."),
-            String::from("track01.mp3"),
-            String::from("album/"),
-        ],
-        "/home/Videos" => alloc::vec![
-            String::from(".."),
-            String::from("tutorial.mp4"),
-        ],
-        "/etc" => alloc::vec![
-            String::from(".."),
-            String::from("passwd"),
-            String::from("hosts"),
-            String::from("config/"),
-        ],
-        "/usr" => alloc::vec![
-            String::from(".."),
-            String::from("bin/"),
-            String::from("lib/"),
-            String::from("share/"),
-        ],
-        "/var" => alloc::vec![
-            String::from(".."),
-            String::from("log/"),
-            String::from("cache/"),
-        ],
-        "/tmp" => alloc::vec![
-            String::from(".."),
-        ],
-        _ => {
-            // Default: show parent link
-            alloc::vec![String::from("..")]
+    terminal::fs::with_fs(|fs| {
+        let ino = match fs.resolve(path) {
+            Some(i) => i,
+            None => return alloc::vec![String::from("..")],
+        };
+        match fs.readdir(ino) {
+            Some(entries) => {
+                let mut items = Vec::new();
+                if path != "/" { items.push(String::from("..")); }
+                let mut sorted: Vec<(String, bool)> = entries.iter().map(|(name, child_ino)| {
+                    let is_dir = fs.get(*child_ino).map(|n| n.mode.is_dir()).unwrap_or(false);
+                    (name.clone(), is_dir)
+                }).collect();
+                sorted.sort_by(|a, b| {
+                    // Directories first, then by name
+                    b.1.cmp(&a.1).then(a.0.cmp(&b.0))
+                });
+                for (name, _) in sorted {
+                    items.push(name);
+                }
+                items
+            }
+            None => alloc::vec![String::from("..")],
         }
-    }
+    })
 }
 
 /// Window identifier
@@ -175,28 +135,27 @@ impl Window {
 
     /// Create terminal window
     pub fn new_terminal(id: WindowId, x: i32, y: i32) -> Self {
+        let prompt = terminal::shell::with_shell(|sh| sh.prompt());
         Self {
             id,
             title: String::from("Terminal"),
             x,
             y,
-            width: 640,
-            height: 400,
+            width: 720,
+            height: 460,
             state: WindowState::Normal,
             content: WindowContent::Terminal {
                 lines: alloc::vec![
-                    String::from("KPIO Terminal v1.0"),
-                    String::from("Type 'help' for commands"),
+                    String::from("KPIO Shell v2.0 — Type 'help' for commands"),
                     String::from(""),
-                    String::from("$ _"),
                 ],
                 cursor_pos: 0,
             },
             input_buffer: String::new(),
             saved_x: x,
             saved_y: y,
-            saved_width: 640,
-            saved_height: 400,
+            saved_width: 720,
+            saved_height: 460,
             hovered_button: -1,
             scroll_y: 0,
         }
@@ -413,87 +372,26 @@ impl Window {
         match &mut self.content {
             WindowContent::Terminal { lines, .. } => {
                 if key == '\n' {
-                    // Execute command
+                    // Execute command via shell engine
                     let cmd = self.input_buffer.clone();
-                    lines.push(alloc::format!("$ {}", cmd));
-                    
-                    // Parse and execute command
-                    let parts: Vec<&str> = cmd.split_whitespace().collect();
-                    if !parts.is_empty() {
-                        match parts[0] {
-                            "help" => {
-                                lines.push(String::from("KPIO Terminal - Available commands:"));
-                                lines.push(String::from("  help     - Show this help"));
-                                lines.push(String::from("  clear    - Clear screen"));
-                                lines.push(String::from("  echo     - Print text"));
-                                lines.push(String::from("  uname    - System information"));
-                                lines.push(String::from("  whoami   - Current user"));
-                                lines.push(String::from("  date     - Show date"));
-                                lines.push(String::from("  ls       - List files"));
-                                lines.push(String::from("  pwd      - Print working directory"));
-                                lines.push(String::from("  cat      - Display file contents"));
-                                lines.push(String::from("  neofetch - System info"));
-                            }
-                            "clear" => {
+                    let prompt = terminal::shell::with_shell(|sh| sh.prompt());
+                    lines.push(alloc::format!("{}{}", prompt, cmd));
+
+                    if !cmd.trim().is_empty() {
+                        let result = terminal::shell::execute(&cmd);
+                        for line in &result {
+                            if line == "\x1B[CLEAR]" {
                                 lines.clear();
-                            }
-                            "echo" => {
-                                let text = parts[1..].join(" ");
-                                lines.push(text);
-                            }
-                            "uname" => {
-                                if parts.len() > 1 && parts[1] == "-a" {
-                                    lines.push(String::from("KPIO 1.0.0 x86_64 KPIO-Kernel"));
-                                } else {
-                                    lines.push(String::from("KPIO"));
-                                }
-                            }
-                            "whoami" => {
-                                lines.push(String::from("root"));
-                            }
-                            "date" => {
-                                lines.push(String::from("Wed Feb  4 12:00:00 KST 2026"));
-                            }
-                            "ls" => {
-                                lines.push(String::from("Documents  Downloads  Pictures  Music  Videos"));
-                            }
-                            "pwd" => {
-                                lines.push(String::from("/home/root"));
-                            }
-                            "cat" => {
-                                if parts.len() > 1 {
-                                    lines.push(alloc::format!("cat: {}: File contents here", parts[1]));
-                                } else {
-                                    lines.push(String::from("cat: missing file operand"));
-                                }
-                            }
-                            "neofetch" => {
-                                lines.push(String::from(""));
-                                lines.push(String::from("  _  ______  ___ ___  "));
-                                lines.push(String::from(" | |/ /  _ \\|_ _/ _ \\ "));
-                                lines.push(String::from(" | ' /| |_) || | | | |"));
-                                lines.push(String::from(" | . \\|  __/ | | |_| |"));
-                                lines.push(String::from(" |_|\\_\\_|   |___\\___/ "));
-                                lines.push(String::from(""));
-                                lines.push(String::from(" OS: KPIO 1.0.0"));
-                                lines.push(String::from(" Kernel: x86_64"));
-                                lines.push(String::from(" Shell: kpio-term"));
-                                lines.push(String::from(" Resolution: 1280x720"));
-                                lines.push(String::from(" CPU: QEMU Virtual CPU"));
-                                lines.push(String::from(" Memory: 512 MB"));
-                            }
-                            "" => {}
-                            _ => {
-                                lines.push(alloc::format!("kpio: command not found: {}", parts[0]));
+                            } else {
+                                lines.push(line.clone());
                             }
                         }
                     }
-                    
-                    lines.push(String::from("$ "));
+
                     self.input_buffer.clear();
-                    
-                    // Keep only last 50 lines
-                    while lines.len() > 50 {
+
+                    // Keep only last 500 lines for scrollback
+                    while lines.len() > 500 {
                         lines.remove(0);
                     }
                 } else if key == '\x08' {
@@ -663,20 +561,35 @@ impl Window {
                                                w, r_bot * 2, r_bot, TermTheme::BG);
 
                 // Visible lines
-                let max_lines = (h / 14) as usize;
-                let visible: Vec<&String> = lines.iter().rev().take(max_lines.saturating_sub(1)).collect();
+                let line_height = 14u32;
+                let max_lines = ((h.saturating_sub(Spacing::SM + Spacing::SM)) / line_height) as usize;
+                let prompt = terminal::shell::with_shell(|sh| sh.prompt());
+
+                // Reserve 1 line for current input
+                let available = max_lines.saturating_sub(1);
+                let visible: Vec<&String> = if lines.len() > available {
+                    lines[lines.len() - available..].iter().collect()
+                } else {
+                    lines.iter().collect()
+                };
 
                 let mut ly = y + Spacing::SM as i32;
-                for line in visible.iter().rev() {
-                    let c = if line.starts_with("$") { TermTheme::PROMPT }
-                            else if line.starts_with("kpio:") { TermTheme::ERROR }
+                for line in &visible {
+                    let c = if line.contains("@") && line.contains("$") { TermTheme::PROMPT }
+                            else if line.starts_with("  ") || line.starts_with("──") { TermTheme::FG }
+                            else if line.contains(": command not found")
+                                 || line.contains(": No such file")
+                                 || line.contains(": cannot ")
+                                 || line.contains(": missing ")
+                                 || line.contains(": error")
+                                 || line.contains(": invalid") { TermTheme::ERROR }
                             else { TermTheme::FG };
                     renderer.draw_text(x + Spacing::SM as i32, ly, line, c);
-                    ly += 14;
+                    ly += line_height as i32;
                 }
 
-                // Current input
-                let input_line = alloc::format!("$ {}|", self.input_buffer);
+                // Current input with prompt
+                let input_line = alloc::format!("{}{}|", prompt, self.input_buffer);
                 renderer.draw_text(x + Spacing::SM as i32, ly, &input_line, TermTheme::PROMPT);
             }
             WindowContent::FileManager { path, items } => {

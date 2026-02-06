@@ -39,6 +39,7 @@ mod memory;
 mod panic;
 mod scheduler;
 mod serial;
+mod terminal;
 mod wasm;
 
 #[cfg(test)]
@@ -129,6 +130,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] Initializing scheduler...");
     scheduler::init();
     serial_println!("[KPIO] Scheduler initialized");
+
+    // Phase 6.5: Terminal filesystem & shell
+    serial_println!("[KPIO] Initializing terminal subsystem...");
+    terminal::fs::init();
+    terminal::shell::init();
+    serial_println!("[KPIO] Terminal subsystem ready (50+ commands)");
 
     // Phase 7: APIC initialization (Phase 1 feature)
     serial_println!("[KPIO] Initializing APIC...");
