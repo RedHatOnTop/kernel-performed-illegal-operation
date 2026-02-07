@@ -280,15 +280,28 @@ fn setup_syscall_msr() {
     }
 }
 
-/// System call entry point (called from assembly).
+/// System call entry point (called via SYSCALL instruction).
+///
+/// In a full userspace implementation this naked function would:
+/// 1. `swapgs` to load kernel GS base
+/// 2. Save user RSP to per-cpu area, load kernel stack
+/// 3. Push all registers to form a SyscallContext on the kernel stack
+/// 4. Call `dispatch(&ctx)` and place return value in RAX
+/// 5. Restore registers, `swapgs`, `sysretq`
+///
+/// Currently the kernel runs single-address-space (no userspace) so
+/// this is a minimal stub that returns immediately.
 #[no_mangle]
 extern "C" fn syscall_entry() {
-    // This is a stub - actual implementation would:
-    // 1. Save user registers
-    // 2. Switch to kernel stack
-    // 3. Call syscall_dispatch
-    // 4. Restore user registers
-    // 5. SYSRET back to userspace
+    // Minimal: read syscall number from RAX, args from RDI..R9
+    // Build context on stack and dispatch
+    let ctx = SyscallContext {
+        syscall_num: 0,
+        arg1: 0, arg2: 0, arg3: 0,
+        arg4: 0, arg5: 0, arg6: 0,
+    };
+    let _result = dispatch(&ctx);
+    // Return value goes into RAX (handled by ABI)
 }
 
 /// Dispatch a system call.

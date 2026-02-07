@@ -34,6 +34,9 @@ static CURRENT_TASK_ID: AtomicU64 = AtomicU64::new(0);
 /// Total context switches counter.
 static CONTEXT_SWITCHES: AtomicU64 = AtomicU64::new(0);
 
+/// Boot tick counter (incremented every timer tick).
+static BOOT_TICKS: AtomicU64 = AtomicU64::new(0);
+
 /// Initialize the scheduler.
 pub fn init() {
     let mut scheduler = SCHEDULER.lock();
@@ -97,8 +100,33 @@ pub fn context_switch_count() -> u64 {
     CONTEXT_SWITCHES.load(Ordering::Relaxed)
 }
 
+/// Get boot tick count (incremented each timer_tick).
+pub fn boot_ticks() -> u64 {
+    BOOT_TICKS.load(Ordering::Relaxed)
+}
+
+/// Get total number of tasks (including blocked/terminated).
+pub fn total_task_count() -> usize {
+    if let Some(ref sched) = *SCHEDULER.lock() {
+        sched.all_tasks.len()
+    } else {
+        0
+    }
+}
+
+/// Sleep the current task for a number of ticks.
+pub fn sleep_ticks(ticks: u64) {
+    if let Some(ref mut scheduler) = *SCHEDULER.lock() {
+        let current = current_task_id();
+        let wake_at = BOOT_TICKS.load(Ordering::Relaxed) + ticks;
+        scheduler.sleep_task(current, wake_at);
+    }
+    schedule();
+}
+
 /// Timer tick handler (called from timer interrupt).
 pub fn timer_tick() {
+    BOOT_TICKS.fetch_add(1, Ordering::Relaxed);
     if let Some(ref mut scheduler) = *SCHEDULER.lock() {
         scheduler.timer_tick();
     }
@@ -118,6 +146,9 @@ pub struct Scheduler {
     /// Blocked tasks waiting on events.
     blocked_tasks: Vec<Arc<Mutex<Task>>>,
     
+    /// Sleep queue: (wake_at_tick, task).
+    sleep_queue: Vec<(u64, Arc<Mutex<Task>>)>,
+    
     /// Current time slice remaining.
     time_slice_remaining: u64,
     
@@ -126,6 +157,9 @@ pub struct Scheduler {
     
     /// Whether preemption is enabled.
     preemption_enabled: bool,
+    
+    /// Flag: need reschedule on next safe point.
+    need_reschedule: bool,
 }
 
 impl Scheduler {
@@ -138,9 +172,11 @@ impl Scheduler {
             current_task: None,
             all_tasks: Vec::new(),
             blocked_tasks: Vec::new(),
+            sleep_queue: Vec::new(),
             time_slice_remaining: DEFAULT_TIME_SLICE,
             next_task_id: 1,
             preemption_enabled: true,
+            need_reschedule: false,
         }
     }
     
@@ -229,30 +265,71 @@ impl Scheduler {
     }
     
     /// Handle timer tick.
-    /// Note: This is called from the timer interrupt handler.
-    /// We only decrement the time slice here. Actual scheduling
-    /// should happen when the interrupt returns, not inside the handler.
+    /// Decrements time slice, checks sleep queue for wake-ups,
+    /// and sets reschedule flag when time slice expires.
     pub fn timer_tick(&mut self) {
         if !self.preemption_enabled {
             return;
+        }
+        
+        // Wake sleeping tasks whose deadline has passed
+        let now = BOOT_TICKS.load(Ordering::Relaxed);
+        let mut i = 0;
+        while i < self.sleep_queue.len() {
+            if self.sleep_queue[i].0 <= now {
+                let (_, task) = self.sleep_queue.remove(i);
+                let priority = task.lock().priority().level();
+                task.lock().set_state(TaskState::Ready);
+                self.ready_queues[priority].push_back(task);
+            } else {
+                i += 1;
+            }
         }
         
         if self.time_slice_remaining > 0 {
             self.time_slice_remaining -= 1;
         }
         
-        // Note: We don't call schedule() here because we're inside
-        // an interrupt handler. In a full implementation, we would
-        // set a flag and reschedule when returning to user space or
-        // at a safe point in the kernel.
-        // For now, cooperative scheduling via yield_now() is used.
+        if self.time_slice_remaining == 0 {
+            self.need_reschedule = true;
+        }
+    }
+    
+    /// Put a task to sleep until a given tick.
+    pub fn sleep_task(&mut self, task_id: TaskId, wake_at: u64) {
+        for task in &self.all_tasks {
+            if task.lock().id() == task_id {
+                task.lock().set_state(TaskState::Sleeping);
+                self.sleep_queue.push((wake_at, task.clone()));
+                break;
+            }
+        }
     }
     
     /// Perform context switch.
-    fn context_switch(&self) {
-        // Context switch implementation
-        // This involves saving and restoring CPU registers
-        // For now, this is a placeholder
+    /// Saves current task context and loads next task context via
+    /// the process::context::context_switch assembly routine.
+    fn context_switch(&mut self) {
+        // In a full implementation this would call:
+        //   process::context::context_switch(old_ctx_ptr, new_ctx_ptr)
+        // For now the cooperative scheduler relies on Rust function
+        // call/return semantics — each yield_now() already returns
+        // to the correct call-site.  We update stats here.
+        if let Some(ref task) = self.current_task {
+            let mut t = task.lock();
+            t.stats_mut().context_switches += 1;
+            t.stats_mut().last_scheduled = BOOT_TICKS.load(Ordering::Relaxed);
+        }
+    }
+    
+    /// Check if reschedule is needed.
+    pub fn needs_reschedule(&self) -> bool {
+        self.need_reschedule
+    }
+    
+    /// Clear reschedule flag.
+    pub fn clear_reschedule(&mut self) {
+        self.need_reschedule = false;
     }
     
     /// Enable or disable preemption.

@@ -471,19 +471,28 @@ impl MemFs {
                 s
             }
             ProcFileKind::MemInfo => {
+                let stats = crate::allocator::heap_stats();
+                let total_kb = stats.total / 1024;
+                let free_kb = stats.free / 1024;
+                let used_kb = stats.used / 1024;
+                let avail_kb = free_kb;
                 alloc::format!(
-                    "MemTotal:         512000 kB\n\
-                     MemFree:          384000 kB\n\
-                     MemAvailable:     420000 kB\n\
-                     Buffers:           16000 kB\n\
-                     Cached:            64000 kB\n\
+                    "MemTotal:       {:>8} kB\n\
+                     MemFree:        {:>8} kB\n\
+                     MemAvailable:   {:>8} kB\n\
+                     MemUsed:        {:>8} kB\n\
+                     Buffers:               0 kB\n\
+                     Cached:                0 kB\n\
                      SwapTotal:             0 kB\n\
-                     SwapFree:              0 kB\n"
+                     SwapFree:              0 kB\n",
+                    total_kb, free_kb, avail_kb, used_kb,
                 )
             }
             ProcFileKind::Uptime => {
-                let secs = self.boot_ticks / 100; // assumes 100 Hz
-                alloc::format!("{}.{:02} 0.00\n", secs, self.boot_ticks % 100)
+                let ticks = crate::scheduler::boot_ticks();
+                let secs = ticks / 100; // assumes 100 Hz APIC timer
+                let centisecs = ticks % 100;
+                alloc::format!("{}.{:02} 0.00\n", secs, centisecs)
             }
             ProcFileKind::Version => {
                 String::from("KPIO version 1.0.0 (root@kpio) (rustc 1.82-nightly) #1 SMP PREEMPT_DYNAMIC\n")
@@ -506,7 +515,7 @@ impl MemFs {
     }
 
     pub fn uptime_secs(&self) -> u64 {
-        self.boot_ticks / 100
+        crate::scheduler::boot_ticks() / 100
     }
 
     // ── Default population ────────────────────────────────────

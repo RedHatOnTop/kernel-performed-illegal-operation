@@ -1533,16 +1533,26 @@ fn cmd_uptime(_args: &[String]) -> CmdResult {
 
 fn cmd_free(args: &[String]) -> CmdResult {
     let human = args.iter().any(|a| a == "-h");
+    let stats = crate::allocator::heap_stats();
+    let total_kb = stats.total / 1024;
+    let used_kb = stats.used / 1024;
+    let free_kb = stats.free / 1024;
     let output = if human {
+        let hs = |kb: usize| -> String {
+            if kb >= 1024 { format!("{}Mi", kb / 1024) }
+            else { format!("{}Ki", kb) }
+        };
         vec![
             String::from("              total        used        free      shared  buff/cache   available"),
-            String::from("Mem:          500Mi        64Mi       384Mi        0.0Ki        52Mi       420Mi"),
+            format!("Mem:       {:>8}    {:>8}    {:>8}        0Ki          0Ki    {:>8}",
+                    hs(total_kb), hs(used_kb), hs(free_kb), hs(free_kb)),
             String::from("Swap:           0Mi          0Mi         0Mi"),
         ]
     } else {
         vec![
             String::from("              total        used        free      shared  buff/cache   available"),
-            String::from("Mem:         512000       65536      393216           0       53248      430080"),
+            format!("Mem:       {:>8}    {:>8}    {:>8}           0           0    {:>8}",
+                    total_kb, used_kb, free_kb, free_kb),
             String::from("Swap:             0           0           0"),
         ]
     };
@@ -1551,17 +1561,25 @@ fn cmd_free(args: &[String]) -> CmdResult {
 
 fn cmd_top(_args: &[String]) -> CmdResult {
     let secs = fs::with_fs(|fs| fs.uptime_secs());
+    let stats = crate::allocator::heap_stats();
+    let total_mb = stats.total / (1024 * 1024);
+    let free_mb = stats.free / (1024 * 1024);
+    let used_mb = stats.used / (1024 * 1024);
+    let avail_mb = free_mb;
+    let tasks = crate::scheduler::total_task_count();
+    let ctx = crate::scheduler::context_switch_count();
     let output = vec![
         format!("top - up {}:{:02}, 1 user, load average: 0.00, 0.00, 0.00", secs / 3600, (secs % 3600) / 60),
-        String::from("Tasks:   3 total,   1 running,   2 sleeping,   0 stopped"),
+        format!("Tasks: {:>3} total,   1 running, {:>3} sleeping,   0 stopped", tasks, tasks.saturating_sub(1)),
         String::from("%Cpu(s):  0.3 us,  0.2 sy,  0.0 ni, 99.5 id,  0.0 wa"),
-        String::from("MiB Mem:   500.0 total,   384.0 free,    64.0 used,    52.0 buff/cache"),
-        String::from("MiB Swap:    0.0 total,     0.0 free,     0.0 used.   420.0 avail Mem"),
+        format!("MiB Mem:  {:>5}.0 total,  {:>5}.0 free,  {:>5}.0 used,    0.0 buff/cache",
+                total_mb, free_mb, used_mb),
+        format!("MiB Swap:    0.0 total,     0.0 free,     0.0 used, {:>5}.0 avail Mem", avail_mb),
         String::new(),
         String::from("  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND"),
-        String::from("    1 root      20   0    1024    512    256 S   0.0   0.1   0:00.10 init"),
-        String::from("    2 root      20   0    2048   1024    512 S   0.0   0.2   0:00.05 kpio-gui"),
-        String::from("    3 root      20   0    1024    256    128 R   0.3   0.0   0:00.01 top"),
+        format!("    0 root      20   0    {:>4}    {:>4}      0 S   0.0   0.0   0:00.00 kernel", used_mb, used_mb),
+        String::from("    1 root      20   0       0      0      0 S   0.0   0.0   0:00.00 idle"),
+        format!("    - root      20   0       0      0      0 R   0.0   0.0   ctx:{}", ctx),
     ];
     CmdResult::ok(output)
 }

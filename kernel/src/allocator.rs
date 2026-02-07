@@ -77,3 +77,26 @@ pub fn init_heap(
 fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
     panic!("allocation error: {:?}", layout)
 }
+
+/// Heap usage statistics.
+#[derive(Debug, Clone, Copy)]
+pub struct HeapStats {
+    /// Total heap size in bytes.
+    pub total: usize,
+    /// Used heap size in bytes.
+    pub used: usize,
+    /// Free heap size in bytes.
+    pub free: usize,
+}
+
+/// Get current heap usage statistics.
+pub fn heap_stats() -> HeapStats {
+    let allocator = ALLOCATOR.lock();
+    let free = allocator.free();
+    let used = allocator.used();
+    HeapStats {
+        total: HEAP_SIZE,
+        used,
+        free,
+    }
+}

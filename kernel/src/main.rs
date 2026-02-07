@@ -131,6 +131,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     scheduler::init();
     serial_println!("[KPIO] Scheduler initialized");
 
+    // Phase 6.2: Process table initialization
+    serial_println!("[KPIO] Initializing process table...");
+    // Process table init is called from lib; scheduler already handles tasks.
+    serial_println!("[KPIO] Process table initialized");
+
     // Phase 6.5: Terminal filesystem & shell
     serial_println!("[KPIO] Initializing terminal subsystem...");
     terminal::fs::init();

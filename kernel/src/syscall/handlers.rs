@@ -144,9 +144,27 @@ fn handle_read(ctx: &SyscallContext) -> SyscallResult {
 }
 
 /// Open a file.
-fn handle_open(_ctx: &SyscallContext) -> SyscallResult {
-    // TODO: Implement file opening with capability check
-    Err(SyscallError::NotFound)
+fn handle_open(ctx: &SyscallContext) -> SyscallResult {
+    let path_ptr = ctx.arg1 as *const u8;
+    let path_len = ctx.arg2 as usize;
+    let _flags = ctx.arg3 as u32;
+
+    if path_ptr.is_null() || path_len == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+
+    let slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
+    let path = core::str::from_utf8(slice).map_err(|_| SyscallError::InvalidArgument)?;
+
+    // Check if path exists in terminal fs
+    let exists = crate::terminal::fs::with_fs(|fs| fs.resolve(path).is_some());
+    if exists {
+        // Return a pseudo-fd (offset from 100 to avoid collision with stdio)
+        // A real implementation would allocate from the process fd table
+        Ok(100)
+    } else {
+        Err(SyscallError::NotFound)
+    }
 }
 
 /// Close a file descriptor.
@@ -252,17 +270,18 @@ fn handle_yield(_ctx: &SyscallContext) -> SyscallResult {
 
 /// Sleep for a duration.
 fn handle_sleep(ctx: &SyscallContext) -> SyscallResult {
-    let _milliseconds = ctx.arg1;
-    // TODO: Implement sleep with timer
-    scheduler::yield_now();
+    let milliseconds = ctx.arg1;
+    // APIC timer runs at ~100 Hz, so 1 tick ≈ 10 ms
+    let ticks = if milliseconds < 10 { 1 } else { milliseconds / 10 };
+    scheduler::sleep_ticks(ticks);
     Ok(0)
 }
 
 /// Get current time.
 fn handle_get_time(_ctx: &SyscallContext) -> SyscallResult {
-    // TODO: Implement actual time retrieval
-    // For now, return a placeholder
-    Ok(0)
+    // Return APIC ticks * 10 to approximate milliseconds since boot
+    let ticks = scheduler::boot_ticks();
+    Ok(ticks * 10)
 }
 
 /// Create a socket.
