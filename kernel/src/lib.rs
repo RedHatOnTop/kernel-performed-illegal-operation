@@ -36,6 +36,7 @@ pub mod serial;
 pub mod syscall;
 pub mod terminal;
 pub mod test;
+pub mod vfs;
 pub mod crash;
 pub mod update;
 pub mod i18n;

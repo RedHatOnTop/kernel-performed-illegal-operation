@@ -110,8 +110,12 @@ fn handle_write(ctx: &SyscallContext) -> SyscallResult {
         return Ok(len as u64);
     }
     
-    // TODO: Handle other file descriptors
-    Err(SyscallError::NotFound)
+    // Other fds: route through VFS
+    let slice = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
+    match crate::vfs::fd::write(fd as i32, slice) {
+        Ok(n) => Ok(n as u64),
+        Err(_) => Err(SyscallError::NotFound),
+    }
 }
 
 /// Read from a file descriptor.
@@ -139,15 +143,23 @@ fn handle_read(ctx: &SyscallContext) -> SyscallResult {
         return Ok(count as u64);
     }
     
-    // TODO: Handle other file descriptors
-    Err(SyscallError::NotFound)
+    // Other fds: route through VFS
+    match crate::vfs::fd::read(fd as i32, len) {
+        Ok(data) => {
+            let copy_len = data.len().min(len);
+            let dest = unsafe { core::slice::from_raw_parts_mut(buf_ptr, copy_len) };
+            dest.copy_from_slice(&data[..copy_len]);
+            Ok(copy_len as u64)
+        }
+        Err(_) => Err(SyscallError::NotFound),
+    }
 }
 
 /// Open a file.
 fn handle_open(ctx: &SyscallContext) -> SyscallResult {
     let path_ptr = ctx.arg1 as *const u8;
     let path_len = ctx.arg2 as usize;
-    let _flags = ctx.arg3 as u32;
+    let flags = ctx.arg3 as u32;
 
     if path_ptr.is_null() || path_len == 0 {
         return Err(SyscallError::InvalidArgument);
@@ -156,21 +168,19 @@ fn handle_open(ctx: &SyscallContext) -> SyscallResult {
     let slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
     let path = core::str::from_utf8(slice).map_err(|_| SyscallError::InvalidArgument)?;
 
-    // Check if path exists in terminal fs
-    let exists = crate::terminal::fs::with_fs(|fs| fs.resolve(path).is_some());
-    if exists {
-        // Return a pseudo-fd (offset from 100 to avoid collision with stdio)
-        // A real implementation would allocate from the process fd table
-        Ok(100)
-    } else {
-        Err(SyscallError::NotFound)
+    match crate::vfs::fd::open(path, flags) {
+        Ok(fd) => Ok(fd as u64),
+        Err(_) => Err(SyscallError::NotFound),
     }
 }
 
 /// Close a file descriptor.
-fn handle_close(_ctx: &SyscallContext) -> SyscallResult {
-    // TODO: Implement file closing
-    Ok(0)
+fn handle_close(ctx: &SyscallContext) -> SyscallResult {
+    let fd = ctx.arg1 as i32;
+    match crate::vfs::fd::close(fd) {
+        Ok(()) => Ok(0),
+        Err(_) => Err(SyscallError::InvalidArgument),
+    }
 }
 
 /// Memory map.

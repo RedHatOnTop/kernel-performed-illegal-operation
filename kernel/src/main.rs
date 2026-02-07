@@ -40,6 +40,7 @@ mod panic;
 mod scheduler;
 mod serial;
 mod terminal;
+mod vfs;
 mod wasm;
 
 #[cfg(test)]
@@ -141,6 +142,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     terminal::fs::init();
     terminal::shell::init();
     serial_println!("[KPIO] Terminal subsystem ready (50+ commands)");
+
+    // Phase 6.6: VFS & file descriptor table
+    serial_println!("[KPIO] Initializing VFS...");
+    vfs::fd::init();
+    serial_println!("[KPIO] VFS initialized (fd table ready)");
 
     // Phase 7: APIC initialization (Phase 1 feature)
     serial_println!("[KPIO] Initializing APIC...");
