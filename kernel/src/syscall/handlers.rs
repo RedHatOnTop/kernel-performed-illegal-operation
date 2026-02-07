@@ -295,39 +295,88 @@ fn handle_get_time(_ctx: &SyscallContext) -> SyscallResult {
 }
 
 /// Create a socket.
-fn handle_socket_create(_ctx: &SyscallContext) -> SyscallResult {
-    // TODO: Implement socket creation
-    Err(SyscallError::NotFound)
+fn handle_socket_create(ctx: &SyscallContext) -> SyscallResult {
+    let sock_type = ctx.arg1 as u32; // 0 = TCP, 1 = UDP
+    let _ = sock_type; // Currently only TCP
+    let conn_id = crate::net::tcp::create();
+    Ok(conn_id.0)
 }
 
 /// Bind a socket.
-fn handle_socket_bind(_ctx: &SyscallContext) -> SyscallResult {
-    Err(SyscallError::NotFound)
+fn handle_socket_bind(ctx: &SyscallContext) -> SyscallResult {
+    let conn_id = crate::net::tcp::ConnId(ctx.arg1);
+    let port = ctx.arg2 as u16;
+    match crate::net::tcp::listen(conn_id, port) {
+        Ok(()) => Ok(0),
+        Err(_) => Err(SyscallError::InvalidArgument),
+    }
 }
 
 /// Listen on a socket.
-fn handle_socket_listen(_ctx: &SyscallContext) -> SyscallResult {
-    Err(SyscallError::NotFound)
+fn handle_socket_listen(ctx: &SyscallContext) -> SyscallResult {
+    // listen is combined with bind above
+    let conn_id = crate::net::tcp::ConnId(ctx.arg1);
+    let port = ctx.arg2 as u16;
+    match crate::net::tcp::listen(conn_id, port) {
+        Ok(()) => Ok(0),
+        Err(_) => Err(SyscallError::InvalidArgument),
+    }
 }
 
 /// Accept a connection.
-fn handle_socket_accept(_ctx: &SyscallContext) -> SyscallResult {
-    Err(SyscallError::NotFound)
+fn handle_socket_accept(ctx: &SyscallContext) -> SyscallResult {
+    // Loopback-only: no inbound connections yet
+    let _conn_id = crate::net::tcp::ConnId(ctx.arg1);
+    Err(SyscallError::WouldBlock)
 }
 
 /// Connect to a remote address.
-fn handle_socket_connect(_ctx: &SyscallContext) -> SyscallResult {
-    Err(SyscallError::NotFound)
+fn handle_socket_connect(ctx: &SyscallContext) -> SyscallResult {
+    let conn_id = crate::net::tcp::ConnId(ctx.arg1);
+    let ip_raw = ctx.arg2 as u32;
+    let port = ctx.arg3 as u16;
+    let ip = crate::net::Ipv4Addr([
+        (ip_raw >> 24) as u8,
+        (ip_raw >> 16) as u8,
+        (ip_raw >> 8) as u8,
+        ip_raw as u8,
+    ]);
+    let addr = crate::net::SocketAddr::new(ip, port);
+    match crate::net::tcp::connect(conn_id, addr) {
+        Ok(()) => Ok(0),
+        Err(_) => Err(SyscallError::NotFound),
+    }
 }
 
 /// Send data on a socket.
-fn handle_socket_send(_ctx: &SyscallContext) -> SyscallResult {
-    Err(SyscallError::NotFound)
+fn handle_socket_send(ctx: &SyscallContext) -> SyscallResult {
+    let conn_id = crate::net::tcp::ConnId(ctx.arg1);
+    let buf_ptr = ctx.arg2 as *const u8;
+    let len = ctx.arg3 as usize;
+    if buf_ptr.is_null() || len == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    let slice = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
+    match crate::net::tcp::send(conn_id, slice) {
+        Ok(n) => Ok(n as u64),
+        Err(_) => Err(SyscallError::IoError),
+    }
 }
 
 /// Receive data on a socket.
-fn handle_socket_recv(_ctx: &SyscallContext) -> SyscallResult {
-    Err(SyscallError::NotFound)
+fn handle_socket_recv(ctx: &SyscallContext) -> SyscallResult {
+    let conn_id = crate::net::tcp::ConnId(ctx.arg1);
+    let buf_ptr = ctx.arg2 as *mut u8;
+    let len = ctx.arg3 as usize;
+    if buf_ptr.is_null() || len == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len) };
+    match crate::net::tcp::recv(conn_id, slice) {
+        Ok(n) => Ok(n as u64),
+        Err(crate::net::NetError::WouldBlock) => Err(SyscallError::WouldBlock),
+        Err(_) => Err(SyscallError::IoError),
+    }
 }
 
 /// Allocate GPU memory.

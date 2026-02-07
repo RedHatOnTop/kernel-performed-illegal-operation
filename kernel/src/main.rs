@@ -39,6 +39,7 @@ mod memory;
 mod panic;
 mod scheduler;
 mod serial;
+mod net;
 mod terminal;
 mod vfs;
 mod wasm;
@@ -147,6 +148,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] Initializing VFS...");
     vfs::fd::init();
     serial_println!("[KPIO] VFS initialized (fd table ready)");
+
+    // Phase 6.7: Network stack
+    serial_println!("[KPIO] Initializing network stack...");
+    net::init();
+    serial_println!("[KPIO] Network stack ready (loopback + DNS + HTTP)");
 
     // Phase 7: APIC initialization (Phase 1 feature)
     serial_println!("[KPIO] Initializing APIC...");

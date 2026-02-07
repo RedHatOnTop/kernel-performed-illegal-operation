@@ -29,6 +29,7 @@ pub mod io;
 pub mod ipc;
 pub mod loader;
 pub mod memory;
+pub mod net;
 pub mod process;
 pub mod scheduler;
 pub mod security;

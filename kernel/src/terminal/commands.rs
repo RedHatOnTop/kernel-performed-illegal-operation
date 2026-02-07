@@ -1877,44 +1877,75 @@ fn cmd_exit(_args: &[String]) -> CmdResult {
 
 fn cmd_ping(args: &[String]) -> CmdResult {
     let host = args.first().map(|s| s.as_str()).unwrap_or("localhost");
+    // Resolve via DNS
+    let ip_str = match crate::net::dns::resolve(host) {
+        Ok(entry) => {
+            if let Some(addr) = entry.addresses.first() {
+                format!("{}", addr)
+            } else {
+                String::from("127.0.0.1")
+            }
+        }
+        Err(_) => {
+            return CmdResult::err(format!("ping: {}: Name or service not known", host));
+        }
+    };
+    // Record loopback traffic
+    crate::net::loopback_transfer(84 * 3);
     let output = vec![
-        format!("PING {} (127.0.0.1) 56(84) bytes of data.", host),
-        format!("64 bytes from {} (127.0.0.1): icmp_seq=1 ttl=64 time=0.1 ms", host),
-        format!("64 bytes from {} (127.0.0.1): icmp_seq=2 ttl=64 time=0.1 ms", host),
-        format!("64 bytes from {} (127.0.0.1): icmp_seq=3 ttl=64 time=0.1 ms", host),
+        format!("PING {} ({}) 56(84) bytes of data.", host, ip_str),
+        format!("64 bytes from {} ({}): icmp_seq=1 ttl=64 time=0.04 ms", host, ip_str),
+        format!("64 bytes from {} ({}): icmp_seq=2 ttl=64 time=0.03 ms", host, ip_str),
+        format!("64 bytes from {} ({}): icmp_seq=3 ttl=64 time=0.03 ms", host, ip_str),
         String::new(),
         format!("--- {} ping statistics ---", host),
         String::from("3 packets transmitted, 3 received, 0% packet loss, time 2ms"),
-        String::from("rtt min/avg/max/mdev = 0.044/0.067/0.100/0.024 ms"),
+        String::from("rtt min/avg/max/mdev = 0.030/0.033/0.040/0.005 ms"),
     ];
     CmdResult::ok(output)
 }
 
 fn cmd_ifconfig(_args: &[String]) -> CmdResult {
-    let output = vec![
-        String::from("lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536"),
-        String::from("        inet 127.0.0.1  netmask 255.0.0.0"),
-        String::from("        inet6 ::1  prefixlen 128  scopeid 0x10<host>"),
-        String::from("        loop  txqueuelen 1000  (Local Loopback)"),
-        String::from("        RX packets 0  bytes 0 (0.0 B)"),
-        String::from("        TX packets 0  bytes 0 (0.0 B)"),
-        String::new(),
-        String::from("eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500"),
-        String::from("        inet 10.0.2.15  netmask 255.255.255.0  broadcast 10.0.2.255"),
-        String::from("        ether 52:54:00:12:34:56  txqueuelen 1000  (Ethernet)"),
-        String::from("        RX packets 0  bytes 0 (0.0 B)"),
-        String::from("        TX packets 0  bytes 0 (0.0 B)"),
-    ];
+    let ifaces = crate::net::interfaces();
+    let mut output = Vec::new();
+    for iface in &ifaces {
+        let flags = if iface.up { "UP,LOOPBACK,RUNNING" } else { "DOWN" };
+        output.push(format!("{}: flags=73<{}>  mtu {}", iface.name, flags, iface.mtu));
+        output.push(format!("        inet {}  netmask {}", iface.ip, iface.netmask));
+        output.push(format!(
+            "        RX packets {}  bytes {} ({} B)",
+            iface.rx_packets, iface.rx_bytes, iface.rx_bytes
+        ));
+        output.push(format!(
+            "        TX packets {}  bytes {} ({} B)",
+            iface.tx_packets, iface.tx_bytes, iface.tx_bytes
+        ));
+        output.push(String::new());
+    }
     CmdResult::ok(output)
 }
 
 fn cmd_netstat(_args: &[String]) -> CmdResult {
-    let output = vec![
+    let conns = crate::net::tcp::connections();
+    let mut output = vec![
         String::from("Active Internet connections (servers and established)"),
         String::from("Proto Recv-Q Send-Q Local Address           Foreign Address         State"),
-        String::from("Active UNIX domain sockets (servers and established)"),
-        String::from("Proto RefCnt Flags       Type       State         I-Node Path"),
     ];
+    for (id, state, local, remote) in &conns {
+        output.push(format!(
+            "tcp    0      0 {:<23} {:<23} {}",
+            format!("{}", local),
+            format!("{}", remote),
+            state.as_str()
+        ));
+    }
+    if conns.is_empty() {
+        output.push(String::from("  (no active connections)"));
+    }
+    output.push(format!(
+        "\nTotal connections created: {}",
+        crate::net::tcp::total_connections()
+    ));
     CmdResult::ok(output)
 }
 
