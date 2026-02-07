@@ -34,6 +34,7 @@ mod driver;
 mod gdt;
 mod graphics;
 mod gui;
+mod hw;
 mod interrupts;
 mod memory;
 mod panic;
@@ -158,6 +159,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] Initializing APIC...");
     unsafe { interrupts::init_apic(phys_mem_offset) };
     serial_println!("[KPIO] APIC initialized");
+
+    // Phase 7.5: ACPI table parsing
+    serial_println!("[KPIO] Initializing ACPI...");
+    if let Some(rsdp_addr) = boot_info.rsdp_addr.into_option() {
+        match hw::acpi::init_with_rsdp(rsdp_addr) {
+            Ok(()) => serial_println!("[KPIO] ACPI initialized ({} tables)", hw::acpi::table_count()),
+            Err(e) => serial_println!("[KPIO] ACPI init failed: {}", e),
+        }
+    } else {
+        serial_println!("[KPIO] No RSDP address from bootloader");
+    }
 
     // Phase 8: PCI enumeration
     serial_println!("[KPIO] Enumerating PCI bus...");

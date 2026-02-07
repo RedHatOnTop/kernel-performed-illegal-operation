@@ -115,6 +115,19 @@ mod device_status {
 /// Block size in bytes.
 pub const BLOCK_SIZE: usize = 512;
 
+/// VirtIO descriptor flags
+const VRING_DESC_F_NEXT: u16 = 1;
+const VRING_DESC_F_WRITE: u16 = 2;
+
+/// Raw virtqueue descriptor for direct memory-mapped access.
+#[repr(C)]
+struct VirtqDescRaw {
+    addr: u64,
+    len: u32,
+    flags: u16,
+    next: u16,
+}
+
 /// VirtIO Block device driver.
 pub struct VirtioBlock {
     /// PCI address.
@@ -290,10 +303,12 @@ impl VirtioBlock {
         self.capacity * BLOCK_SIZE as u64
     }
     
-    /// Read a single sector.
+    /// Read a single sector using VirtQueue descriptor chain.
     ///
-    /// This is a simplified synchronous read.
-    /// A real driver would use async I/O.
+    /// Submits a 3-descriptor chain:
+    /// - Desc 0: request header (device-readable)
+    /// - Desc 1: data buffer (device-writable)
+    /// - Desc 2: status byte (device-writable)
     pub fn read_sector(&mut self, sector: u64, buffer: &mut [u8; BLOCK_SIZE]) -> Result<(), RequestStatus> {
         if sector >= self.capacity {
             return Err(RequestStatus::IoErr);
@@ -307,21 +322,85 @@ impl VirtioBlock {
         // Reset status
         *self.status_buf = RequestStatus::Pending as u8;
         
-        // In a full implementation, we would:
-        // 1. Add header, data buffer, and status to virtqueue
-        // 2. Notify device
-        // 3. Wait for completion
-        // 4. Check status
-        
-        // For now, just copy zeros (placeholder)
-        buffer.copy_from_slice(&[0u8; BLOCK_SIZE]);
-        
-        crate::serial_println!("[VirtIO-Blk] Read sector {} (stub)", sector);
-        
-        Ok(())
+        // Clear data buffer
+        self.data_buf.fill(0);
+
+        // Build 3-descriptor chain in the descriptor table
+        let desc_base = self.desc_phys as *mut VirtqDescRaw;
+        let avail_base = self.avail_phys as *mut u16;
+        let used_base = self.used_phys as *mut u16;
+
+        unsafe {
+            // Descriptor 0: header (device-readable)
+            let d0 = &mut *desc_base.add(0);
+            d0.addr = &*self.header_buf as *const BlockRequestHeader as u64;
+            d0.len = core::mem::size_of::<BlockRequestHeader>() as u32;
+            d0.flags = VRING_DESC_F_NEXT;
+            d0.next = 1;
+
+            // Descriptor 1: data buffer (device-writable for read)
+            let d1 = &mut *desc_base.add(1);
+            d1.addr = self.data_buf.as_ptr() as u64;
+            d1.len = BLOCK_SIZE as u32;
+            d1.flags = VRING_DESC_F_WRITE | VRING_DESC_F_NEXT;
+            d1.next = 2;
+
+            // Descriptor 2: status (device-writable)
+            let d2 = &mut *desc_base.add(2);
+            d2.addr = &*self.status_buf as *const u8 as u64;
+            d2.len = 1;
+            d2.flags = VRING_DESC_F_WRITE;
+            d2.next = 0;
+
+            // Add to available ring
+            // avail ring layout: flags(u16), idx(u16), ring[queue_size](u16), used_event(u16)
+            let avail_idx_ptr = avail_base.add(1);
+            let avail_idx = core::ptr::read_volatile(avail_idx_ptr);
+            let ring_entry = avail_base.add(2 + (avail_idx as usize % self.queue_size as usize));
+            core::ptr::write_volatile(ring_entry, 0); // head descriptor index = 0
+
+            // Memory barrier
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+            // Increment avail idx
+            core::ptr::write_volatile(avail_idx_ptr, avail_idx.wrapping_add(1));
+
+            // Memory barrier
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        }
+
+        // Notify device (queue 0)
+        self.notify(0);
+
+        // Poll for completion
+        // used ring layout: flags(u16), idx(u16), ring[queue_size](VirtqUsedElem), avail_event(u16)
+        let used_idx_ptr = unsafe { (self.used_phys as *mut u16).add(1) };
+        let start_idx = unsafe { core::ptr::read_volatile(used_idx_ptr) };
+        let mut timeout = 1_000_000u32;
+        loop {
+            let current_idx = unsafe { core::ptr::read_volatile(used_idx_ptr) };
+            if current_idx != start_idx {
+                break;
+            }
+            timeout -= 1;
+            if timeout == 0 {
+                crate::serial_println!("[VirtIO-Blk] Read timeout (sector {})", sector);
+                return Err(RequestStatus::IoErr);
+            }
+            core::hint::spin_loop();
+        }
+
+        // Check status
+        let status = RequestStatus::from(*self.status_buf);
+        if status == RequestStatus::Ok {
+            buffer.copy_from_slice(&*self.data_buf);
+            Ok(())
+        } else {
+            Err(status)
+        }
     }
     
-    /// Write a single sector.
+    /// Write a single sector using VirtQueue descriptor chain.
     pub fn write_sector(&mut self, sector: u64, buffer: &[u8; BLOCK_SIZE]) -> Result<(), RequestStatus> {
         if sector >= self.capacity {
             return Err(RequestStatus::IoErr);
@@ -334,11 +413,73 @@ impl VirtioBlock {
         
         // Reset status
         *self.status_buf = RequestStatus::Pending as u8;
+
+        // Copy data to our buffer
+        self.data_buf.copy_from_slice(buffer);
         
-        // Placeholder - real implementation would submit to virtqueue
-        crate::serial_println!("[VirtIO-Blk] Write sector {} (stub)", sector);
-        
-        Ok(())
+        // Build 3-descriptor chain
+        let desc_base = self.desc_phys as *mut VirtqDescRaw;
+        let avail_base = self.avail_phys as *mut u16;
+
+        unsafe {
+            // Descriptor 0: header (device-readable)
+            let d0 = &mut *desc_base.add(0);
+            d0.addr = &*self.header_buf as *const BlockRequestHeader as u64;
+            d0.len = core::mem::size_of::<BlockRequestHeader>() as u32;
+            d0.flags = VRING_DESC_F_NEXT;
+            d0.next = 1;
+
+            // Descriptor 1: data buffer (device-readable for write)
+            let d1 = &mut *desc_base.add(1);
+            d1.addr = self.data_buf.as_ptr() as u64;
+            d1.len = BLOCK_SIZE as u32;
+            d1.flags = VRING_DESC_F_NEXT; // NOT writable — device reads from this
+            d1.next = 2;
+
+            // Descriptor 2: status (device-writable)
+            let d2 = &mut *desc_base.add(2);
+            d2.addr = &*self.status_buf as *const u8 as u64;
+            d2.len = 1;
+            d2.flags = VRING_DESC_F_WRITE;
+            d2.next = 0;
+
+            // Add to available ring
+            let avail_idx_ptr = avail_base.add(1);
+            let avail_idx = core::ptr::read_volatile(avail_idx_ptr);
+            let ring_entry = avail_base.add(2 + (avail_idx as usize % self.queue_size as usize));
+            core::ptr::write_volatile(ring_entry, 0);
+
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            core::ptr::write_volatile(avail_idx_ptr, avail_idx.wrapping_add(1));
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        }
+
+        // Notify device
+        self.notify(0);
+
+        // Poll for completion
+        let used_idx_ptr = unsafe { (self.used_phys as *mut u16).add(1) };
+        let start_idx = unsafe { core::ptr::read_volatile(used_idx_ptr) };
+        let mut timeout = 1_000_000u32;
+        loop {
+            let current_idx = unsafe { core::ptr::read_volatile(used_idx_ptr) };
+            if current_idx != start_idx {
+                break;
+            }
+            timeout -= 1;
+            if timeout == 0 {
+                crate::serial_println!("[VirtIO-Blk] Write timeout (sector {})", sector);
+                return Err(RequestStatus::IoErr);
+            }
+            core::hint::spin_loop();
+        }
+
+        let status = RequestStatus::from(*self.status_buf);
+        if status == RequestStatus::Ok {
+            Ok(())
+        } else {
+            Err(status)
+        }
     }
 }
 
@@ -372,4 +513,11 @@ pub fn init() {
 /// Get the number of initialized VirtIO block devices.
 pub fn device_count() -> usize {
     VIRTIO_BLOCK_DEVICES.lock().len()
+}
+
+/// Get info about VirtIO block devices (index, capacity_sectors, capacity_mb).
+pub fn device_info() -> Vec<(usize, u64, u64)> {
+    VIRTIO_BLOCK_DEVICES.lock().iter().enumerate().map(|(i, dev)| {
+        (i, dev.capacity(), dev.capacity_bytes() / (1024 * 1024))
+    }).collect()
 }

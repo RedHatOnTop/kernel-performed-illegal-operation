@@ -29,11 +29,11 @@ impl CmdResult {
 
 /// All available command names (sorted).
 pub static COMMAND_LIST: &[&str] = &[
-    "alias", "base64", "basename", "cal", "cat", "cd", "chmod", "chown",
+    "acpi", "alias", "base64", "basename", "cal", "cat", "cd", "chmod", "chown",
     "clear", "cp", "cut", "date", "df", "diff", "dirname", "du",
     "echo", "env", "exit", "export", "false", "file", "find", "free",
     "grep", "groups", "head", "help", "hexdump", "history", "hostname",
-    "id", "ifconfig", "kill", "ln", "ls", "man", "md5sum", "mkdir",
+    "id", "ifconfig", "kill", "ln", "ls", "lsblk", "lspci", "man", "md5sum", "mkdir",
     "mv", "neofetch", "netstat", "nl", "od", "ping", "printenv", "printf",
     "ps", "pwd", "readlink", "realpath", "rm", "rmdir", "sed", "seq",
     "sha256sum", "sleep", "sort", "stat", "su", "tac", "tail", "tee",
@@ -127,6 +127,11 @@ pub fn execute_command(name: &str, args: &[String], pipe_in: Option<&[String]>) 
         "ping"     => cmd_ping(args),
         "ifconfig" => cmd_ifconfig(args),
         "netstat"  => cmd_netstat(args),
+
+        // ── Hardware ──
+        "lspci"    => cmd_lspci(args),
+        "lsblk"    => cmd_lsblk(args),
+        "acpi"     => cmd_acpi(args),
 
         // ── Misc ──
         "man"      => cmd_man(args),
@@ -1950,6 +1955,64 @@ fn cmd_netstat(_args: &[String]) -> CmdResult {
 }
 
 // ════════════════════════════════════════════════════════════
+//  Hardware commands
+// ════════════════════════════════════════════════════════════
+
+fn cmd_lspci(_args: &[String]) -> CmdResult {
+    let devices = crate::driver::pci::devices();
+    let mut output = Vec::new();
+    if devices.is_empty() {
+        output.push(String::from("No PCI devices found"));
+    } else {
+        output.push(format!("PCI devices ({} found):", devices.len()));
+        for dev in &devices {
+            output.push(format!(
+                "  {:02x}:{:02x}.{} [{:04x}:{:04x}] class {}",
+                dev.address.bus, dev.address.device, dev.address.function,
+                dev.vendor_id, dev.device_id, dev.class
+            ));
+        }
+    }
+    CmdResult::ok(output)
+}
+
+fn cmd_lsblk(_args: &[String]) -> CmdResult {
+    let devs = crate::driver::virtio::block::device_info();
+    let mut output = Vec::new();
+    output.push(String::from("NAME       SIZE  TYPE"));
+    if devs.is_empty() {
+        output.push(String::from("(no block devices)"));
+    } else {
+        for (idx, sectors, mb) in &devs {
+            output.push(format!(
+                "vda{}      {}M  VirtIO ({} sectors)",
+                idx, mb, sectors
+            ));
+        }
+    }
+    CmdResult::ok(output)
+}
+
+fn cmd_acpi(_args: &[String]) -> CmdResult {
+    let count = crate::hw::acpi::table_count();
+    let mut output = Vec::new();
+    if count == 0 {
+        output.push(String::from("ACPI: not available (no RSDP or tables not parsed)"));
+    } else {
+        output.push(format!("ACPI tables ({}):", count));
+        for sig in crate::hw::acpi::table_signatures() {
+            output.push(format!("  {}", sig));
+        }
+        let lapic = crate::hw::acpi::local_apic_count();
+        let ioapic = crate::hw::acpi::io_apic_count();
+        if lapic > 0 || ioapic > 0 {
+            output.push(format!("MADT: {} Local APIC(s), {} I/O APIC(s)", lapic, ioapic));
+        }
+    }
+    CmdResult::ok(output)
+}
+
+// ════════════════════════════════════════════════════════════
 //  Misc commands
 // ════════════════════════════════════════════════════════════
 
@@ -1994,6 +2057,9 @@ fn cmd_help(_args: &[String]) -> CmdResult {
         String::new(),
         String::from("Network:"),
         String::from("  ping ifconfig netstat"),
+        String::new(),
+        String::from("Hardware:"),
+        String::from("  lspci lsblk acpi"),
         String::new(),
         String::from("Misc:"),
         String::from("  man help neofetch hexdump base64 md5sum sha256sum diff"),

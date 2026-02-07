@@ -265,6 +265,11 @@ impl AcpiTables {
     pub fn get_mcfg(&self) -> Option<&FoundTable> {
         self.find_table(b"MCFG")
     }
+
+    /// Get the number of parsed tables
+    pub fn table_count(&self) -> usize {
+        self.tables.len()
+    }
 }
 
 /// Parsed MADT information
@@ -380,17 +385,69 @@ impl MadtInfo {
 }
 
 /// Global ACPI tables instance
-static mut ACPI_TABLES: Option<AcpiTables> = None;
+static ACPI_TABLES: spin::Mutex<Option<AcpiTables>> = spin::Mutex::new(None);
 
-/// Initialize ACPI subsystem
+/// Global MADT info
+static MADT_INFO: spin::Mutex<Option<MadtInfo>> = spin::Mutex::new(None);
+
+/// Initialize ACPI subsystem with RSDP address from bootloader.
+pub fn init_with_rsdp(rsdp_addr: u64) -> Result<(), &'static str> {
+    let tables = unsafe { AcpiTables::parse(rsdp_addr)? };
+
+    // Try to parse MADT if available
+    if let Some(madt_table) = tables.get_madt() {
+        match unsafe { MadtInfo::parse(madt_table.address) } {
+            Ok(info) => {
+                crate::serial_println!("[ACPI] MADT: {} local APICs, {} I/O APICs, {} overrides",
+                    info.local_apics.len(), info.io_apics.len(), info.overrides.len());
+                *MADT_INFO.lock() = Some(info);
+            }
+            Err(e) => {
+                crate::serial_println!("[ACPI] MADT parse failed: {}", e);
+            }
+        }
+    }
+
+    let table_count = tables.table_count();
+    crate::serial_println!("[ACPI] Parsed {} ACPI table(s)", table_count);
+    *ACPI_TABLES.lock() = Some(tables);
+    Ok(())
+}
+
+/// Initialize ACPI subsystem (no RSDP address available).
 pub fn init() -> Result<(), &'static str> {
-    // In a real implementation, the RSDP address would be provided by
-    // the bootloader (Limine boot info, UEFI system table, etc.)
-    // For now, we return an error indicating ACPI is not available
     Err("ACPI RSDP address not provided by bootloader")
 }
 
-/// Get ACPI tables reference
+/// Get the number of parsed ACPI tables.
+pub fn table_count() -> usize {
+    ACPI_TABLES.lock().as_ref().map_or(0, |t| t.table_count())
+}
+
+/// Get ACPI table signatures as strings.
+pub fn table_signatures() -> alloc::vec::Vec<alloc::string::String> {
+    ACPI_TABLES.lock().as_ref().map_or(alloc::vec::Vec::new(), |t| {
+        t.tables.iter().map(|ft| {
+            alloc::string::String::from_utf8_lossy(&ft.signature).into_owned()
+        }).collect()
+    })
+}
+
+/// Get MADT local APIC count.
+pub fn local_apic_count() -> usize {
+    MADT_INFO.lock().as_ref().map_or(0, |m| m.local_apics.len())
+}
+
+/// Get MADT I/O APIC count.
+pub fn io_apic_count() -> usize {
+    MADT_INFO.lock().as_ref().map_or(0, |m| m.io_apics.len())
+}
+
+/// Get ACPI tables reference  
 pub fn tables() -> Option<&'static AcpiTables> {
-    unsafe { ACPI_TABLES.as_ref() }
+    // Safety: Only set once during init
+    unsafe { 
+        let ptr = &*ACPI_TABLES.lock() as *const Option<AcpiTables>;
+        (*ptr).as_ref()
+    }
 }

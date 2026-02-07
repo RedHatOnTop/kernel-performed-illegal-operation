@@ -285,37 +285,160 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
 }
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    use core::sync::atomic::AtomicBool;
     use x86_64::instructions::port::Port;
-    
-    // Read scancode from PS/2 keyboard controller.
+
+    // ── Modifier state (persists across interrupts) ──
+    static SHIFT: AtomicBool = AtomicBool::new(false);
+    static CTRL:  AtomicBool = AtomicBool::new(false);
+    static ALT:   AtomicBool = AtomicBool::new(false);
+    static CAPS:  AtomicBool = AtomicBool::new(false);
+    static E0_PREFIX: AtomicBool = AtomicBool::new(false);
+
     let mut port: Port<u8> = Port::new(0x60);
     let scancode = unsafe { port.read() };
-    
-    // Convert scancode to character (basic US QWERTY layout)
+
+    // Handle E0 extended prefix
+    if scancode == 0xE0 {
+        E0_PREFIX.store(true, Ordering::SeqCst);
+        apic::end_of_interrupt();
+        return;
+    }
+    // Ignore E1 (Pause key)
+    if scancode == 0xE1 {
+        apic::end_of_interrupt();
+        return;
+    }
+
     let pressed = scancode & 0x80 == 0;
     let key = scancode & 0x7F;
-    
-    // Basic scancode to ASCII mapping
-    let ch = match key {
-        0x02 => '1', 0x03 => '2', 0x04 => '3', 0x05 => '4', 0x06 => '5',
-        0x07 => '6', 0x08 => '7', 0x09 => '8', 0x0A => '9', 0x0B => '0',
-        0x10 => 'q', 0x11 => 'w', 0x12 => 'e', 0x13 => 'r', 0x14 => 't',
-        0x15 => 'y', 0x16 => 'u', 0x17 => 'i', 0x18 => 'o', 0x19 => 'p',
-        0x1E => 'a', 0x1F => 's', 0x20 => 'd', 0x21 => 'f', 0x22 => 'g',
-        0x23 => 'h', 0x24 => 'j', 0x25 => 'k', 0x26 => 'l',
-        0x2C => 'z', 0x2D => 'x', 0x2E => 'c', 0x2F => 'v', 0x30 => 'b',
-        0x31 => 'n', 0x32 => 'm',
-        0x39 => ' ',  // space
-        0x1C => '\n', // enter
-        0x0E => '\x08', // backspace
-        _ => '\0',
+    let extended = E0_PREFIX.swap(false, Ordering::SeqCst);
+
+    // ── Modifier tracking ──
+    if !extended {
+        match key {
+            0x2A => { SHIFT.store(pressed, Ordering::SeqCst); apic::end_of_interrupt(); return; } // LShift
+            0x36 => { SHIFT.store(pressed, Ordering::SeqCst); apic::end_of_interrupt(); return; } // RShift
+            0x1D => { CTRL.store(pressed, Ordering::SeqCst); apic::end_of_interrupt(); return; }  // LCtrl
+            0x38 => { ALT.store(pressed, Ordering::SeqCst); apic::end_of_interrupt(); return; }   // LAlt
+            0x3A if pressed => {
+                let prev = CAPS.load(Ordering::SeqCst);
+                CAPS.store(!prev, Ordering::SeqCst);
+                apic::end_of_interrupt();
+                return;
+            }
+            _ => {}
+        }
+    } else {
+        match key {
+            0x1D => { CTRL.store(pressed, Ordering::SeqCst); apic::end_of_interrupt(); return; } // RCtrl
+            0x38 => { ALT.store(pressed, Ordering::SeqCst); apic::end_of_interrupt(); return; }  // RAlt
+            _ => {}
+        }
+    }
+
+    let shift = SHIFT.load(Ordering::SeqCst);
+    let caps = CAPS.load(Ordering::SeqCst);
+
+    // ── Extended scancodes (E0 prefix) ──
+    let ch = if extended {
+        match key {
+            0x48 => '\x11', // Up    (DC1 – repurposed as arrow markers)
+            0x50 => '\x12', // Down  (DC2)
+            0x4B => '\x13', // Left  (DC3)
+            0x4D => '\x14', // Right (DC4)
+            0x47 => '\x01', // Home  (SOH)
+            0x4F => '\x05', // End   (ENQ)
+            0x49 => '\x15', // PgUp  (NAK)
+            0x51 => '\x16', // PgDn  (SYN)
+            0x52 => '\x06', // Insert(ACK)
+            0x53 => '\x7F', // Delete(DEL)
+            _ => '\0',
+        }
+    } else {
+        // ── Standard scancodes with full US QWERTY ──
+        match key {
+            // Number row
+            0x02 => if shift { '!' } else { '1' },
+            0x03 => if shift { '@' } else { '2' },
+            0x04 => if shift { '#' } else { '3' },
+            0x05 => if shift { '$' } else { '4' },
+            0x06 => if shift { '%' } else { '5' },
+            0x07 => if shift { '^' } else { '6' },
+            0x08 => if shift { '&' } else { '7' },
+            0x09 => if shift { '*' } else { '8' },
+            0x0A => if shift { '(' } else { '9' },
+            0x0B => if shift { ')' } else { '0' },
+            0x0C => if shift { '_' } else { '-' },
+            0x0D => if shift { '+' } else { '=' },
+            0x0E => '\x08', // Backspace
+            0x0F => '\t',   // Tab
+            // Letters (affected by Shift XOR CapsLock)
+            0x10 => { let c = 'q'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x11 => { let c = 'w'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x12 => { let c = 'e'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x13 => { let c = 'r'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x14 => { let c = 't'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x15 => { let c = 'y'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x16 => { let c = 'u'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x17 => { let c = 'i'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x18 => { let c = 'o'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x19 => { let c = 'p'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x1A => if shift { '{' } else { '[' },
+            0x1B => if shift { '}' } else { ']' },
+            0x1C => '\n', // Enter
+            // 0x1D = LCtrl (handled above)
+            0x1E => { let c = 'a'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x1F => { let c = 's'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x20 => { let c = 'd'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x21 => { let c = 'f'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x22 => { let c = 'g'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x23 => { let c = 'h'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x24 => { let c = 'j'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x25 => { let c = 'k'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x26 => { let c = 'l'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x27 => if shift { ':' } else { ';' },
+            0x28 => if shift { '"' } else { '\'' },
+            0x29 => if shift { '~' } else { '`' },
+            // 0x2A = LShift (handled above)
+            0x2B => if shift { '|' } else { '\\' },
+            0x2C => { let c = 'z'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x2D => { let c = 'x'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x2E => { let c = 'c'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x2F => { let c = 'v'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x30 => { let c = 'b'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x31 => { let c = 'n'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x32 => { let c = 'm'; if shift ^ caps { c.to_ascii_uppercase() } else { c } },
+            0x33 => if shift { '<' } else { ',' },
+            0x34 => if shift { '>' } else { '.' },
+            0x35 => if shift { '?' } else { '/' },
+            // 0x36 = RShift (handled above)
+            0x39 => ' ', // Space
+            // Escape
+            0x01 => '\x1B',
+            // Function keys → encode as ESC sequences won't fit in char,
+            // use high-range chars that the callback can detect
+            0x3B => '\u{F001}', // F1
+            0x3C => '\u{F002}', // F2
+            0x3D => '\u{F003}', // F3
+            0x3E => '\u{F004}', // F4
+            0x3F => '\u{F005}', // F5
+            0x40 => '\u{F006}', // F6
+            0x41 => '\u{F007}', // F7
+            0x42 => '\u{F008}', // F8
+            0x43 => '\u{F009}', // F9
+            0x44 => '\u{F00A}', // F10
+            0x57 => '\u{F00B}', // F11
+            0x58 => '\u{F00C}', // F12
+            _ => '\0',
+        }
     };
-    
+
     // Call keyboard callback
     if let Some(cb) = *KEY_CALLBACK.lock() {
         cb(ch, scancode, pressed);
     }
-    
+
     // Send EOI to Local APIC.
     apic::end_of_interrupt();
 }
