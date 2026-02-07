@@ -5,6 +5,7 @@
 
 use super::render::{Color, Renderer};
 use super::theme::{Surface, Text, Accent, Shadow, Spacing, Radius, Size, TermTheme, IconColor, Shadows};
+use super::html_render::{self, RenderedPage, RenderCmd};
 use crate::terminal;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -78,7 +79,7 @@ pub enum WindowContent {
     /// Simple text content
     Text(String),
     /// Browser window
-    Browser { url: String, content: String },
+    Browser { url: String, content: String, rendered: Option<RenderedPage> },
     /// Terminal window
     Terminal { lines: Vec<String>, cursor_pos: usize },
     /// File manager
@@ -121,7 +122,8 @@ impl Window {
             state: WindowState::Normal,
             content: WindowContent::Browser {
                 url: String::from("kpio://home"),
-                content: String::from("Welcome to KPIO Browser"),
+                content: String::new(),
+                rendered: Some(navigate_to_url("kpio://home")),
             },
             input_buffer: String::new(),
             saved_x: x,
@@ -401,7 +403,7 @@ impl Window {
                     self.input_buffer.push(key);
                 }
             }
-            WindowContent::Browser { url, content } => {
+            WindowContent::Browser { url, content, rendered } => {
                 if key == '\n' {
                     // Navigate to URL
                     let new_url = if self.input_buffer.is_empty() {
@@ -411,16 +413,9 @@ impl Window {
                     };
                     
                     *url = new_url.clone();
-                    
-                    // Render page based on URL
-                    *content = match new_url.as_str() {
-                        "kpio://home" | "" => String::from("Welcome to KPIO Browser!\n\nTry navigating to:\n- kpio://settings\n- kpio://about\n- kpio://help"),
-                        "kpio://settings" => String::from("KPIO Browser Settings\n\n- Theme: Dark\n- Home Page: kpio://home\n- Search Engine: KPIO Search"),
-                        "kpio://about" => String::from("KPIO Browser v1.0\n\nA simple web browser for KPIO OS.\nBuilt with Rust and WASM."),
-                        "kpio://help" => String::from("KPIO Browser Help\n\n- Type a URL in the address bar\n- Press Enter to navigate\n- Use kpio:// for internal pages"),
-                        _ => alloc::format!("Loading {}...\n\n(Page content would appear here)", new_url),
-                    };
-                    
+                    *rendered = Some(navigate_to_url(&new_url));
+                    *content = String::new();
+                    self.scroll_y = 0;
                     self.input_buffer.clear();
                 } else if key == '\x08' {
                     self.input_buffer.pop();
@@ -525,7 +520,7 @@ impl Window {
             WindowContent::Text(text) => {
                 renderer.draw_text(x + Spacing::MD as i32, y + Spacing::MD as i32, text, Text::PRIMARY);
             }
-            WindowContent::Browser { url, content } => {
+            WindowContent::Browser { url, rendered, .. } => {
                 // ── Address bar ──
                 let bar_h = Size::INPUT_HEIGHT;
                 let bar_x = x + Spacing::SM as i32;
@@ -545,11 +540,33 @@ impl Window {
                                    bar_y + (bar_h as i32 - 8) / 2,
                                    &display_url, Text::PRIMARY);
 
-                // ── Page content ──
-                let mut line_y = y + Spacing::SM as i32 + bar_h as i32 + Spacing::SM as i32;
-                for line in content.lines() {
-                    renderer.draw_text(x + Spacing::MD as i32, line_y, line, Text::PRIMARY);
-                    line_y += 16;
+                // ── Rendered HTML content ──
+                let content_top = y + Spacing::SM as i32 + bar_h as i32 + Spacing::SM as i32;
+                let scroll = self.scroll_y;
+                if let Some(page) = rendered {
+                    for cmd in &page.commands {
+                        match cmd {
+                            RenderCmd::FillRect { x: rx, y: ry, w: rw, h: rh, color } => {
+                                let cy = content_top + ry - scroll;
+                                renderer.fill_rect(x + rx, cy, *rw, *rh,
+                                    Color::rgba((*color >> 16) as u8, (*color >> 8) as u8, *color as u8, (*color >> 24) as u8));
+                            }
+                            RenderCmd::Text { x: tx, y: ty, text, color, .. } => {
+                                let cy = content_top + ty - scroll;
+                                if cy >= content_top - 16 && cy < y + h as i32 {
+                                    renderer.draw_text(x + tx, cy, text,
+                                        Color::rgba((*color >> 16) as u8, (*color >> 8) as u8, *color as u8, 255));
+                                }
+                            }
+                            RenderCmd::HRule { x: hx, y: hy, w: hw, color } => {
+                                let cy = content_top + hy - scroll;
+                                if cy >= content_top && cy < y + h as i32 {
+                                    renderer.draw_hline(x + hx, cy, *hw,
+                                        Color::rgba((*color >> 16) as u8, (*color >> 8) as u8, *color as u8, 255));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             WindowContent::Terminal { lines, .. } => {
@@ -692,5 +709,70 @@ impl Window {
                 }
             }
         }
+    }
+}
+
+/// Navigate to a URL and return a rendered page.
+///
+/// Supports:
+/// - `kpio://` internal pages (mapped to HTTP server routes)
+/// - `http://localhost/` routes to the built-in HTTP server
+/// - Other URLs show a "not reachable" page
+fn navigate_to_url(url: &str) -> RenderedPage {
+    use crate::net::http;
+
+    let path = if url.starts_with("kpio://") {
+        // Map kpio:// URLs to HTTP server routes
+        let route = &url[7..]; // strip "kpio://"
+        match route {
+            "home" | "" => "/",
+            "about" => "/about",
+            "settings" => "/status",
+            "help" => "/about",
+            other => {
+                let p = alloc::format!("/{}", other);
+                return render_http_page(&http::fetch(&p));
+            }
+        }
+    } else if url.starts_with("http://localhost") || url.starts_with("http://127.0.0.1") {
+        // Extract path from http://localhost/path
+        let rest = if url.starts_with("http://localhost") {
+            &url[16..] // "http://localhost".len()
+        } else {
+            &url[17..] // "http://127.0.0.1:".len() roughly
+        };
+        if rest.is_empty() || rest == "/" {
+            "/"
+        } else {
+            rest
+        }
+    } else if url.is_empty() {
+        "/"
+    } else {
+        // Unknown URL — show error page
+        let error_html = alloc::format!(
+            "<html><body><h1>페이지를 찾을 수 없습니다</h1>\
+             <p>주소 <b>{}</b>에 연결할 수 없습니다.</p>\
+             <p>다음을 시도해 보세요:</p>\
+             <ul><li>kpio://home</li><li>http://localhost/</li><li>kpio://about</li></ul>\
+             </body></html>",
+            url
+        );
+        return html_render::render_html(&error_html, 760);
+    };
+
+    let response = http::fetch(path);
+    render_http_page(&response)
+}
+
+/// Convert an HTTP response body into a rendered page.
+fn render_http_page(response: &crate::net::http::HttpResponse) -> RenderedPage {
+    let body = core::str::from_utf8(&response.body).unwrap_or("(binary content)");
+    if response.content_type.contains("html") {
+        html_render::render_html(body, 760)
+    } else {
+        // Plain text / JSON — wrap in <pre>
+        let wrapped = alloc::format!("<html><body><pre>{}</pre></body></html>", body);
+        html_render::render_html(&wrapped, 760)
     }
 }

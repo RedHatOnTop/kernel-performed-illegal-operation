@@ -23,6 +23,7 @@ pub mod input;
 pub mod boot_animation;
 pub mod framebuffer;
 pub mod theme;
+pub mod html_render;
 
 use alloc::vec::Vec;
 use spin::Mutex;
