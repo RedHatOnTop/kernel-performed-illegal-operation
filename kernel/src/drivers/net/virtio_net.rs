@@ -130,6 +130,38 @@ const QUEUE_SIZE: usize = 128;
 /// RX buffer size
 const RX_BUFFER_SIZE: usize = 2048;
 
+/// MMIO register offsets (VirtIO MMIO transport v1/v2)
+#[allow(dead_code)]
+mod mmio_reg {
+    pub const MAGIC:           u32 = 0x00;
+    pub const VERSION:         u32 = 0x04;
+    pub const DEVICE_ID:       u32 = 0x08;
+    pub const VENDOR_ID:       u32 = 0x0C;
+    pub const DEVICE_FEATURES: u32 = 0x10;
+    pub const DEVICE_FEATURES_SEL: u32 = 0x14;
+    pub const DRIVER_FEATURES: u32 = 0x20;
+    pub const DRIVER_FEATURES_SEL: u32 = 0x24;
+    pub const QUEUE_SEL:       u32 = 0x30;
+    pub const QUEUE_NUM_MAX:   u32 = 0x34;
+    pub const QUEUE_NUM:       u32 = 0x38;
+    pub const QUEUE_READY:     u32 = 0x44;
+    pub const QUEUE_NOTIFY:    u32 = 0x50;
+    pub const INTERRUPT_STATUS: u32 = 0x60;
+    pub const INTERRUPT_ACK:   u32 = 0x64;
+    pub const STATUS:          u32 = 0x70;
+    pub const QUEUE_DESC_LOW:  u32 = 0x80;
+    pub const QUEUE_DESC_HIGH: u32 = 0x84;
+    pub const QUEUE_AVAIL_LOW: u32 = 0x90;
+    pub const QUEUE_AVAIL_HIGH:u32 = 0x94;
+    pub const QUEUE_USED_LOW:  u32 = 0xA0;
+    pub const QUEUE_USED_HIGH: u32 = 0xA4;
+    pub const CONFIG:          u32 = 0x100;
+}
+
+/// Virtqueue indices
+const RX_QUEUE: u32 = 0;
+const TX_QUEUE: u32 = 1;
+
 /// VirtIO network device
 pub struct VirtioNetDevice {
     /// Device name
@@ -146,11 +178,11 @@ pub struct VirtioNetDevice {
     rx_desc: Vec<VirtqDesc>,
     /// TX queue descriptors
     tx_desc: Vec<VirtqDesc>,
-    /// RX buffers
+    /// RX buffers (each holds VirtioNetHdr + payload)
     rx_buffers: Vec<Vec<u8>>,
     /// TX buffers
     tx_buffers: Vec<Vec<u8>>,
-    /// RX available ring index
+    /// RX available ring index (host's next slot to fill)
     rx_avail_idx: u16,
     /// TX available ring index
     tx_avail_idx: u16,
@@ -158,6 +190,8 @@ pub struct VirtioNetDevice {
     rx_used_idx: u16,
     /// TX used ring last seen index
     tx_used_idx: u16,
+    /// Next TX descriptor slot to use
+    tx_next_desc: u16,
     /// Statistics
     stats: NetworkStats,
     /// Link status
@@ -205,6 +239,7 @@ impl VirtioNetDevice {
             tx_avail_idx: 0,
             rx_used_idx: 0,
             tx_used_idx: 0,
+            tx_next_desc: 0,
             stats: NetworkStats::default(),
             link_status: LinkStatus {
                 up: true,
@@ -262,72 +297,181 @@ impl VirtioNetDevice {
         // VirtIO MMIO initialization
         if self.mmio_base.is_some() {
             // Check magic value (0x74726976)
-            let magic = self.read32(0x00);
+            let magic = self.read32(mmio_reg::MAGIC);
             if magic != 0x74726976 {
                 return Err(NetworkError::DeviceNotFound);
             }
 
             // Check version
-            let version = self.read32(0x04);
+            let version = self.read32(mmio_reg::VERSION);
             if version != 1 && version != 2 {
                 return Err(NetworkError::HardwareError(version));
             }
 
             // Check device ID (1 = network)
-            let device_id = self.read32(0x08);
+            let device_id = self.read32(mmio_reg::DEVICE_ID);
             if device_id != 1 {
                 return Err(NetworkError::DeviceNotFound);
             }
 
             // Reset device
-            self.write32(0x70, 0);
+            self.write32(mmio_reg::STATUS, 0);
 
             // Set ACKNOWLEDGE status bit
-            self.write32(0x70, 1);
+            self.write32(mmio_reg::STATUS, 1);
 
             // Set DRIVER status bit
-            self.write32(0x70, 3);
+            self.write32(mmio_reg::STATUS, 3);
 
             // Read device features
-            self.write32(0x14, 0); // Select feature set 0
-            let feat_lo = self.read32(0x10);
-            self.write32(0x14, 1); // Select feature set 1
-            let feat_hi = self.read32(0x10);
+            self.write32(mmio_reg::DEVICE_FEATURES_SEL, 0);
+            let feat_lo = self.read32(mmio_reg::DEVICE_FEATURES);
+            self.write32(mmio_reg::DEVICE_FEATURES_SEL, 1);
+            let feat_hi = self.read32(mmio_reg::DEVICE_FEATURES);
             let device_features = (feat_hi as u64) << 32 | (feat_lo as u64);
 
-            // Select features we want
+            // Select features we want (keep it simple: MAC + STATUS)
             self.features = device_features & (
-                features::MAC | 
-                features::STATUS | 
-                features::CSUM | 
+                features::MAC |
+                features::STATUS |
+                features::CSUM |
                 features::GUEST_CSUM
             );
 
             // Write driver features
-            self.write32(0x24, 0); // Select feature set 0
-            self.write32(0x20, self.features as u32);
-            self.write32(0x24, 1); // Select feature set 1
-            self.write32(0x20, (self.features >> 32) as u32);
+            self.write32(mmio_reg::DRIVER_FEATURES_SEL, 0);
+            self.write32(mmio_reg::DRIVER_FEATURES, self.features as u32);
+            self.write32(mmio_reg::DRIVER_FEATURES_SEL, 1);
+            self.write32(mmio_reg::DRIVER_FEATURES, (self.features >> 32) as u32);
 
             // Set FEATURES_OK
-            self.write32(0x70, 11);
+            self.write32(mmio_reg::STATUS, 11);
+
+            // Verify FEATURES_OK was accepted
+            let status = self.read32(mmio_reg::STATUS);
+            if (status & 8) == 0 {
+                self.write32(mmio_reg::STATUS, 128); // FAILED
+                return Err(NetworkError::HardwareError(status));
+            }
 
             // Read MAC address if supported
             if (self.features & features::MAC) != 0 {
                 let mut mac = [0u8; 6];
                 for i in 0..6 {
-                    mac[i] = self.read8(0x100 + i as u32);
+                    mac[i] = self.read8(mmio_reg::CONFIG + i as u32);
                 }
                 self.mac = MacAddress::new(mac);
             }
 
-            // Initialize queues would go here...
+            // ── Initialize RX queue (queue 0) ──
+            self.init_virtqueue(RX_QUEUE)?;
+
+            // Fill RX queue with receive buffers
+            for i in 0..(QUEUE_SIZE.min(self.rx_buffers.len())) {
+                let buf_addr = self.rx_buffers[i].as_ptr() as u64;
+                let buf_len = self.rx_buffers[i].len() as u32;
+                self.rx_desc[i] = VirtqDesc {
+                    addr: buf_addr,
+                    len: buf_len,
+                    flags: VirtqDesc::WRITE, // device writes to this buffer
+                    next: 0,
+                };
+                // Add to available ring via MMIO
+                self.put_avail_rx(i as u16);
+            }
+
+            // ── Initialize TX queue (queue 1) ──
+            self.init_virtqueue(TX_QUEUE)?;
 
             // Set DRIVER_OK
-            self.write32(0x70, 15);
+            self.write32(mmio_reg::STATUS, 15);
         }
 
         Ok(())
+    }
+
+    /// Initialize a virtqueue (must be called after FEATURES_OK).
+    fn init_virtqueue(&mut self, queue_idx: u32) -> Result<(), NetworkError> {
+        if self.mmio_base.is_none() {
+            return Ok(());
+        }
+
+        // Select queue
+        self.write32(mmio_reg::QUEUE_SEL, queue_idx);
+
+        // Check max queue size
+        let max_size = self.read32(mmio_reg::QUEUE_NUM_MAX);
+        if max_size == 0 {
+            return Err(NetworkError::HardwareError(queue_idx));
+        }
+
+        let qsz = (QUEUE_SIZE as u32).min(max_size);
+        self.write32(mmio_reg::QUEUE_NUM, qsz);
+
+        // Point descriptor, avail, used to our pre-allocated buffers.
+        // For simplicity, we use the Vec-backed descriptor arrays directly.
+        // Their addresses are stable because Vec allocates on the heap.
+        let (desc_ptr, avail_ptr, used_ptr) = if queue_idx == RX_QUEUE {
+            (
+                self.rx_desc.as_ptr() as u64,
+                // We don't have separate avail/used ring structs in memory,
+                // so we'll use the MMIO queue-notify model: the device reads
+                // descriptors directly and we write notify.
+                0u64, 0u64,
+            )
+        } else {
+            (
+                self.tx_desc.as_ptr() as u64,
+                0u64, 0u64,
+            )
+        };
+
+        // Write queue addresses (split into low/high for 64-bit)
+        self.write32(mmio_reg::QUEUE_DESC_LOW, desc_ptr as u32);
+        self.write32(mmio_reg::QUEUE_DESC_HIGH, (desc_ptr >> 32) as u32);
+
+        // For MMIO v2, avail and used ring addresses are also set.
+        // We leave them as 0 (device-managed) when not explicitly allocated.
+        self.write32(mmio_reg::QUEUE_AVAIL_LOW, avail_ptr as u32);
+        self.write32(mmio_reg::QUEUE_AVAIL_HIGH, (avail_ptr >> 32) as u32);
+        self.write32(mmio_reg::QUEUE_USED_LOW, used_ptr as u32);
+        self.write32(mmio_reg::QUEUE_USED_HIGH, (used_ptr >> 32) as u32);
+
+        // Enable queue
+        self.write32(mmio_reg::QUEUE_READY, 1);
+
+        Ok(())
+    }
+
+    /// Add an RX buffer index to the available ring.
+    fn put_avail_rx(&mut self, desc_idx: u16) {
+        self.rx_avail_idx = self.rx_avail_idx.wrapping_add(1);
+        // Notify device that new RX buffers are available
+        if self.mmio_base.is_some() {
+            self.write32(mmio_reg::QUEUE_SEL, RX_QUEUE);
+            self.write32(mmio_reg::QUEUE_NOTIFY, RX_QUEUE);
+        }
+    }
+
+    /// Notify device that TX descriptors are ready.
+    fn notify_tx(&mut self) {
+        if self.mmio_base.is_some() {
+            self.write32(mmio_reg::QUEUE_SEL, TX_QUEUE);
+            self.write32(mmio_reg::QUEUE_NOTIFY, TX_QUEUE);
+        }
+    }
+
+    /// Acknowledge device interrupts.
+    fn ack_interrupt(&mut self) -> u32 {
+        if self.mmio_base.is_some() {
+            let status = self.read32(mmio_reg::INTERRUPT_STATUS);
+            if status != 0 {
+                self.write32(mmio_reg::INTERRUPT_ACK, status);
+            }
+            status
+        } else {
+            0
+        }
     }
 }
 
@@ -402,11 +546,38 @@ impl NetworkDevice for VirtioNetDevice {
             return Err(NetworkError::InvalidSize);
         }
 
-        // In a real implementation, we would:
-        // 1. Get a free TX descriptor
-        // 2. Copy virtio_net_hdr + data to buffer
-        // 3. Add to available ring
-        // 4. Notify device
+        // Pick the next TX descriptor slot (round-robin)
+        let idx = self.tx_next_desc as usize % QUEUE_SIZE;
+        self.tx_next_desc = self.tx_next_desc.wrapping_add(1);
+
+        // Prepend VirtioNetHdr (12 bytes of zeros = no offload)
+        let hdr = VirtioNetHdr::default();
+        let total = VirtioNetHdr::SIZE + data.len();
+        if total > self.tx_buffers[idx].len() {
+            return Err(NetworkError::InvalidSize);
+        }
+
+        // Copy header
+        let hdr_bytes: [u8; VirtioNetHdr::SIZE] = unsafe {
+            core::mem::transmute(hdr)
+        };
+        self.tx_buffers[idx][..VirtioNetHdr::SIZE].copy_from_slice(&hdr_bytes);
+        // Copy payload
+        self.tx_buffers[idx][VirtioNetHdr::SIZE..total].copy_from_slice(data);
+
+        // Set up TX descriptor
+        self.tx_desc[idx] = VirtqDesc {
+            addr: self.tx_buffers[idx].as_ptr() as u64,
+            len: total as u32,
+            flags: 0, // device reads from this buffer
+            next: 0,
+        };
+
+        // Update available ring index
+        self.tx_avail_idx = self.tx_avail_idx.wrapping_add(1);
+
+        // Notify device
+        self.notify_tx();
 
         self.stats.tx_packets += 1;
         self.stats.tx_bytes += data.len() as u64;
@@ -419,17 +590,53 @@ impl NetworkDevice for VirtioNetDevice {
             return Err(NetworkError::NotInitialized);
         }
 
-        // In a real implementation, we would:
-        // 1. Check used ring for completed RX
-        // 2. Copy data (skipping virtio_net_hdr)
-        // 3. Refill RX buffer to available ring
+        // Check for interrupt / completed RX descriptors
+        self.ack_interrupt();
 
-        Err(NetworkError::RxBufferEmpty)
+        // Check if there are any completed RX descriptors.
+        // In our simplified model, we check each RX descriptor for data.
+        // A real implementation would track the used ring properly.
+        let idx = self.rx_used_idx as usize % QUEUE_SIZE;
+
+        // Look at the RX descriptor — if the device has written data,
+        // the len field will be non-zero and different from the initial value.
+        let desc = &self.rx_desc[idx];
+        if desc.len == 0 || desc.len as usize == self.rx_buffers[idx].len() {
+            return Err(NetworkError::RxBufferEmpty);
+        }
+
+        let total_len = desc.len as usize;
+        if total_len <= VirtioNetHdr::SIZE {
+            // Reset and refill this descriptor
+            self.refill_rx(idx);
+            return Err(NetworkError::RxBufferEmpty);
+        }
+
+        // Strip VirtioNetHdr
+        let payload_len = total_len - VirtioNetHdr::SIZE;
+        let copy_len = payload_len.min(buffer.len());
+        buffer[..copy_len].copy_from_slice(
+            &self.rx_buffers[idx][VirtioNetHdr::SIZE..VirtioNetHdr::SIZE + copy_len],
+        );
+
+        // Refill this RX slot
+        self.refill_rx(idx);
+
+        self.rx_used_idx = self.rx_used_idx.wrapping_add(1);
+        self.stats.rx_packets += 1;
+        self.stats.rx_bytes += copy_len as u64;
+
+        Ok(copy_len)
     }
 
     fn rx_available(&self) -> bool {
-        // Would check used ring
-        false
+        if !self.is_up {
+            return false;
+        }
+        // Check if the current RX descriptor has been filled by the device.
+        let idx = self.rx_used_idx as usize % QUEUE_SIZE;
+        let desc = &self.rx_desc[idx];
+        desc.len != 0 && (desc.len as usize) < self.rx_buffers[idx].len()
     }
 
     fn set_promiscuous(&mut self, _enabled: bool) -> Result<(), NetworkError> {
@@ -446,12 +653,34 @@ impl NetworkDevice for VirtioNetDevice {
     }
 
     fn poll(&mut self) -> Result<(), NetworkError> {
-        // Check for completed TX/RX
+        // Acknowledge any pending interrupts
+        self.ack_interrupt();
+
+        // Check link status if STATUS feature is negotiated
         if (self.features & features::STATUS) != 0 && self.mmio_base.is_some() {
-            let status = self.read8(0x100 + 6); // After MAC in config space
+            let status = self.read8(mmio_reg::CONFIG + 6); // After MAC in config space
             self.link_status.up = (status & 1) != 0;
         }
         Ok(())
+    }
+}
+
+impl VirtioNetDevice {
+    /// Refill an RX descriptor slot so the device can write to it again.
+    fn refill_rx(&mut self, idx: usize) {
+        // Zero the buffer
+        for b in self.rx_buffers[idx].iter_mut() {
+            *b = 0;
+        }
+        // Reset descriptor
+        self.rx_desc[idx] = VirtqDesc {
+            addr: self.rx_buffers[idx].as_ptr() as u64,
+            len: self.rx_buffers[idx].len() as u32,
+            flags: VirtqDesc::WRITE,
+            next: 0,
+        };
+        // Notify device of refilled RX buffer
+        self.put_avail_rx(idx as u16);
     }
 }
 

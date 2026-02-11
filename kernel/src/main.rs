@@ -31,16 +31,17 @@ extern crate alloc;
 
 mod allocator;
 mod driver;
+mod drivers;
 mod gdt;
 mod graphics;
 mod gui;
 mod hw;
 mod interrupts;
 mod memory;
+mod net;
 mod panic;
 mod scheduler;
 mod serial;
-mod net;
 mod terminal;
 mod vfs;
 mod wasm;
@@ -81,17 +82,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let mut fb_height: u32 = 0;
     let mut fb_bpp: usize = 0;
     let mut fb_stride: usize = 0;
-    
+
     if let Some(fb_info) = boot_info.framebuffer.as_mut() {
-        serial_println!("[KPIO] Framebuffer available: {}x{}", 
-            fb_info.info().width, fb_info.info().height);
-        
+        serial_println!(
+            "[KPIO] Framebuffer available: {}x{}",
+            fb_info.info().width,
+            fb_info.info().height
+        );
+
         fb_ptr = fb_info.buffer_mut().as_mut_ptr();
         fb_width = fb_info.info().width as u32;
         fb_height = fb_info.info().height as u32;
         fb_bpp = fb_info.info().bytes_per_pixel;
         fb_stride = fb_info.info().stride;
-        
+
         draw_boot_screen(fb_info);
     } else {
         serial_println!("[KPIO] No framebuffer available");
@@ -164,7 +168,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] Initializing ACPI...");
     if let Some(rsdp_addr) = boot_info.rsdp_addr.into_option() {
         match hw::acpi::init_with_rsdp(rsdp_addr) {
-            Ok(()) => serial_println!("[KPIO] ACPI initialized ({} tables)", hw::acpi::table_count()),
+            Ok(()) => serial_println!(
+                "[KPIO] ACPI initialized ({} tables)",
+                hw::acpi::table_count()
+            ),
             Err(e) => serial_println!("[KPIO] ACPI init failed: {}", e),
         }
     } else {
@@ -174,22 +181,24 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Phase 8: PCI enumeration
     serial_println!("[KPIO] Enumerating PCI bus...");
     driver::pci::enumerate();
-    
+
     // Phase 9: VirtIO device initialization
     serial_println!("[KPIO] Initializing VirtIO devices...");
     driver::virtio::block::init();
-    serial_println!("[KPIO] VirtIO initialized ({} block device(s))", 
-        driver::virtio::block::device_count());
-    
+    serial_println!(
+        "[KPIO] VirtIO initialized ({} block device(s))",
+        driver::virtio::block::device_count()
+    );
+
     // Phase 9.5: PS/2 Mouse initialization
     serial_println!("[KPIO] Initializing PS/2 mouse...");
     driver::ps2_mouse::init();
-    
+
     // Enable mouse IRQ (IRQ 12 -> GSI 12 -> Vector 44)
     interrupts::ioapic::set_gsi(12, 44, 0);
     interrupts::ioapic::unmask_gsi(12);
     serial_println!("[KPIO] Mouse IRQ enabled");
-    
+
     // Phase 10: WASM runtime initialization
     serial_println!("[KPIO] Initializing WASM runtime...");
     wasm::init();
@@ -197,13 +206,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         Ok(()) => serial_println!("[KPIO] WASM runtime test passed"),
         Err(e) => serial_println!("[KPIO] WASM runtime test failed: {}", e),
     }
-    
+
     // Phase 11: Initialize Boot Animation BEFORE enabling interrupts
     if !fb_ptr.is_null() {
         // Initialize boot animation first
         serial_println!("[KPIO] Initializing boot animation...");
         gui::boot_animation::init(fb_width, fb_height);
-        
+
         // Store framebuffer info for later GUI use
         unsafe {
             BOOT_FB_INFO = Some(FramebufferInfo {
@@ -214,23 +223,24 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 stride: fb_stride,
             });
         }
-        
+
         // Render initial boot animation frame BEFORE interrupts
         serial_println!("[KPIO] Rendering initial boot frame...");
         {
-            let mut renderer = gui::render::Renderer::new(fb_ptr, fb_width, fb_height, fb_bpp, fb_stride);
+            let mut renderer =
+                gui::render::Renderer::new(fb_ptr, fb_width, fb_height, fb_bpp, fb_stride);
             gui::boot_animation::render(&mut renderer);
         }
         serial_println!("[KPIO] Boot animation initialized");
-        
+
         // Register timer callback for boot animation phase
         interrupts::register_timer_callback(on_boot_animation_tick);
     }
-    
+
     // Phase 12: Start timer and enable interrupts
     serial_println!("[KPIO] Starting APIC timer...");
     interrupts::start_apic_timer(100); // 100 Hz
-    
+
     serial_println!("[KPIO] Enabling interrupts...");
     interrupts::enable();
 
@@ -285,53 +295,46 @@ fn init_gui_after_boot() {
         if GUI_INITIALIZED {
             return;
         }
-        
+
         if let Some(ref fb) = BOOT_FB_INFO {
             serial_println!("[KPIO] Boot complete - Initializing GUI...");
             gui::init(fb.width, fb.height, fb.bpp, fb.stride, fb.ptr);
-            
+
             // Create demo windows
             serial_println!("[KPIO] Creating demo windows...");
             gui::with_gui(|gui| {
                 // Create browser window
-                let browser = gui::window::Window::new_browser(
-                    gui::window::WindowId(1),
-                    100, 50
-                );
+                let browser = gui::window::Window::new_browser(gui::window::WindowId(1), 100, 50);
                 gui.windows.push(browser);
-                gui.taskbar.add_window(gui::window::WindowId(1), "KPIO Browser");
-                
+                gui.taskbar
+                    .add_window(gui::window::WindowId(1), "KPIO Browser");
+
                 // Create terminal window
-                let terminal = gui::window::Window::new_terminal(
-                    gui::window::WindowId(2),
-                    250, 150
-                );
+                let terminal =
+                    gui::window::Window::new_terminal(gui::window::WindowId(2), 250, 150);
                 gui.windows.push(terminal);
                 gui.taskbar.add_window(gui::window::WindowId(2), "Terminal");
-                
+
                 // Create files window
-                let files = gui::window::Window::new_files(
-                    gui::window::WindowId(3),
-                    400, 100
-                );
+                let files = gui::window::Window::new_files(gui::window::WindowId(3), 400, 100);
                 gui.windows.push(files);
                 gui.taskbar.add_window(gui::window::WindowId(3), "Files");
-                
+
                 gui.active_window = Some(gui::window::WindowId(1));
             });
-            
+
             // Switch to GUI callbacks
             interrupts::register_key_callback(on_key_event);
             interrupts::register_mouse_callback(on_mouse_byte);
             interrupts::register_timer_callback(on_timer_tick);
-            
+
             // Force render GUI
             gui::with_gui(|gui| {
                 gui.dirty = true;
             });
             gui::render();
             serial_println!("[KPIO] GUI rendered - Desktop ready!");
-            
+
             GUI_INITIALIZED = true;
         }
     }
@@ -343,7 +346,7 @@ fn init_gui_after_boot() {
 fn on_boot_animation_tick() {
     // Advance boot animation
     let complete = gui::boot_animation::tick();
-    
+
     unsafe {
         if complete && !BOOT_ANIMATION_COMPLETE {
             // Set flag - GUI will be initialized in main loop
@@ -358,9 +361,9 @@ fn on_boot_animation_tick() {
 }
 
 /// Keyboard event callback
-fn on_key_event(ch: char, _scancode: u8, pressed: bool) {
+fn on_key_event(ch: char, _scancode: u8, pressed: bool, ctrl: bool, shift: bool, alt: bool) {
     if ch != '\0' {
-        gui::input::push_key_event(ch, _scancode, pressed);
+        gui::input::push_key_event(ch, _scancode, pressed, ctrl, shift, alt);
     }
 }
 
@@ -384,17 +387,22 @@ fn draw_boot_screen(fb: &mut bootloader_api::info::FrameBuffer) {
     let bytes_per_pixel = info.bytes_per_pixel;
     let stride = info.stride;
 
-    serial_println!("[FB] Drawing boot screen ({}x{}, {} bpp, stride {})", 
-        width, height, bytes_per_pixel, stride);
+    serial_println!(
+        "[FB] Drawing boot screen ({}x{}, {} bpp, stride {})",
+        width,
+        height,
+        bytes_per_pixel,
+        stride
+    );
 
     // Fill background with dark blue
     let bg_color: [u8; 4] = [0x40, 0x20, 0x10, 0xFF]; // BGR format for most displays
-    
+
     for y in 0..height {
         for x in 0..width {
             let offset = (y * stride + x) * bytes_per_pixel;
             if offset + bytes_per_pixel <= buffer.len() {
-                buffer[offset] = bg_color[0];     // Blue
+                buffer[offset] = bg_color[0]; // Blue
                 buffer[offset + 1] = bg_color[1]; // Green
                 buffer[offset + 2] = bg_color[2]; // Red
                 if bytes_per_pixel == 4 {
@@ -429,71 +437,79 @@ fn draw_boot_screen(fb: &mut bootloader_api::info::FrameBuffer) {
     let text_x = box_x + 20;
     let text_y = box_y + 30;
     let black: [u8; 4] = [0x00, 0x00, 0x00, 0xFF];
-    
+
     // Simple K letter (8x8)
     let k_pattern: [u8; 8] = [
-        0b10000010,
-        0b10000100,
-        0b10001000,
-        0b10010000,
-        0b10100000,
-        0b11010000,
-        0b10001000,
+        0b10000010, 0b10000100, 0b10001000, 0b10010000, 0b10100000, 0b11010000, 0b10001000,
         0b10000100,
     ];
-    draw_char(buffer, text_x, text_y, &k_pattern, &black, bytes_per_pixel, stride);
+    draw_char(
+        buffer,
+        text_x,
+        text_y,
+        &k_pattern,
+        &black,
+        bytes_per_pixel,
+        stride,
+    );
 
     // Simple P letter (8x8)
     let p_pattern: [u8; 8] = [
-        0b11111100,
-        0b10000010,
-        0b10000010,
-        0b11111100,
-        0b10000000,
-        0b10000000,
-        0b10000000,
+        0b11111100, 0b10000010, 0b10000010, 0b11111100, 0b10000000, 0b10000000, 0b10000000,
         0b10000000,
     ];
-    draw_char(buffer, text_x + 40, text_y, &p_pattern, &black, bytes_per_pixel, stride);
+    draw_char(
+        buffer,
+        text_x + 40,
+        text_y,
+        &p_pattern,
+        &black,
+        bytes_per_pixel,
+        stride,
+    );
 
     // Simple I letter (8x8)
     let i_pattern: [u8; 8] = [
-        0b11111110,
-        0b00010000,
-        0b00010000,
-        0b00010000,
-        0b00010000,
-        0b00010000,
-        0b00010000,
+        0b11111110, 0b00010000, 0b00010000, 0b00010000, 0b00010000, 0b00010000, 0b00010000,
         0b11111110,
     ];
-    draw_char(buffer, text_x + 80, text_y, &i_pattern, &black, bytes_per_pixel, stride);
+    draw_char(
+        buffer,
+        text_x + 80,
+        text_y,
+        &i_pattern,
+        &black,
+        bytes_per_pixel,
+        stride,
+    );
 
     // Simple O letter (8x8)
     let o_pattern: [u8; 8] = [
-        0b00111100,
-        0b01000010,
-        0b10000001,
-        0b10000001,
-        0b10000001,
-        0b10000001,
-        0b01000010,
+        0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010,
         0b00111100,
     ];
-    draw_char(buffer, text_x + 120, text_y, &o_pattern, &black, bytes_per_pixel, stride);
+    draw_char(
+        buffer,
+        text_x + 120,
+        text_y,
+        &o_pattern,
+        &black,
+        bytes_per_pixel,
+        stride,
+    );
 
     serial_println!("[FB] Boot screen drawn");
 }
 
 /// Draw an 8x8 character pattern
 fn draw_char(
-    buffer: &mut [u8], 
-    x: usize, 
-    y: usize, 
-    pattern: &[u8; 8], 
+    buffer: &mut [u8],
+    x: usize,
+    y: usize,
+    pattern: &[u8; 8],
     color: &[u8; 4],
     bytes_per_pixel: usize,
-    stride: usize
+    stride: usize,
 ) {
     let scale = 4; // Scale up 4x
     for (row, &bits) in pattern.iter().enumerate() {

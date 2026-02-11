@@ -1,24 +1,31 @@
 //! Kernel Network Stack
 //!
-//! Provides TCP/IP, DNS, and HTTP services.  The stack operates in
-//! software—it does not currently drive real hardware NICs but
-//! presents a loopback / local-server interface that the browser
-//! engine and syscall layer can use.
+//! Full TCP/IP stack for online browsing over VirtIO-net.
+//!
+//! Layer overview (bottom → top):
+//!   VirtIO-net → Ethernet → ARP → IPv4 → UDP/TCP → DNS → HTTP/TLS
 
 #![allow(dead_code)]
 
+pub mod ethernet;
+pub mod arp;
+pub mod ipv4;
+pub mod udp;
 pub mod tcp;
 pub mod dns;
+pub mod tls;
 pub mod http;
 
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::drivers::net::NETWORK_MANAGER;
+
 // ── IPv4 address ────────────────────────────────────────────
 
 /// IPv4 address.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ipv4Addr(pub [u8; 4]);
 
 impl Ipv4Addr {
@@ -52,7 +59,7 @@ impl fmt::Display for Ipv4Addr {
 // ── Socket address ──────────────────────────────────────────
 
 /// Socket address (IPv4 + port).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SocketAddr {
     pub ip: Ipv4Addr,
     pub port: u16,
@@ -77,7 +84,9 @@ impl fmt::Display for SocketAddr {
 pub enum NetError {
     ConnectionRefused,
     ConnectionReset,
+    ConnectionNotFound,
     Timeout,
+    TimedOut,
     DnsNotFound,
     WouldBlock,
     AddressInUse,
@@ -85,6 +94,7 @@ pub enum NetError {
     NotConnected,
     AlreadyConnected,
     NetworkUnreachable,
+    TlsHandshakeFailed,
 }
 
 impl fmt::Display for NetError {
@@ -92,7 +102,9 @@ impl fmt::Display for NetError {
         match self {
             NetError::ConnectionRefused => write!(f, "Connection refused"),
             NetError::ConnectionReset => write!(f, "Connection reset"),
+            NetError::ConnectionNotFound => write!(f, "Connection not found"),
             NetError::Timeout => write!(f, "Timeout"),
+            NetError::TimedOut => write!(f, "Timed out"),
             NetError::DnsNotFound => write!(f, "DNS not found"),
             NetError::WouldBlock => write!(f, "Would block"),
             NetError::AddressInUse => write!(f, "Address in use"),
@@ -100,6 +112,7 @@ impl fmt::Display for NetError {
             NetError::NotConnected => write!(f, "Not connected"),
             NetError::AlreadyConnected => write!(f, "Already connected"),
             NetError::NetworkUnreachable => write!(f, "Network unreachable"),
+            NetError::TlsHandshakeFailed => write!(f, "TLS handshake failed"),
         }
     }
 }
@@ -166,8 +179,101 @@ pub fn interfaces() -> Vec<InterfaceInfo> {
 
 /// Initialise the network stack.
 pub fn init() {
+    arp::init();
+    udp::init();
     dns::init();
     tcp::init();
     http::init();
-    crate::serial_println!("[Net] Network stack initialized (loopback only)");
+
+    // Pre-populate ARP with the gateway MAC so that the first packet
+    // doesn't have to wait for a reply.  QEMU user-mode networking
+    // always responds to any MAC so a well-known placeholder works.
+    let cfg = ipv4::config();
+    arp::insert(cfg.gateway, cfg.mac); // seed gateway (self-MAC trick for QEMU slirp)
+
+    crate::serial_println!("[Net] Network stack initialized (virtio-net ready)");
+}
+
+// ── NIC ↔ Protocol glue ────────────────────────────────────
+
+/// Transmit a raw Ethernet frame via the first available NIC.
+pub fn transmit_frame(frame: &[u8]) {
+    let mut mgr = NETWORK_MANAGER.lock();
+    // Try every registered device; stop after the first success.
+    for name in mgr.device_names() {
+        if let Some(dev) = mgr.device_mut(&name) {
+            if dev.transmit(frame).is_ok() {
+                return;
+            }
+        }
+    }
+    // No device available — silently drop (loopback-only mode).
+}
+
+/// Poll all NICs for received frames and feed them into `process_rx`.
+pub fn poll_rx() {
+    let mut mgr = NETWORK_MANAGER.lock();
+    let names: Vec<String> = mgr.device_names();
+    for name in &names {
+        if let Some(dev) = mgr.device_mut(name) {
+            let mut buf = [0u8; 2048];
+            while dev.rx_available() {
+                match dev.receive(&mut buf) {
+                    Ok(n) if n > 0 => {
+                        // Must drop the manager lock before calling process_rx
+                        // because the handler may want to transmit.
+                        let pkt = buf[..n].to_vec();
+                        drop(mgr);
+                        process_rx(&pkt);
+                        mgr = NETWORK_MANAGER.lock();
+                        // Re-lookup the device because we dropped & re-acquired.
+                        break; // will loop back via outer while
+                    }
+                    _ => break,
+                }
+            }
+        }
+    }
+}
+
+/// Dispatch a received Ethernet frame through the protocol stack.
+pub fn process_rx(frame: &[u8]) {
+    let eth = match ethernet::EthernetFrame::parse(frame) {
+        Some(f) => f,
+        None => return,
+    };
+
+    let cfg = ipv4::config();
+
+    // Only accept frames addressed to us or broadcast
+    if !eth.is_for_us(&cfg.mac) {
+        return;
+    }
+
+    match eth.ethertype {
+        ethernet::ETHERTYPE_ARP => {
+            if let Some(reply) = arp::process_incoming(eth.payload, cfg.mac, cfg.ip) {
+                transmit_frame(&reply);
+            }
+        }
+        ethernet::ETHERTYPE_IPV4 => {
+            if let Some(ip_pkt) = ipv4::Ipv4Packet::parse(eth.payload) {
+                match ip_pkt.protocol {
+                    ipv4::PROTO_ICMP => {
+                        if let Some(reply) = ipv4::process_icmp(&ip_pkt) {
+                            transmit_frame(&reply);
+                        }
+                    }
+                    ipv4::PROTO_UDP => {
+                        udp::process_incoming(ip_pkt.src, ip_pkt.payload);
+                    }
+                    ipv4::PROTO_TCP => {
+                        tcp::process_incoming(ip_pkt.src, ip_pkt.payload);
+                    }
+                    _ => {} // drop unknown protocol
+                }
+            }
+        }
+        _ => {} // drop unknown ethertype
+    }
 }
