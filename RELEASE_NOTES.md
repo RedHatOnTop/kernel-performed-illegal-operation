@@ -26,6 +26,20 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - Inter-process communication (channels, shared memory, message queues)
 - Device driver framework (keyboard, mouse, storage, network)
 - System call interface for applications
+- **Full TCP/IP network stack** for online browsing (see below)
+
+### Network Stack (NEW)
+- **VirtIO-net driver** — real packet TX/RX over MMIO virtqueues
+- **Ethernet** — IEEE 802.3 frame parse/build
+- **ARP** — address resolution with cache (RFC 826)
+- **IPv4** — packet construction, internet checksum, ICMP echo, subnet routing
+- **UDP** — datagram socket table for DNS queries
+- **TCP** — full 3-way handshake, sequence/ack, retransmission, FIN teardown
+- **DNS** — RFC 1035 wire-format queries over UDP, host table + TTL cache
+- **TLS 1.2** — SHA-256, HMAC, AES-128-CBC, RSA key exchange (demo cert validation)
+- **HTTP/1.1** — client with chunked decoding; serves built-in kpio:// pages
+- **HTTPS** — TLS-wrapped HTTP for port-443 connections
+- Works out-of-the-box with QEMU `-netdev user` (IP 10.0.2.15, GW 10.0.2.2, DNS 10.0.2.3)
 
 ### Browser
 - HTML5 parsing and rendering
