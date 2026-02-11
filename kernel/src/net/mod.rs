@@ -14,8 +14,12 @@ pub mod udp;
 pub mod tcp;
 pub mod dns;
 pub mod dhcp;
+pub mod crypto;
+pub mod x509;
 pub mod tls;
+pub mod tls13;
 pub mod http;
+pub mod websocket;
 
 use alloc::string::String;
 use alloc::vec::Vec;
