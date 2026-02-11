@@ -229,8 +229,100 @@ pub fn arp_request_for(dst: Ipv4Addr) -> Vec<u8> {
 
 // ── ICMP ────────────────────────────────────────────────────
 
+/// ICMP echo reply storage for ping.
+#[derive(Debug, Clone)]
+pub struct IcmpEchoReply {
+    pub src: Ipv4Addr,
+    pub id: u16,
+    pub seq: u16,
+    pub ttl: u8,
+    pub data_len: usize,
+    /// Tick count when the reply was received (for RTT calculation).
+    pub rx_tick: u64,
+}
+
+/// Pending echo replies dequeued by the ping command.
+static ICMP_REPLIES: Mutex<Vec<IcmpEchoReply>> = Mutex::new(Vec::new());
+
+/// Monotonic tick counter (incremented via `tick()`).
+static ICMP_TICK: Mutex<u64> = Mutex::new(0);
+
+/// Advance the ICMP tick counter (call from timer tick or poll loop).
+pub fn icmp_tick() {
+    let mut t = ICMP_TICK.lock();
+    *t = t.wrapping_add(1);
+}
+
+/// Current tick value.
+pub fn icmp_now() -> u64 {
+    *ICMP_TICK.lock()
+}
+
+/// Send an ICMP Echo Request and return the transmit tick.
+///
+/// `id` — identifier (e.g. PID or session), `seq` — sequence number.
+/// Payload is filled with 56 bytes of pattern data (total 64 + 20 = 84
+/// bytes on the wire, matching Linux ping default).
+pub fn send_echo_request(dst: Ipv4Addr, id: u16, seq: u16) -> Option<u64> {
+    // Build ICMP echo request: type 8, code 0
+    let mut payload = Vec::with_capacity(64);
+    payload.push(8);  // type = echo request
+    payload.push(0);  // code
+    payload.push(0);  // checksum placeholder
+    payload.push(0);
+    // identifier
+    payload.push((id >> 8) as u8);
+    payload.push(id as u8);
+    // sequence number
+    payload.push((seq >> 8) as u8);
+    payload.push(seq as u8);
+    // 56 bytes of data payload
+    for i in 0u8..56 {
+        payload.push(i);
+    }
+    // Compute ICMP checksum
+    let ck = checksum(&payload);
+    payload[2] = (ck >> 8) as u8;
+    payload[3] = ck as u8;
+
+    let tx_tick = icmp_now();
+
+    // Build full Ethernet frame and transmit
+    if let Some(frame) = send_packet(dst, PROTO_ICMP, &payload) {
+        super::transmit_frame(&frame);
+        Some(tx_tick)
+    } else {
+        // ARP not resolved yet — send ARP request and retry
+        let arp_frame = arp_request_for(dst);
+        super::transmit_frame(&arp_frame);
+        // Wait briefly for ARP reply, then retry
+        for _ in 0..50 {
+            super::poll_rx();
+            for _ in 0..20_000 { core::hint::spin_loop(); }
+        }
+        if let Some(frame) = send_packet(dst, PROTO_ICMP, &payload) {
+            super::transmit_frame(&frame);
+            Some(icmp_now())
+        } else {
+            None
+        }
+    }
+}
+
+/// Dequeue one ICMP echo reply matching the given `id` and `seq`.
+/// Returns `None` if no matching reply is available yet.
+pub fn recv_echo_reply(id: u16, seq: u16) -> Option<IcmpEchoReply> {
+    let mut replies = ICMP_REPLIES.lock();
+    if let Some(pos) = replies.iter().position(|r| r.id == id && r.seq == seq) {
+        Some(replies.remove(pos))
+    } else {
+        None
+    }
+}
+
 /// Process an incoming ICMP packet. Returns an echo reply frame if
-/// the packet is an echo request.
+/// the packet is an echo request.  Echo replies are stored for the
+/// `ping` command to consume.
 pub fn process_icmp(pkt: &Ipv4Packet) -> Option<Vec<u8>> {
     if pkt.payload.len() < 8 {
         return None;
@@ -239,19 +331,35 @@ pub fn process_icmp(pkt: &Ipv4Packet) -> Option<Vec<u8>> {
     let icmp_type = pkt.payload[0];
     let _icmp_code = pkt.payload[1];
 
-    // Echo request (type 8) → echo reply (type 0)
-    if icmp_type == 8 {
-        let mut reply_payload = Vec::from(pkt.payload);
-        reply_payload[0] = 0; // type = echo reply
-        reply_payload[2] = 0; // clear checksum
-        reply_payload[3] = 0;
-        let ck = checksum(&reply_payload);
-        reply_payload[2] = (ck >> 8) as u8;
-        reply_payload[3] = ck as u8;
+    match icmp_type {
+        // Echo reply (type 0) — store for ping consumers
+        0 => {
+            let id = u16::from_be_bytes([pkt.payload[4], pkt.payload[5]]);
+            let seq = u16::from_be_bytes([pkt.payload[6], pkt.payload[7]]);
+            let reply = IcmpEchoReply {
+                src: pkt.src,
+                id,
+                seq,
+                ttl: pkt.ttl,
+                data_len: pkt.payload.len().saturating_sub(8),
+                rx_tick: icmp_now(),
+            };
+            ICMP_REPLIES.lock().push(reply);
+            None
+        }
+        // Echo request (type 8) → echo reply (type 0)
+        8 => {
+            let mut reply_payload = Vec::from(pkt.payload);
+            reply_payload[0] = 0; // type = echo reply
+            reply_payload[2] = 0; // clear checksum
+            reply_payload[3] = 0;
+            let ck = checksum(&reply_payload);
+            reply_payload[2] = (ck >> 8) as u8;
+            reply_payload[3] = ck as u8;
 
-        send_packet(pkt.src, PROTO_ICMP, &reply_payload)
-    } else {
-        None
+            send_packet(pkt.src, PROTO_ICMP, &reply_payload)
+        }
+        _ => None,
     }
 }
 

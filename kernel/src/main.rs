@@ -374,6 +374,15 @@ fn on_mouse_byte(byte: u8) {
 
 /// Timer tick callback
 fn on_timer_tick() {
+    // Poll the network stack for received frames.
+    // This is what makes background networking work — without this,
+    // incoming packets (ARP replies, TCP segments, DNS responses, ICMP
+    // echo replies) would only be processed during blocking operations.
+    net::poll_rx();
+
+    // Advance the ICMP tick counter for RTT measurement.
+    net::ipv4::icmp_tick();
+
     gui::input::process_all_events();
     gui::render();
 }

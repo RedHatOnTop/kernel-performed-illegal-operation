@@ -13,6 +13,7 @@ pub mod ipv4;
 pub mod udp;
 pub mod tcp;
 pub mod dns;
+pub mod dhcp;
 pub mod tls;
 pub mod http;
 
@@ -160,10 +161,38 @@ pub fn loopback_transfer(bytes: u64) {
     lo.tx_bytes += bytes;
 }
 
-/// Get the list of network interfaces (currently just loopback).
+/// Get the list of network interfaces (loopback + physical NICs).
 pub fn interfaces() -> Vec<InterfaceInfo> {
+    let mut ifaces = Vec::new();
+
+    // Physical NICs from NETWORK_MANAGER
+    let cfg = ipv4::config();
+    let mgr = NETWORK_MANAGER.lock();
+    for name in mgr.device_names() {
+        if let Some(dev) = mgr.device(&name) {
+            let stats = dev.stats();
+            let link = dev.link_status();
+            let mac_addr = dev.mac_address();
+            let caps = dev.capabilities();
+            ifaces.push(InterfaceInfo {
+                name: name.clone(),
+                ip: cfg.ip,
+                netmask: cfg.netmask,
+                mac: *mac_addr.as_bytes(),
+                mtu: if caps.mtu > 0 { caps.mtu } else { 1500 },
+                up: link.up,
+                rx_packets: stats.rx_packets,
+                tx_packets: stats.tx_packets,
+                rx_bytes: stats.rx_bytes,
+                tx_bytes: stats.tx_bytes,
+            });
+        }
+    }
+    drop(mgr);
+
+    // Loopback
     let lo = LOOPBACK.lock();
-    alloc::vec![InterfaceInfo {
+    ifaces.push(InterfaceInfo {
         name: String::from("lo"),
         ip: Ipv4Addr::LOCALHOST,
         netmask: Ipv4Addr::new(255, 0, 0, 0),
@@ -174,7 +203,9 @@ pub fn interfaces() -> Vec<InterfaceInfo> {
         tx_packets: lo.tx_packets,
         rx_bytes: lo.rx_bytes,
         tx_bytes: lo.tx_bytes,
-    }]
+    });
+
+    ifaces
 }
 
 /// Initialise the network stack.
@@ -190,6 +221,25 @@ pub fn init() {
     // always responds to any MAC so a well-known placeholder works.
     let cfg = ipv4::config();
     arp::insert(cfg.gateway, cfg.mac); // seed gateway (self-MAC trick for QEMU slirp)
+
+    // Try DHCP to get a real IP configuration.
+    // Falls back to the hardcoded QEMU defaults if DHCP fails.
+    match dhcp::discover_and_apply() {
+        Ok(lease) => {
+            crate::serial_println!(
+                "[Net] DHCP lease acquired: {} (gw {}, dns {})",
+                lease.ip, lease.gateway, lease.dns
+            );
+            // Update ARP with new gateway
+            arp::insert(lease.gateway, cfg.mac);
+        }
+        Err(e) => {
+            crate::serial_println!(
+                "[Net] DHCP failed ({}), using static config ({})",
+                e, cfg.ip
+            );
+        }
+    }
 
     crate::serial_println!("[Net] Network stack initialized (virtio-net ready)");
 }

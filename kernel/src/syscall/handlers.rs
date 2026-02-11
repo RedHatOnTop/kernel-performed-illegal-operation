@@ -297,9 +297,20 @@ fn handle_get_time(_ctx: &SyscallContext) -> SyscallResult {
 /// Create a socket.
 fn handle_socket_create(ctx: &SyscallContext) -> SyscallResult {
     let sock_type = ctx.arg1 as u32; // 0 = TCP, 1 = UDP
-    let _ = sock_type; // Currently only TCP
-    let conn_id = crate::net::tcp::create();
-    Ok(conn_id.0)
+    match sock_type {
+        0 => {
+            // TCP socket
+            let conn_id = crate::net::tcp::create();
+            Ok(conn_id.0)
+        }
+        1 => {
+            // UDP socket — bind an ephemeral port and return the port as ID
+            let port = crate::net::udp::bind(0);
+            // Use high bit to distinguish UDP from TCP: 0x8000_0000 | port
+            Ok(0x8000_0000 | port as u64)
+        }
+        _ => Err(SyscallError::InvalidArgument),
+    }
 }
 
 /// Bind a socket.

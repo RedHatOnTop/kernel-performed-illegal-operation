@@ -1,14 +1,16 @@
 //! Linux-Compatible Command Implementations
 //!
-//! 50+ commands organized by category: filesystem, text processing,
+//! 80+ commands organized by category: filesystem, text processing,
 //! system info, utilities, network (stubs), and misc.
+//! Commands emit ANSI escape codes for coloured output.
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::format;
 
-use super::fs::{self, InodeContent, FileMode};
+use super::ansi;
+use super::fs::{self, FileMode, InodeContent};
 use super::shell;
 
 // ────────────────────────── Result type ──────────────────────────
@@ -19,129 +21,234 @@ pub struct CmdResult {
 }
 
 impl CmdResult {
-    pub fn ok(output: Vec<String>) -> Self { Self { output, success: true } }
-    pub fn ok_one(line: String) -> Self { Self { output: vec![line], success: true } }
-    pub fn ok_empty() -> Self { Self { output: Vec::new(), success: true } }
-    pub fn err(msg: String) -> Self { Self { output: vec![msg], success: false } }
+    pub fn ok(output: Vec<String>) -> Self {
+        Self {
+            output,
+            success: true,
+        }
+    }
+    pub fn ok_one(line: String) -> Self {
+        Self {
+            output: vec![line],
+            success: true,
+        }
+    }
+    pub fn ok_empty() -> Self {
+        Self {
+            output: Vec::new(),
+            success: true,
+        }
+    }
+    pub fn err(msg: String) -> Self {
+        Self {
+            output: vec![msg],
+            success: false,
+        }
+    }
 }
 
 // ────────────────────────── Command registry ──────────────────────────
 
 /// All available command names (sorted).
 pub static COMMAND_LIST: &[&str] = &[
-    "acpi", "alias", "base64", "basename", "cal", "cat", "cd", "chmod", "chown",
-    "clear", "cp", "cut", "date", "df", "diff", "dirname", "du",
-    "echo", "env", "exit", "export", "false", "file", "find", "free",
-    "grep", "groups", "head", "help", "hexdump", "history", "hostname",
-    "id", "ifconfig", "kill", "ln", "ls", "lsblk", "lspci", "man", "md5sum", "mkdir",
-    "mv", "neofetch", "netstat", "nl", "od", "ping", "printenv", "printf",
-    "ps", "pwd", "readlink", "realpath", "rm", "rmdir", "sed", "seq",
-    "sha256sum", "sleep", "sort", "stat", "su", "tac", "tail", "tee",
-    "test", "time", "touch", "top", "tr", "tree", "true", "type",
-    "uname", "uniq", "unset", "uptime", "wc", "which", "who", "whoami",
-    "xargs", "xxd", "yes",
+    "acpi",
+    "alias",
+    "base64",
+    "basename",
+    "cal",
+    "cat",
+    "cd",
+    "chmod",
+    "chown",
+    "clear",
+    "cp",
+    "curl",
+    "cut",
+    "date",
+    "df",
+    "dhcp",
+    "diff",
+    "dirname",
+    "du",
+    "echo",
+    "env",
+    "exit",
+    "export",
+    "false",
+    "file",
+    "find",
+    "free",
+    "grep",
+    "groups",
+    "head",
+    "help",
+    "hexdump",
+    "history",
+    "hostname",
+    "id",
+    "ifconfig",
+    "kill",
+    "ln",
+    "ls",
+    "lsblk",
+    "lspci",
+    "man",
+    "md5sum",
+    "mkdir",
+    "mv",
+    "neofetch",
+    "netstat",
+    "nl",
+    "nslookup",
+    "od",
+    "ping",
+    "printenv",
+    "printf",
+    "ps",
+    "pwd",
+    "readlink",
+    "realpath",
+    "rm",
+    "rmdir",
+    "sed",
+    "seq",
+    "sha256sum",
+    "sleep",
+    "sort",
+    "stat",
+    "su",
+    "tac",
+    "tail",
+    "tee",
+    "test",
+    "time",
+    "touch",
+    "top",
+    "tr",
+    "tree",
+    "true",
+    "type",
+    "uname",
+    "uniq",
+    "unset",
+    "uptime",
+    "wc",
+    "wget",
+    "which",
+    "who",
+    "whoami",
+    "xargs",
+    "xxd",
+    "yes",
 ];
 
 /// Dispatch a command. `pipe_in` carries data from a previous pipe.
 pub fn execute_command(name: &str, args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
     match name {
         // ── Filesystem ──
-        "ls"       => cmd_ls(args),
-        "cd"       => cmd_cd(args),
-        "pwd"      => cmd_pwd(args),
-        "mkdir"    => cmd_mkdir(args),
-        "rmdir"    => cmd_rmdir(args),
-        "touch"    => cmd_touch(args),
-        "rm"       => cmd_rm(args),
-        "cp"       => cmd_cp(args),
-        "mv"       => cmd_mv(args),
-        "cat"      => cmd_cat(args, pipe_in),
-        "head"     => cmd_head(args, pipe_in),
-        "tail"     => cmd_tail(args, pipe_in),
-        "find"     => cmd_find(args),
-        "du"       => cmd_du(args),
-        "df"       => cmd_df(args),
-        "ln"       => cmd_ln(args),
-        "chmod"    => cmd_chmod(args),
-        "chown"    => cmd_chown(args),
-        "stat"     => cmd_stat(args),
-        "file"     => cmd_file(args),
-        "tree"     => cmd_tree(args),
-        "wc"       => cmd_wc(args, pipe_in),
+        "ls" => cmd_ls(args),
+        "cd" => cmd_cd(args),
+        "pwd" => cmd_pwd(args),
+        "mkdir" => cmd_mkdir(args),
+        "rmdir" => cmd_rmdir(args),
+        "touch" => cmd_touch(args),
+        "rm" => cmd_rm(args),
+        "cp" => cmd_cp(args),
+        "mv" => cmd_mv(args),
+        "cat" => cmd_cat(args, pipe_in),
+        "head" => cmd_head(args, pipe_in),
+        "tail" => cmd_tail(args, pipe_in),
+        "find" => cmd_find(args),
+        "du" => cmd_du(args),
+        "df" => cmd_df(args),
+        "ln" => cmd_ln(args),
+        "chmod" => cmd_chmod(args),
+        "chown" => cmd_chown(args),
+        "stat" => cmd_stat(args),
+        "file" => cmd_file(args),
+        "tree" => cmd_tree(args),
+        "wc" => cmd_wc(args, pipe_in),
         "basename" => cmd_basename(args),
-        "dirname"  => cmd_dirname(args),
+        "dirname" => cmd_dirname(args),
         "readlink" => cmd_readlink(args),
         "realpath" => cmd_realpath(args),
 
         // ── Text processing ──
-        "echo"     => cmd_echo(args),
-        "printf"   => cmd_printf(args),
-        "grep"     => cmd_grep(args, pipe_in),
-        "sed"      => cmd_sed(args, pipe_in),
-        "sort"     => cmd_sort(args, pipe_in),
-        "uniq"     => cmd_uniq(args, pipe_in),
-        "cut"      => cmd_cut(args, pipe_in),
-        "tr"       => cmd_tr(args, pipe_in),
-        "tee"      => cmd_tee(args, pipe_in),
-        "xargs"    => cmd_xargs(args, pipe_in),
-        "tac"      => cmd_tac(args, pipe_in),
-        "nl"       => cmd_nl(args, pipe_in),
-        "od"       => cmd_od(args),
+        "echo" => cmd_echo(args),
+        "printf" => cmd_printf(args),
+        "grep" => cmd_grep(args, pipe_in),
+        "sed" => cmd_sed(args, pipe_in),
+        "sort" => cmd_sort(args, pipe_in),
+        "uniq" => cmd_uniq(args, pipe_in),
+        "cut" => cmd_cut(args, pipe_in),
+        "tr" => cmd_tr(args, pipe_in),
+        "tee" => cmd_tee(args, pipe_in),
+        "xargs" => cmd_xargs(args, pipe_in),
+        "tac" => cmd_tac(args, pipe_in),
+        "nl" => cmd_nl(args, pipe_in),
+        "od" => cmd_od(args),
 
         // ── System info ──
-        "uname"    => cmd_uname(args),
-        "whoami"   => cmd_whoami(args),
+        "uname" => cmd_uname(args),
+        "whoami" => cmd_whoami(args),
         "hostname" => cmd_hostname(args),
-        "uptime"   => cmd_uptime(args),
-        "free"     => cmd_free(args),
-        "top"      => cmd_top(args),
-        "ps"       => cmd_ps(args),
-        "kill"     => cmd_kill(args),
-        "id"       => cmd_id(args),
-        "groups"   => cmd_groups(args),
-        "env"      => cmd_env(args),
+        "uptime" => cmd_uptime(args),
+        "free" => cmd_free(args),
+        "top" => cmd_top(args),
+        "ps" => cmd_ps(args),
+        "kill" => cmd_kill(args),
+        "id" => cmd_id(args),
+        "groups" => cmd_groups(args),
+        "env" => cmd_env(args),
         "printenv" => cmd_printenv(args),
-        "export"   => cmd_export(args),
-        "unset"    => cmd_unset(args),
-        "who"      => cmd_who(args),
-        "su"       => cmd_su(args),
+        "export" => cmd_export(args),
+        "unset" => cmd_unset(args),
+        "who" => cmd_who(args),
+        "su" => cmd_su(args),
 
         // ── Utilities ──
-        "date"     => cmd_date(args),
-        "cal"      => cmd_cal(args),
-        "clear"    => cmd_clear(args),
-        "history"  => cmd_history(args),
-        "alias"    => cmd_alias(args),
-        "which"    => cmd_which(args),
-        "type"     => cmd_type(args),
-        "true"     => CmdResult::ok_empty(),
-        "false"    => CmdResult { output: Vec::new(), success: false },
-        "yes"      => cmd_yes(args),
-        "seq"      => cmd_seq(args),
-        "sleep"    => cmd_sleep(args),
-        "time"     => cmd_time(args),
-        "test"     => cmd_test(args),
-        "exit"     => cmd_exit(args),
+        "date" => cmd_date(args),
+        "cal" => cmd_cal(args),
+        "clear" => cmd_clear(args),
+        "history" => cmd_history(args),
+        "alias" => cmd_alias(args),
+        "which" => cmd_which(args),
+        "type" => cmd_type(args),
+        "true" => CmdResult::ok_empty(),
+        "false" => CmdResult {
+            output: Vec::new(),
+            success: false,
+        },
+        "yes" => cmd_yes(args),
+        "seq" => cmd_seq(args),
+        "sleep" => cmd_sleep(args),
+        "time" => cmd_time(args),
+        "test" => cmd_test(args),
+        "exit" => cmd_exit(args),
 
-        // ── Network (stubs) ──
-        "ping"     => cmd_ping(args),
+        // ── Network ──
+        "ping" => cmd_ping(args),
         "ifconfig" => cmd_ifconfig(args),
-        "netstat"  => cmd_netstat(args),
+        "netstat" => cmd_netstat(args),
+        "nslookup" => cmd_nslookup(args),
+        "curl" => cmd_curl(args),
+        "wget" => cmd_wget(args),
+        "dhcp" => cmd_dhcp(args),
 
         // ── Hardware ──
-        "lspci"    => cmd_lspci(args),
-        "lsblk"    => cmd_lsblk(args),
-        "acpi"     => cmd_acpi(args),
+        "lspci" => cmd_lspci(args),
+        "lsblk" => cmd_lsblk(args),
+        "acpi" => cmd_acpi(args),
 
         // ── Misc ──
-        "man"      => cmd_man(args),
-        "help"     => cmd_help(args),
+        "man" => cmd_man(args),
+        "help" => cmd_help(args),
         "neofetch" => cmd_neofetch(args),
         "hexdump" | "xxd" => cmd_hexdump(args),
-        "base64"   => cmd_base64(args),
-        "md5sum"   => cmd_md5sum(args),
+        "base64" => cmd_base64(args),
+        "md5sum" => cmd_md5sum(args),
         "sha256sum" => cmd_sha256sum(args),
-        "diff"     => cmd_diff(args),
+        "diff" => cmd_diff(args),
 
         _ => CmdResult::err(format!("{}: command not found", name)),
     }
@@ -187,7 +294,10 @@ fn cmd_ls(args: &[String]) -> CmdResult {
         let ino = match fs::with_fs(|fs| fs.resolve(&abs)) {
             Some(i) => i,
             None => {
-                output.push(format!("ls: cannot access '{}': No such file or directory", path));
+                output.push(format!(
+                    "ls: cannot access '{}': No such file or directory",
+                    path
+                ));
                 continue;
             }
         };
@@ -199,7 +309,13 @@ fn cmd_ls(args: &[String]) -> CmdResult {
             let info = fs::with_fs(|fs| {
                 let n = fs.get(ino).unwrap();
                 if long || show_size {
-                    format!("{} {:>4} root root {:>8} {}", n.mode.display(), n.nlink, n.size, path)
+                    format!(
+                        "{} {:>4} root root {:>8} {}",
+                        n.mode.display(),
+                        n.nlink,
+                        n.size,
+                        path
+                    )
                 } else {
                     path.clone()
                 }
@@ -208,19 +324,28 @@ fn cmd_ls(args: &[String]) -> CmdResult {
             continue;
         }
 
-        if multi { output.push(format!("{}:", path)); }
+        if multi {
+            output.push(format!("{}:", path));
+        }
 
         let entries = match fs::with_fs(|fs| fs.readdir_all(ino)) {
             Some(e) => e,
             None => continue,
         };
 
-        let mut names: Vec<(String, bool, u64, FileMode, u32)> = entries.iter()
+        let mut names: Vec<(String, bool, u64, FileMode, u32)> = entries
+            .iter()
             .filter(|(name, _)| show_all || !name.starts_with('.'))
             .map(|(name, child_ino)| {
                 fs::with_fs(|fs| {
                     let node = fs.get(*child_ino).unwrap();
-                    (name.clone(), node.mode.is_dir(), node.size, node.mode, node.nlink)
+                    (
+                        name.clone(),
+                        node.mode.is_dir(),
+                        node.size,
+                        node.mode,
+                        node.nlink,
+                    )
                 })
             })
             .collect();
@@ -229,23 +354,54 @@ fn cmd_ls(args: &[String]) -> CmdResult {
 
         if long || show_size {
             for (name, is_d, size, mode, nlink) in &names {
-                let suffix = if *is_d { "/" } else { "" };
-                output.push(format!("{} {:>4} root root {:>8} {}{}",
-                    mode.display(), nlink, size, name, suffix));
+                let colored_name = if *is_d {
+                    format!(
+                        "{}{}{}{}/{}",
+                        ansi::bold(),
+                        ansi::blue(),
+                        name,
+                        ansi::reset(),
+                        ""
+                    )
+                } else if mode.is_symlink() {
+                    format!("{}{}{}{}", ansi::cyan(), name, ansi::reset(), "")
+                } else {
+                    name.clone()
+                };
+                output.push(format!(
+                    "{} {:>4} root root {:>8} {}",
+                    mode.display(),
+                    nlink,
+                    size,
+                    colored_name
+                ));
             }
         } else {
-            let line: Vec<String> = names.iter().map(|(name, is_d, _, _, _)| {
-                if *is_d { format!("{}/", name) } else { name.clone() }
-            }).collect();
+            let line: Vec<String> = names
+                .iter()
+                .map(|(name, is_d, _, mode, _)| {
+                    if *is_d {
+                        format!("{}{}{}/{}", ansi::bold(), ansi::blue(), name, ansi::reset())
+                    } else if mode.is_symlink() {
+                        format!("{}{}{}", ansi::cyan(), name, ansi::reset())
+                    } else {
+                        name.clone()
+                    }
+                })
+                .collect();
             // Show in columns if few items
             if line.len() <= 8 {
                 output.push(line.join("  "));
             } else {
-                for item in line { output.push(item); }
+                for item in line {
+                    output.push(item);
+                }
             }
         }
 
-        if multi { output.push(String::new()); }
+        if multi {
+            output.push(String::new());
+        }
     }
 
     CmdResult::ok(output)
@@ -268,8 +424,11 @@ fn cmd_mkdir(args: &[String]) -> CmdResult {
     let mut paths = Vec::new();
 
     for arg in args {
-        if arg == "-p" || arg == "--parents" { parents = true; }
-        else { paths.push(arg.clone()); }
+        if arg == "-p" || arg == "--parents" {
+            parents = true;
+        } else {
+            paths.push(arg.clone());
+        }
     }
 
     if paths.is_empty() {
@@ -283,18 +442,27 @@ fn cmd_mkdir(args: &[String]) -> CmdResult {
             // Create all intermediate directories
             let mut current = String::from("/");
             for component in abs.trim_start_matches('/').split('/') {
-                if component.is_empty() { continue; }
+                if component.is_empty() {
+                    continue;
+                }
                 let parent_ino = fs::with_fs(|fs| fs.resolve(&current)).unwrap_or(1);
                 if fs::with_fs(|fs| fs.lookup(parent_ino, component)).is_none() {
                     let _ = fs::with_fs(|fs| fs.mkdir(parent_ino, component));
                 }
-                if current == "/" { current.push_str(component); }
-                else { current.push('/'); current.push_str(component); }
+                if current == "/" {
+                    current.push_str(component);
+                } else {
+                    current.push('/');
+                    current.push_str(component);
+                }
             }
         } else {
             let (parent, name) = match fs::with_fs(|fs| fs.resolve_parent(&abs)) {
                 Some(p) => p,
-                None => { output.push(format!("mkdir: cannot create '{}'", path)); continue; }
+                None => {
+                    output.push(format!("mkdir: cannot create '{}'", path));
+                    continue;
+                }
             };
             match fs::with_fs(|fs| fs.mkdir(parent, &name)) {
                 Ok(_) => {}
@@ -303,7 +471,10 @@ fn cmd_mkdir(args: &[String]) -> CmdResult {
         }
     }
 
-    CmdResult { output, success: true }
+    CmdResult {
+        output,
+        success: true,
+    }
 }
 
 fn cmd_rmdir(args: &[String]) -> CmdResult {
@@ -312,14 +483,27 @@ fn cmd_rmdir(args: &[String]) -> CmdResult {
         let abs = shell::with_shell(|sh| sh.resolve_path(path));
         let (parent, name) = match fs::with_fs(|fs| fs.resolve_parent(&abs)) {
             Some(p) => p,
-            None => { output.push(format!("rmdir: failed to remove '{}': Invalid argument", path)); continue; }
+            None => {
+                output.push(format!(
+                    "rmdir: failed to remove '{}': Invalid argument",
+                    path
+                ));
+                continue;
+            }
         };
         match fs::with_fs(|fs| fs.remove(parent, &name)) {
             Ok(()) => {}
-            Err(e) => output.push(format!("rmdir: failed to remove '{}': {}", path, e.as_str())),
+            Err(e) => output.push(format!(
+                "rmdir: failed to remove '{}': {}",
+                path,
+                e.as_str()
+            )),
         }
     }
-    CmdResult { output, success: true }
+    CmdResult {
+        output,
+        success: true,
+    }
 }
 
 fn cmd_touch(args: &[String]) -> CmdResult {
@@ -330,14 +514,25 @@ fn cmd_touch(args: &[String]) -> CmdResult {
     for path in args {
         let abs = shell::with_shell(|sh| sh.resolve_path(path));
         // If file exists, do nothing (would update timestamp)
-        if fs::with_fs(|fs| fs.resolve(&abs)).is_some() { continue; }
+        if fs::with_fs(|fs| fs.resolve(&abs)).is_some() {
+            continue;
+        }
         let (parent, name) = match fs::with_fs(|fs| fs.resolve_parent(&abs)) {
             Some(p) => p,
-            None => { output.push(format!("touch: cannot touch '{}': No such file or directory", path)); continue; }
+            None => {
+                output.push(format!(
+                    "touch: cannot touch '{}': No such file or directory",
+                    path
+                ));
+                continue;
+            }
         };
         let _ = fs::with_fs(|fs| fs.create_file(parent, &name, &[]));
     }
-    CmdResult { output, success: true }
+    CmdResult {
+        output,
+        success: true,
+    }
 }
 
 fn cmd_rm(args: &[String]) -> CmdResult {
@@ -360,7 +555,9 @@ fn cmd_rm(args: &[String]) -> CmdResult {
     }
 
     if paths.is_empty() {
-        if force { return CmdResult::ok_empty(); }
+        if force {
+            return CmdResult::ok_empty();
+        }
         return CmdResult::err(String::from("rm: missing operand"));
     }
 
@@ -370,7 +567,12 @@ fn cmd_rm(args: &[String]) -> CmdResult {
         let ino = match fs::with_fs(|fs| fs.resolve(&abs)) {
             Some(i) => i,
             None => {
-                if !force { output.push(format!("rm: cannot remove '{}': No such file or directory", path)); }
+                if !force {
+                    output.push(format!(
+                        "rm: cannot remove '{}': No such file or directory",
+                        path
+                    ));
+                }
                 continue;
             }
         };
@@ -394,7 +596,10 @@ fn cmd_rm(args: &[String]) -> CmdResult {
         }
     }
 
-    CmdResult { output, success: true }
+    CmdResult {
+        output,
+        success: true,
+    }
 }
 
 fn rm_recursive(path: &str, output: &mut Vec<String>) {
@@ -404,18 +609,23 @@ fn rm_recursive(path: &str, output: &mut Vec<String>) {
     };
 
     // First remove all children
-    let children: Vec<(String, bool)> = fs::with_fs(|fs| {
-        match fs.readdir(ino) {
-            Some(entries) => entries.iter().map(|(name, child_ino)| {
+    let children: Vec<(String, bool)> = fs::with_fs(|fs| match fs.readdir(ino) {
+        Some(entries) => entries
+            .iter()
+            .map(|(name, child_ino)| {
                 let is_dir = fs.get(*child_ino).map(|n| n.mode.is_dir()).unwrap_or(false);
                 (name.clone(), is_dir)
-            }).collect(),
-            None => Vec::new(),
-        }
+            })
+            .collect(),
+        None => Vec::new(),
     });
 
     for (name, is_dir) in children {
-        let child_path = if path == "/" { format!("/{}", name) } else { format!("{}/{}", path, name) };
+        let child_path = if path == "/" {
+            format!("/{}", name)
+        } else {
+            format!("{}/{}", path, name)
+        };
         if is_dir {
             rm_recursive(&child_path, output);
         } else {
@@ -438,8 +648,11 @@ fn cmd_cp(args: &[String]) -> CmdResult {
     let mut paths = Vec::new();
 
     for arg in args {
-        if arg == "-r" || arg == "-R" || arg == "--recursive" { recursive = true; }
-        else { paths.push(arg.clone()); }
+        if arg == "-r" || arg == "-R" || arg == "--recursive" {
+            recursive = true;
+        } else {
+            paths.push(arg.clone());
+        }
     }
 
     if paths.len() < 2 {
@@ -451,17 +664,30 @@ fn cmd_cp(args: &[String]) -> CmdResult {
 
     let src_ino = match fs::with_fs(|fs| fs.resolve(&src_path)) {
         Some(i) => i,
-        None => return CmdResult::err(format!("cp: cannot stat '{}': No such file or directory", paths[0])),
+        None => {
+            return CmdResult::err(format!(
+                "cp: cannot stat '{}': No such file or directory",
+                paths[0]
+            ))
+        }
     };
 
     let is_dir = fs::with_fs(|fs| fs.get(src_ino).map(|n| n.mode.is_dir()).unwrap_or(false));
     if is_dir && !recursive {
-        return CmdResult::err(format!("cp: -r not specified; omitting directory '{}'", paths[0]));
+        return CmdResult::err(format!(
+            "cp: -r not specified; omitting directory '{}'",
+            paths[0]
+        ));
     }
 
     let (parent, name) = match fs::with_fs(|fs| fs.resolve_parent(&dst_path)) {
         Some(p) => p,
-        None => return CmdResult::err(format!("cp: cannot create '{}': No such file or directory", paths[1])),
+        None => {
+            return CmdResult::err(format!(
+                "cp: cannot create '{}': No such file or directory",
+                paths[1]
+            ))
+        }
     };
 
     match fs::with_fs(|fs| fs.copy_file(src_ino, parent, &name)) {
@@ -480,20 +706,35 @@ fn cmd_mv(args: &[String]) -> CmdResult {
 
     let (src_parent, src_name) = match fs::with_fs(|fs| fs.resolve_parent(&src_path)) {
         Some(p) => p,
-        None => return CmdResult::err(format!("mv: cannot stat '{}': No such file or directory", args[0])),
+        None => {
+            return CmdResult::err(format!(
+                "mv: cannot stat '{}': No such file or directory",
+                args[0]
+            ))
+        }
     };
 
     // Check if destination is an existing directory
     let dst_is_dir = fs::with_fs(|fs| {
-        fs.resolve(&dst_path).and_then(|ino| fs.get(ino).map(|n| n.mode.is_dir())).unwrap_or(false)
+        fs.resolve(&dst_path)
+            .and_then(|ino| fs.get(ino).map(|n| n.mode.is_dir()))
+            .unwrap_or(false)
     });
 
     let (dst_parent, dst_name) = if dst_is_dir {
-        (fs::with_fs(|fs| fs.resolve(&dst_path)).unwrap(), src_name.clone())
+        (
+            fs::with_fs(|fs| fs.resolve(&dst_path)).unwrap(),
+            src_name.clone(),
+        )
     } else {
         match fs::with_fs(|fs| fs.resolve_parent(&dst_path)) {
             Some(p) => p,
-            None => return CmdResult::err(format!("mv: cannot move to '{}': No such file or directory", args[1])),
+            None => {
+                return CmdResult::err(format!(
+                    "mv: cannot move to '{}': No such file or directory",
+                    args[1]
+                ))
+            }
         }
     };
 
@@ -508,16 +749,22 @@ fn cmd_cat(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
     let mut paths = Vec::new();
 
     for arg in args {
-        if arg == "-n" || arg == "--number" { number_lines = true; }
-        else { paths.push(arg.clone()); }
+        if arg == "-n" || arg == "--number" {
+            number_lines = true;
+        } else {
+            paths.push(arg.clone());
+        }
     }
 
     // If piped input and no files, just output the piped input
     if paths.is_empty() {
         if let Some(lines) = pipe_in {
             if number_lines {
-                let out: Vec<String> = lines.iter().enumerate()
-                    .map(|(i, l)| format!("{:>6}\t{}", i + 1, l)).collect();
+                let out: Vec<String> = lines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| format!("{:>6}\t{}", i + 1, l))
+                    .collect();
                 return CmdResult::ok(out);
             }
             return CmdResult::ok(lines.to_vec());
@@ -532,7 +779,10 @@ fn cmd_cat(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
         let abs = shell::with_shell(|sh| sh.resolve_path(path));
         let ino = match fs::with_fs(|fs| fs.resolve(&abs)) {
             Some(i) => i,
-            None => { output.push(format!("cat: {}: No such file or directory", path)); continue; }
+            None => {
+                output.push(format!("cat: {}: No such file or directory", path));
+                continue;
+            }
         };
         match fs::with_fs(|fs| fs.read_file(ino)) {
             Ok(data) => {
@@ -639,10 +889,21 @@ fn cmd_find(args: &[String]) -> CmdResult {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "-name" if i + 1 < args.len() => { name_pattern = Some(args[i + 1].clone()); i += 2; }
-            "-type" if i + 1 < args.len() => { type_filter = Some(args[i + 1].chars().next().unwrap_or('f')); i += 2; }
-            s if !s.starts_with('-') && i == 0 => { search_dir = args[i].clone(); i += 1; }
-            _ => { i += 1; }
+            "-name" if i + 1 < args.len() => {
+                name_pattern = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "-type" if i + 1 < args.len() => {
+                type_filter = Some(args[i + 1].chars().next().unwrap_or('f'));
+                i += 2;
+            }
+            s if !s.starts_with('-') && i == 0 => {
+                search_dir = args[i].clone();
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
         }
     }
 
@@ -652,24 +913,35 @@ fn cmd_find(args: &[String]) -> CmdResult {
     CmdResult::ok(results)
 }
 
-fn find_recursive(base: &str, current: &str, pattern: &Option<String>, type_filter: Option<char>, results: &mut Vec<String>) {
+fn find_recursive(
+    base: &str,
+    current: &str,
+    pattern: &Option<String>,
+    type_filter: Option<char>,
+    results: &mut Vec<String>,
+) {
     let ino = match fs::with_fs(|fs| fs.resolve(current)) {
         Some(i) => i,
         None => return,
     };
 
-    let entries: Vec<(String, bool)> = fs::with_fs(|fs| {
-        match fs.readdir(ino) {
-            Some(e) => e.iter().map(|(name, child_ino)| {
+    let entries: Vec<(String, bool)> = fs::with_fs(|fs| match fs.readdir(ino) {
+        Some(e) => e
+            .iter()
+            .map(|(name, child_ino)| {
                 let is_dir = fs.get(*child_ino).map(|n| n.mode.is_dir()).unwrap_or(false);
                 (name.clone(), is_dir)
-            }).collect(),
-            None => Vec::new(),
-        }
+            })
+            .collect(),
+        None => Vec::new(),
     });
 
     for (name, is_dir) in entries {
-        let child_path = if current == "/" { format!("/{}", name) } else { format!("{}/{}", current, name) };
+        let child_path = if current == "/" {
+            format!("/{}", name)
+        } else {
+            format!("{}/{}", current, name)
+        };
         let display = if base == "/" {
             child_path.clone()
         } else {
@@ -712,17 +984,29 @@ fn cmd_du(args: &[String]) -> CmdResult {
         }
     }
 
-    if paths.is_empty() { paths.push(String::from(".")); }
+    if paths.is_empty() {
+        paths.push(String::from("."));
+    }
 
     let mut output = Vec::new();
     for path in &paths {
         let abs = shell::with_shell(|sh| sh.resolve_path(path));
         let ino = match fs::with_fs(|fs| fs.resolve(&abs)) {
             Some(i) => i,
-            None => { output.push(format!("du: cannot access '{}': No such file or directory", path)); continue; }
+            None => {
+                output.push(format!(
+                    "du: cannot access '{}': No such file or directory",
+                    path
+                ));
+                continue;
+            }
         };
         let size = fs::with_fs(|fs| fs.tree_size(ino));
-        let display = if human { human_size(size) } else { format!("{}", size) };
+        let display = if human {
+            human_size(size)
+        } else {
+            format!("{}", size)
+        };
         output.push(format!("{}\t{}", display, path));
     }
 
@@ -743,7 +1027,9 @@ fn cmd_ln(args: &[String]) -> CmdResult {
     if args.len() < 2 {
         return CmdResult::err(String::from("ln: missing file operand"));
     }
-    CmdResult::err(String::from("ln: symbolic links not yet fully supported in ramfs"))
+    CmdResult::err(String::from(
+        "ln: symbolic links not yet fully supported in ramfs",
+    ))
 }
 
 fn cmd_chmod(args: &[String]) -> CmdResult {
@@ -771,21 +1057,41 @@ fn cmd_stat(args: &[String]) -> CmdResult {
         let abs = shell::with_shell(|sh| sh.resolve_path(path));
         let ino = match fs::with_fs(|fs| fs.resolve(&abs)) {
             Some(i) => i,
-            None => { output.push(format!("stat: cannot stat '{}': No such file or directory", path)); continue; }
+            None => {
+                output.push(format!(
+                    "stat: cannot stat '{}': No such file or directory",
+                    path
+                ));
+                continue;
+            }
         };
 
         fs::with_fs(|fs| {
             if let Some(node) = fs.get(ino) {
                 output.push(format!("  File: {}", path));
-                output.push(format!("  Size: {}\tBlocks: {}\tIO Block: 4096",
-                    node.size, (node.size + 511) / 512));
-                let ftype = if node.mode.is_dir() { "directory" }
-                           else if node.mode.is_symlink() { "symbolic link" }
-                           else { "regular file" };
+                output.push(format!(
+                    "  Size: {}\tBlocks: {}\tIO Block: 4096",
+                    node.size,
+                    (node.size + 511) / 512
+                ));
+                let ftype = if node.mode.is_dir() {
+                    "directory"
+                } else if node.mode.is_symlink() {
+                    "symbolic link"
+                } else {
+                    "regular file"
+                };
                 output.push(format!("  Type: {}", ftype));
-                output.push(format!("Device: ramfs\tInode: {}\tLinks: {}", node.ino, node.nlink));
-                output.push(format!("Access: ({})\tUid: {}\tGid: {}",
-                    node.mode.display(), node.uid, node.gid));
+                output.push(format!(
+                    "Device: ramfs\tInode: {}\tLinks: {}",
+                    node.ino, node.nlink
+                ));
+                output.push(format!(
+                    "Access: ({})\tUid: {}\tGid: {}",
+                    node.mode.display(),
+                    node.uid,
+                    node.gid
+                ));
             }
         });
     }
@@ -803,7 +1109,10 @@ fn cmd_file(args: &[String]) -> CmdResult {
         let abs = shell::with_shell(|sh| sh.resolve_path(path));
         let ino = match fs::with_fs(|fs| fs.resolve(&abs)) {
             Some(i) => i,
-            None => { output.push(format!("{}: cannot open (No such file or directory)", path)); continue; }
+            None => {
+                output.push(format!("{}: cannot open (No such file or directory)", path));
+                continue;
+            }
         };
 
         let desc = fs::with_fs(|fs| {
@@ -813,9 +1122,13 @@ fn cmd_file(args: &[String]) -> CmdResult {
                 InodeContent::Symlink(target) => format!("symbolic link to {}", target),
                 InodeContent::ProcFile(_) => String::from("proc pseudo-file"),
                 InodeContent::File(data) => {
-                    if data.is_empty() { String::from("empty") }
-                    else if data.iter().all(|b| b.is_ascii()) { String::from("ASCII text") }
-                    else { String::from("data") }
+                    if data.is_empty() {
+                        String::from("empty")
+                    } else if data.iter().all(|b| b.is_ascii()) {
+                        String::from("ASCII text")
+                    } else {
+                        String::from("data")
+                    }
                 }
             }
         });
@@ -830,7 +1143,13 @@ fn cmd_tree(args: &[String]) -> CmdResult {
     let abs = shell::with_shell(|sh| sh.resolve_path(path));
 
     let mut lines = Vec::new();
-    lines.push(String::from(path));
+    lines.push(format!(
+        "{}{}{}{}",
+        ansi::bold(),
+        ansi::blue(),
+        path,
+        ansi::reset()
+    ));
     let (dirs, files) = tree_recursive(&abs, &String::new(), &mut lines);
     lines.push(format!("\n{} directories, {} files", dirs, files));
     CmdResult::ok(lines)
@@ -842,18 +1161,19 @@ fn tree_recursive(path: &str, prefix: &str, lines: &mut Vec<String>) -> (usize, 
         None => return (0, 0),
     };
 
-    let entries: Vec<(String, bool)> = fs::with_fs(|fs| {
-        match fs.readdir(ino) {
-            Some(e) => {
-                let mut v: Vec<(String, bool)> = e.iter().map(|(name, child_ino)| {
+    let entries: Vec<(String, bool)> = fs::with_fs(|fs| match fs.readdir(ino) {
+        Some(e) => {
+            let mut v: Vec<(String, bool)> = e
+                .iter()
+                .map(|(name, child_ino)| {
                     let is_dir = fs.get(*child_ino).map(|n| n.mode.is_dir()).unwrap_or(false);
                     (name.clone(), is_dir)
-                }).collect();
-                v.sort_by(|a, b| a.0.cmp(&b.0));
-                v
-            }
-            None => Vec::new(),
+                })
+                .collect();
+            v.sort_by(|a, b| a.0.cmp(&b.0));
+            v
         }
+        None => Vec::new(),
     });
 
     let mut dirs = 0usize;
@@ -862,13 +1182,21 @@ fn tree_recursive(path: &str, prefix: &str, lines: &mut Vec<String>) -> (usize, 
     for (i, (name, is_dir)) in entries.iter().enumerate() {
         let is_last = i == entries.len() - 1;
         let connector = if is_last { "└── " } else { "├── " };
-        let display = if *is_dir { format!("{}/", name) } else { name.clone() };
+        let display = if *is_dir {
+            format!("{}{}{}/{}", ansi::bold(), ansi::blue(), name, ansi::reset())
+        } else {
+            name.clone()
+        };
         lines.push(format!("{}{}{}", prefix, connector, display));
 
         if *is_dir {
             dirs += 1;
             let child_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
-            let child_path = if path == "/" { format!("/{}", name) } else { format!("{}/{}", path, name) };
+            let child_path = if path == "/" {
+                format!("/{}", name)
+            } else {
+                format!("{}/{}", path, name)
+            };
             let (d, f) = tree_recursive(&child_path, &child_prefix, lines);
             dirs += d;
             files += f;
@@ -889,23 +1217,42 @@ fn cmd_wc(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
 
     for arg in args {
         match arg.as_str() {
-            "-l" => { count_lines = true; explicit = true; }
-            "-w" => { count_words = true; explicit = true; }
-            "-c" | "-m" => { count_chars = true; explicit = true; }
+            "-l" => {
+                count_lines = true;
+                explicit = true;
+            }
+            "-w" => {
+                count_words = true;
+                explicit = true;
+            }
+            "-c" | "-m" => {
+                count_chars = true;
+                explicit = true;
+            }
             _ => paths.push(arg.clone()),
         }
     }
 
-    if !explicit { count_lines = true; count_words = true; count_chars = true; }
+    if !explicit {
+        count_lines = true;
+        count_words = true;
+        count_chars = true;
+    }
 
     let count_text = |text: &str| {
         let lines = text.lines().count();
         let words = text.split_whitespace().count();
         let chars = text.len();
         let mut parts = Vec::new();
-        if count_lines { parts.push(format!("{:>8}", lines)); }
-        if count_words { parts.push(format!("{:>8}", words)); }
-        if count_chars { parts.push(format!("{:>8}", chars)); }
+        if count_lines {
+            parts.push(format!("{:>8}", lines));
+        }
+        if count_words {
+            parts.push(format!("{:>8}", words));
+        }
+        if count_chars {
+            parts.push(format!("{:>8}", chars));
+        }
         parts.join("")
     };
 
@@ -929,34 +1276,50 @@ fn cmd_wc(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
 }
 
 fn cmd_basename(args: &[String]) -> CmdResult {
-    if args.is_empty() { return CmdResult::err(String::from("basename: missing operand")); }
+    if args.is_empty() {
+        return CmdResult::err(String::from("basename: missing operand"));
+    }
     let path = &args[0];
     let name = path.rsplit('/').next().unwrap_or(path);
     let result = if args.len() > 1 {
         // Strip suffix
         let suffix = &args[1];
         name.strip_suffix(suffix.as_str()).unwrap_or(name)
-    } else { name };
+    } else {
+        name
+    };
     CmdResult::ok_one(String::from(result))
 }
 
 fn cmd_dirname(args: &[String]) -> CmdResult {
-    if args.is_empty() { return CmdResult::err(String::from("dirname: missing operand")); }
+    if args.is_empty() {
+        return CmdResult::err(String::from("dirname: missing operand"));
+    }
     let path = &args[0];
     let dir = if let Some(idx) = path.rfind('/') {
-        if idx == 0 { "/" } else { &path[..idx] }
-    } else { "." };
+        if idx == 0 {
+            "/"
+        } else {
+            &path[..idx]
+        }
+    } else {
+        "."
+    };
     CmdResult::ok_one(String::from(dir))
 }
 
 fn cmd_readlink(args: &[String]) -> CmdResult {
-    if args.is_empty() { return CmdResult::err(String::from("readlink: missing operand")); }
+    if args.is_empty() {
+        return CmdResult::err(String::from("readlink: missing operand"));
+    }
     let abs = shell::with_shell(|sh| sh.resolve_path(&args[0]));
     CmdResult::ok_one(abs)
 }
 
 fn cmd_realpath(args: &[String]) -> CmdResult {
-    if args.is_empty() { return CmdResult::err(String::from("realpath: missing operand")); }
+    if args.is_empty() {
+        return CmdResult::err(String::from("realpath: missing operand"));
+    }
     let abs = shell::with_shell(|sh| sh.resolve_path(&args[0]));
     CmdResult::ok_one(abs)
 }
@@ -972,15 +1335,23 @@ fn cmd_echo(args: &[String]) -> CmdResult {
 
     for (i, arg) in args.iter().enumerate() {
         match arg.as_str() {
-            "-n" => { no_newline = true; start = i + 1; }
-            "-e" => { interpret = true; start = i + 1; }
+            "-n" => {
+                no_newline = true;
+                start = i + 1;
+            }
+            "-e" => {
+                interpret = true;
+                start = i + 1;
+            }
             _ => break,
         }
     }
 
     let text = args[start..].join(" ");
     let output = if interpret {
-        text.replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\")
+        text.replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\\\", "\\")
     } else {
         text
     };
@@ -999,9 +1370,14 @@ fn cmd_echo(args: &[String]) -> CmdResult {
 }
 
 fn cmd_printf(args: &[String]) -> CmdResult {
-    if args.is_empty() { return CmdResult::ok_empty(); }
+    if args.is_empty() {
+        return CmdResult::ok_empty();
+    }
     let fmt = &args[0];
-    let text = fmt.replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\");
+    let text = fmt
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\\\", "\\");
     // Very basic %s substitution
     let mut result = String::new();
     let mut arg_idx = 1;
@@ -1034,11 +1410,14 @@ fn cmd_grep(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
     let mut ignore_case = false;
     let mut count_only = false;
     let mut line_number = false;
+    let mut color = true; // default: color highlighting
     let mut pattern: Option<String> = None;
     let mut paths = Vec::new();
 
     for arg in args {
-        if arg.starts_with('-') && !arg.starts_with("--") {
+        if arg == "--no-color" || arg == "--no-colour" {
+            color = false;
+        } else if arg.starts_with('-') && !arg.starts_with("--") {
             for c in arg[1..].chars() {
                 match c {
                     'v' => invert = true,
@@ -1067,7 +1446,11 @@ fn cmd_grep(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
             (String::from(line), pattern.clone())
         };
         let found = hay.contains(&needle);
-        if invert { !found } else { found }
+        if invert {
+            !found
+        } else {
+            found
+        }
     };
 
     let lines_to_search: Vec<String> = if !paths.is_empty() {
@@ -1086,7 +1469,9 @@ fn cmd_grep(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
         return CmdResult::ok_empty();
     };
 
-    let matched: Vec<(usize, String)> = lines_to_search.iter().enumerate()
+    let matched: Vec<(usize, String)> = lines_to_search
+        .iter()
+        .enumerate()
         .filter(|(_, l)| match_fn(l))
         .map(|(i, l)| (i + 1, l.clone()))
         .collect();
@@ -1095,12 +1480,62 @@ fn cmd_grep(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
         return CmdResult::ok_one(format!("{}", matched.len()));
     }
 
-    let output: Vec<String> = matched.into_iter().map(|(num, line)| {
-        if line_number { format!("{}:{}", num, line) } else { line }
-    }).collect();
+    // Highlight matched text in red+bold when colour is enabled
+    let output: Vec<String> = matched
+        .into_iter()
+        .map(|(num, line)| {
+            let highlighted = if color && !invert {
+                highlight_matches(&line, &pattern, ignore_case)
+            } else {
+                line
+            };
+            if line_number {
+                format!(
+                    "{}{}{}{}:{}",
+                    ansi::green(),
+                    num,
+                    ansi::reset(),
+                    ":",
+                    highlighted
+                )
+            } else {
+                highlighted
+            }
+        })
+        .collect();
 
     let success = !output.is_empty();
     CmdResult { output, success }
+}
+
+/// Highlight all occurrences of `pattern` in `line` with red+bold ANSI codes.
+fn highlight_matches(line: &str, pattern: &str, ignore_case: bool) -> String {
+    if pattern.is_empty() {
+        return String::from(line);
+    }
+    let hay = if ignore_case {
+        line.to_lowercase()
+    } else {
+        String::from(line)
+    };
+    let needle = if ignore_case {
+        pattern.to_lowercase()
+    } else {
+        String::from(pattern)
+    };
+    let mut result = String::new();
+    let mut start = 0;
+    while let Some(pos) = hay[start..].find(&needle) {
+        let abs_pos = start + pos;
+        result.push_str(&line[start..abs_pos]);
+        result.push_str(ansi::bold());
+        result.push_str(&ansi::red());
+        result.push_str(&line[abs_pos..abs_pos + pattern.len()]);
+        result.push_str(ansi::reset());
+        start = abs_pos + pattern.len();
+    }
+    result.push_str(&line[start..]);
+    result
 }
 
 fn cmd_sed(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
@@ -1129,22 +1564,25 @@ fn cmd_sed(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
         return CmdResult::ok_empty();
     };
 
-    let output: Vec<String> = lines.iter().map(|line| {
-        if global {
-            line.replace(&pattern, &replacement)
-        } else {
-            // Only first occurrence
-            match line.find(&pattern) {
-                Some(idx) => {
-                    let mut s = String::from(&line[..idx]);
-                    s.push_str(&replacement);
-                    s.push_str(&line[idx + pattern.len()..]);
-                    s
+    let output: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            if global {
+                line.replace(&pattern, &replacement)
+            } else {
+                // Only first occurrence
+                match line.find(&pattern) {
+                    Some(idx) => {
+                        let mut s = String::from(&line[..idx]);
+                        s.push_str(&replacement);
+                        s.push_str(&line[idx + pattern.len()..]);
+                        s
+                    }
+                    None => line.clone(),
                 }
-                None => line.clone(),
             }
-        }
-    }).collect();
+        })
+        .collect();
 
     CmdResult::ok(output)
 }
@@ -1153,7 +1591,9 @@ fn parse_sed_expr(expr: &str) -> Option<(String, String, bool)> {
     let expr = expr.strip_prefix("s")?;
     let delim = expr.chars().next()?;
     let parts: Vec<&str> = expr[1..].split(delim).collect();
-    if parts.len() < 2 { return None; }
+    if parts.len() < 2 {
+        return None;
+    }
     let global = parts.get(2).map(|s| s.contains('g')).unwrap_or(false);
     Some((String::from(parts[0]), String::from(parts[1]), global))
 }
@@ -1187,18 +1627,30 @@ fn cmd_sort(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
 
     if numeric {
         lines.sort_by(|a, b| {
-            let na: i64 = a.trim().split_whitespace().next()
-                .and_then(|s| s.parse().ok()).unwrap_or(0);
-            let nb: i64 = b.trim().split_whitespace().next()
-                .and_then(|s| s.parse().ok()).unwrap_or(0);
+            let na: i64 = a
+                .trim()
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let nb: i64 = b
+                .trim()
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
             na.cmp(&nb)
         });
     } else {
         lines.sort();
     }
 
-    if reverse { lines.reverse(); }
-    if unique { lines.dedup(); }
+    if reverse {
+        lines.reverse();
+    }
+    if unique {
+        lines.dedup();
+    }
 
     CmdResult::ok(lines)
 }
@@ -1242,14 +1694,23 @@ fn cmd_uniq(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
         groups.push((1, line.clone()));
     }
 
-    let output: Vec<String> = groups.into_iter()
+    let output: Vec<String> = groups
+        .into_iter()
         .filter(|(c, _)| {
-            if only_dup { *c > 1 }
-            else if only_uniq { *c == 1 }
-            else { true }
+            if only_dup {
+                *c > 1
+            } else if only_uniq {
+                *c == 1
+            } else {
+                true
+            }
         })
         .map(|(c, line)| {
-            if count { format!("{:>7} {}", c, line) } else { line }
+            if count {
+                format!("{:>7} {}", c, line)
+            } else {
+                line
+            }
         })
         .collect();
 
@@ -1272,7 +1733,10 @@ fn cmd_cut(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
                 fields = parse_field_spec(&args[i + 1]);
                 i += 2;
             }
-            _ => { paths.push(args[i].clone()); i += 1; }
+            _ => {
+                paths.push(args[i].clone());
+                i += 1;
+            }
         }
     }
 
@@ -1293,14 +1757,18 @@ fn cmd_cut(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
     };
 
     let delim_str = String::from(delimiter);
-    let output: Vec<String> = lines.iter().map(|line| {
-        let parts: Vec<&str> = line.split(delimiter).collect();
-        let selected: Vec<&str> = fields.iter()
-            .filter_map(|&f| parts.get(f.saturating_sub(1)))
-            .copied()
-            .collect();
-        selected.join(&delim_str)
-    }).collect();
+    let output: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            let parts: Vec<&str> = line.split(delimiter).collect();
+            let selected: Vec<&str> = fields
+                .iter()
+                .filter_map(|&f| parts.get(f.saturating_sub(1)))
+                .copied()
+                .collect();
+            selected.join(&delim_str)
+        })
+        .collect();
 
     CmdResult::ok(output)
 }
@@ -1311,7 +1779,9 @@ fn parse_field_spec(spec: &str) -> Vec<usize> {
         if let Some(dash) = part.find('-') {
             let start: usize = part[..dash].parse().unwrap_or(1);
             let end: usize = part[dash + 1..].parse().unwrap_or(start);
-            for f in start..=end { fields.push(f); }
+            for f in start..=end {
+                fields.push(f);
+            }
         } else if let Ok(f) = part.parse::<usize>() {
             fields.push(f);
         }
@@ -1329,11 +1799,16 @@ fn cmd_tr(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
 
     let input_text = pipe_in.map(|lines| lines.join("\n")).unwrap_or_default();
 
-    let output: String = input_text.chars().map(|c| {
-        if let Some(pos) = set1.iter().position(|&s| s == c) {
-            set2.get(pos).or(set2.last()).copied().unwrap_or(c)
-        } else { c }
-    }).collect();
+    let output: String = input_text
+        .chars()
+        .map(|c| {
+            if let Some(pos) = set1.iter().position(|&s| s == c) {
+                set2.get(pos).or(set2.last()).copied().unwrap_or(c)
+            } else {
+                c
+            }
+        })
+        .collect();
 
     let lines: Vec<String> = output.lines().map(String::from).collect();
     CmdResult::ok(lines)
@@ -1348,7 +1823,9 @@ fn expand_tr_set(s: &str) -> Vec<char> {
             let start = input[i] as u32;
             let end = input[i + 2] as u32;
             for c in start..=end {
-                if let Some(ch) = char::from_u32(c) { chars.push(ch); }
+                if let Some(ch) = char::from_u32(c) {
+                    chars.push(ch);
+                }
             }
             i += 3;
         } else {
@@ -1372,7 +1849,9 @@ fn cmd_tee(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
 
     let lines = pipe_in.unwrap_or(&[]).to_vec();
     let data = lines.join("\n");
-    let data_bytes = if data.is_empty() { Vec::new() } else {
+    let data_bytes = if data.is_empty() {
+        Vec::new()
+    } else {
         let mut b = data.into_bytes();
         b.push(b'\n');
         b
@@ -1400,8 +1879,14 @@ fn cmd_xargs(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
     let cmd_name = args.first().map(|s| s.as_str()).unwrap_or("echo");
     let cmd_args: Vec<String> = args.iter().skip(1).cloned().collect();
 
-    let input_items: Vec<String> = pipe_in.unwrap_or(&[]).iter()
-        .flat_map(|line| line.split_whitespace().map(String::from).collect::<Vec<_>>())
+    let input_items: Vec<String> = pipe_in
+        .unwrap_or(&[])
+        .iter()
+        .flat_map(|line| {
+            line.split_whitespace()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        })
         .collect();
 
     let mut all_args = cmd_args;
@@ -1441,7 +1926,9 @@ fn cmd_nl(args: &[String], pipe_in: Option<&[String]>) -> CmdResult {
         return CmdResult::ok_empty();
     };
 
-    let output: Vec<String> = lines.iter().enumerate()
+    let output: Vec<String> = lines
+        .iter()
+        .enumerate()
         .map(|(i, l)| format!("{:>6}\t{}", i + 1, l))
         .collect();
     CmdResult::ok(output)
@@ -1454,7 +1941,12 @@ fn cmd_od(args: &[String]) -> CmdResult {
     let abs = shell::with_shell(|sh| sh.resolve_path(&args[args.len() - 1]));
     let ino = match fs::with_fs(|fs| fs.resolve(&abs)) {
         Some(i) => i,
-        None => return CmdResult::err(format!("od: {}: No such file or directory", args[args.len() - 1])),
+        None => {
+            return CmdResult::err(format!(
+                "od: {}: No such file or directory",
+                args[args.len() - 1]
+            ))
+        }
     };
     let data = match fs::with_fs(|fs| fs.read_file(ino)) {
         Ok(d) => d,
@@ -1501,21 +1993,45 @@ fn cmd_uname(args: &[String]) -> CmdResult {
         }
     }
 
-    if show_all { show_s = true; show_n = true; show_r = true; show_v = true; show_m = true; show_o = true; }
+    if show_all {
+        show_s = true;
+        show_n = true;
+        show_r = true;
+        show_v = true;
+        show_m = true;
+        show_o = true;
+    }
 
     let mut parts = Vec::new();
-    if show_s { parts.push("KPIO"); }
-    if show_n { parts.push("kpio"); }
-    if show_r { parts.push("1.0.0"); }
-    if show_v { parts.push("#1 SMP PREEMPT_DYNAMIC"); }
-    if show_m { parts.push("x86_64"); }
-    if show_o { parts.push("KPIO/OS"); }
+    if show_s {
+        parts.push("KPIO");
+    }
+    if show_n {
+        parts.push("kpio");
+    }
+    if show_r {
+        parts.push("1.0.0");
+    }
+    if show_v {
+        parts.push("#1 SMP PREEMPT_DYNAMIC");
+    }
+    if show_m {
+        parts.push("x86_64");
+    }
+    if show_o {
+        parts.push("KPIO/OS");
+    }
 
     CmdResult::ok_one(parts.join(" "))
 }
 
 fn cmd_whoami(_args: &[String]) -> CmdResult {
-    let user = shell::with_shell(|sh| sh.env.get("USER").cloned().unwrap_or_else(|| String::from("root")));
+    let user = shell::with_shell(|sh| {
+        sh.env
+            .get("USER")
+            .cloned()
+            .unwrap_or_else(|| String::from("root"))
+    });
     CmdResult::ok_one(user)
 }
 
@@ -1524,7 +2040,12 @@ fn cmd_hostname(args: &[String]) -> CmdResult {
         shell::with_shell(|sh| sh.env.insert(String::from("HOSTNAME"), new_name.clone()));
         CmdResult::ok_empty()
     } else {
-        let host = shell::with_shell(|sh| sh.env.get("HOSTNAME").cloned().unwrap_or_else(|| String::from("kpio")));
+        let host = shell::with_shell(|sh| {
+            sh.env
+                .get("HOSTNAME")
+                .cloned()
+                .unwrap_or_else(|| String::from("kpio"))
+        });
         CmdResult::ok_one(host)
     }
 }
@@ -1533,7 +2054,10 @@ fn cmd_uptime(_args: &[String]) -> CmdResult {
     let secs = fs::with_fs(|fs| fs.uptime_secs());
     let hours = secs / 3600;
     let mins = (secs % 3600) / 60;
-    CmdResult::ok_one(format!(" up {}:{:02}, 1 user, load average: 0.00, 0.00, 0.00", hours, mins))
+    CmdResult::ok_one(format!(
+        " up {}:{:02}, 1 user, load average: 0.00, 0.00, 0.00",
+        hours, mins
+    ))
 }
 
 fn cmd_free(args: &[String]) -> CmdResult {
@@ -1544,20 +2068,34 @@ fn cmd_free(args: &[String]) -> CmdResult {
     let free_kb = stats.free / 1024;
     let output = if human {
         let hs = |kb: usize| -> String {
-            if kb >= 1024 { format!("{}Mi", kb / 1024) }
-            else { format!("{}Ki", kb) }
+            if kb >= 1024 {
+                format!("{}Mi", kb / 1024)
+            } else {
+                format!("{}Ki", kb)
+            }
         };
         vec![
-            String::from("              total        used        free      shared  buff/cache   available"),
-            format!("Mem:       {:>8}    {:>8}    {:>8}        0Ki          0Ki    {:>8}",
-                    hs(total_kb), hs(used_kb), hs(free_kb), hs(free_kb)),
+            String::from(
+                "              total        used        free      shared  buff/cache   available",
+            ),
+            format!(
+                "Mem:       {:>8}    {:>8}    {:>8}        0Ki          0Ki    {:>8}",
+                hs(total_kb),
+                hs(used_kb),
+                hs(free_kb),
+                hs(free_kb)
+            ),
             String::from("Swap:           0Mi          0Mi         0Mi"),
         ]
     } else {
         vec![
-            String::from("              total        used        free      shared  buff/cache   available"),
-            format!("Mem:       {:>8}    {:>8}    {:>8}           0           0    {:>8}",
-                    total_kb, used_kb, free_kb, free_kb),
+            String::from(
+                "              total        used        free      shared  buff/cache   available",
+            ),
+            format!(
+                "Mem:       {:>8}    {:>8}    {:>8}           0           0    {:>8}",
+                total_kb, used_kb, free_kb, free_kb
+            ),
             String::from("Swap:             0           0           0"),
         ]
     };
@@ -1574,34 +2112,69 @@ fn cmd_top(_args: &[String]) -> CmdResult {
     let tasks = crate::scheduler::total_task_count();
     let ctx = crate::scheduler::context_switch_count();
     let output = vec![
-        format!("top - up {}:{:02}, 1 user, load average: 0.00, 0.00, 0.00", secs / 3600, (secs % 3600) / 60),
-        format!("Tasks: {:>3} total,   1 running, {:>3} sleeping,   0 stopped", tasks, tasks.saturating_sub(1)),
+        format!(
+            "top - up {}:{:02}, 1 user, load average: 0.00, 0.00, 0.00",
+            secs / 3600,
+            (secs % 3600) / 60
+        ),
+        format!(
+            "Tasks: {:>3} total,   1 running, {:>3} sleeping,   0 stopped",
+            tasks,
+            tasks.saturating_sub(1)
+        ),
         String::from("%Cpu(s):  0.3 us,  0.2 sy,  0.0 ni, 99.5 id,  0.0 wa"),
-        format!("MiB Mem:  {:>5}.0 total,  {:>5}.0 free,  {:>5}.0 used,    0.0 buff/cache",
-                total_mb, free_mb, used_mb),
-        format!("MiB Swap:    0.0 total,     0.0 free,     0.0 used, {:>5}.0 avail Mem", avail_mb),
+        format!(
+            "MiB Mem:  {:>5}.0 total,  {:>5}.0 free,  {:>5}.0 used,    0.0 buff/cache",
+            total_mb, free_mb, used_mb
+        ),
+        format!(
+            "MiB Swap:    0.0 total,     0.0 free,     0.0 used, {:>5}.0 avail Mem",
+            avail_mb
+        ),
         String::new(),
-        String::from("  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND"),
-        format!("    0 root      20   0    {:>4}    {:>4}      0 S   0.0   0.0   0:00.00 kernel", used_mb, used_mb),
+        String::from(
+            "  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND",
+        ),
+        format!(
+            "    0 root      20   0    {:>4}    {:>4}      0 S   0.0   0.0   0:00.00 kernel",
+            used_mb, used_mb
+        ),
         String::from("    1 root      20   0       0      0      0 S   0.0   0.0   0:00.00 idle"),
-        format!("    - root      20   0       0      0      0 R   0.0   0.0   ctx:{}", ctx),
+        format!(
+            "    - root      20   0       0      0      0 R   0.0   0.0   ctx:{}",
+            ctx
+        ),
     ];
     CmdResult::ok(output)
 }
 
 fn cmd_ps(args: &[String]) -> CmdResult {
-    let show_all = args.iter().any(|a| a.contains('e') || a.contains('a') || a == "aux");
+    let show_all = args
+        .iter()
+        .any(|a| a.contains('e') || a.contains('a') || a == "aux");
     let wide = args.iter().any(|a| a.contains('f') || a == "aux");
 
     let mut output = Vec::new();
     if wide {
-        output.push(String::from("UID        PID  PPID  C STIME TTY          TIME CMD"));
-        output.push(String::from("root         1     0  0 00:00 ?        00:00:00 /sbin/init"));
-        output.push(String::from("root         2     1  0 00:00 ?        00:00:00 [kpio-gui]"));
-        output.push(String::from("root         3     2  0 00:00 tty0     00:00:00 /bin/sh"));
+        output.push(String::from(
+            "UID        PID  PPID  C STIME TTY          TIME CMD",
+        ));
+        output.push(String::from(
+            "root         1     0  0 00:00 ?        00:00:00 /sbin/init",
+        ));
+        output.push(String::from(
+            "root         2     1  0 00:00 ?        00:00:00 [kpio-gui]",
+        ));
+        output.push(String::from(
+            "root         3     2  0 00:00 tty0     00:00:00 /bin/sh",
+        ));
         if show_all {
-            output.push(String::from("root         4     1  0 00:00 ?        00:00:00 [kworker/0:0]"));
-            output.push(String::from("root         5     1  0 00:00 ?        00:00:00 [kpio-timer]"));
+            output.push(String::from(
+                "root         4     1  0 00:00 ?        00:00:00 [kworker/0:0]",
+            ));
+            output.push(String::from(
+                "root         5     1  0 00:00 ?        00:00:00 [kpio-timer]",
+            ));
         }
     } else {
         output.push(String::from("  PID TTY          TIME CMD"));
@@ -1647,7 +2220,10 @@ fn cmd_printenv(args: &[String]) -> CmdResult {
     let val = shell::with_shell(|sh| sh.env.get(&args[0]).cloned());
     match val {
         Some(v) => CmdResult::ok_one(v),
-        None => CmdResult { output: Vec::new(), success: false },
+        None => CmdResult {
+            output: Vec::new(),
+            success: false,
+        },
     }
 }
 
@@ -1686,7 +2262,12 @@ fn cmd_date(args: &[String]) -> CmdResult {
     // Simple date based on uptime
     let format_utc = args.iter().any(|a| a == "-u" || a == "--utc");
     let tz = if format_utc { "UTC" } else { "KST" };
-    CmdResult::ok_one(format!("Thu Jan  1 00:00:{:02} {} 1970 (uptime: {}s)", secs % 60, tz, secs))
+    CmdResult::ok_one(format!(
+        "Thu Jan  1 00:00:{:02} {} 1970 (uptime: {}s)",
+        secs % 60,
+        tz,
+        secs
+    ))
 }
 
 fn cmd_cal(_args: &[String]) -> CmdResult {
@@ -1703,13 +2284,15 @@ fn cmd_cal(_args: &[String]) -> CmdResult {
 }
 
 fn cmd_clear(_args: &[String]) -> CmdResult {
-    // Special: the terminal renderer recognises this
-    CmdResult::ok(vec![String::from("\x1B[CLEAR]")])
+    // Standard ANSI: ESC[2J clears the screen — handled by the ANSI parser
+    CmdResult::ok(vec![String::from("\x1B[2J")])
 }
 
 fn cmd_history(_args: &[String]) -> CmdResult {
     let output = shell::with_shell(|sh| {
-        sh.history.iter().enumerate()
+        sh.history
+            .iter()
+            .enumerate()
             .map(|(i, cmd)| format!("{:>5}  {}", i + 1, cmd))
             .collect::<Vec<String>>()
     });
@@ -1720,7 +2303,8 @@ fn cmd_alias(args: &[String]) -> CmdResult {
     if args.is_empty() {
         // List aliases
         let output = shell::with_shell(|sh| {
-            sh.aliases.iter()
+            sh.aliases
+                .iter()
                 .map(|(k, v)| format!("alias {}='{}'", k, v))
                 .collect::<Vec<String>>()
         });
@@ -1802,13 +2386,21 @@ fn cmd_seq(args: &[String]) -> CmdResult {
             let start: i64 = args[0].parse().unwrap_or(1);
             let step: i64 = args[1].parse().unwrap_or(1);
             let end: i64 = args[2].parse().unwrap_or(1);
-            if step == 0 { return CmdResult::err(String::from("seq: zero increment")); }
+            if step == 0 {
+                return CmdResult::err(String::from("seq: zero increment"));
+            }
             let mut output = Vec::new();
             let mut n = start;
             if step > 0 {
-                while n <= end { output.push(format!("{}", n)); n += step; }
+                while n <= end {
+                    output.push(format!("{}", n));
+                    n += step;
+                }
             } else {
-                while n >= end { output.push(format!("{}", n)); n += step; }
+                while n >= end {
+                    output.push(format!("{}", n));
+                    n += step;
+                }
             }
             CmdResult::ok(output)
         }
@@ -1841,17 +2433,28 @@ fn cmd_time(args: &[String]) -> CmdResult {
 fn cmd_test(args: &[String]) -> CmdResult {
     // Basic test: -f file, -d dir, -z string, -n string, = !=
     if args.is_empty() {
-        return CmdResult { output: Vec::new(), success: false };
+        return CmdResult {
+            output: Vec::new(),
+            success: false,
+        };
     }
 
     let success = match args[0].as_str() {
         "-f" if args.len() > 1 => {
             let abs = shell::with_shell(|sh| sh.resolve_path(&args[1]));
-            fs::with_fs(|fs| fs.resolve(&abs).and_then(|ino| fs.get(ino).map(|n| n.mode.is_file())).unwrap_or(false))
+            fs::with_fs(|fs| {
+                fs.resolve(&abs)
+                    .and_then(|ino| fs.get(ino).map(|n| n.mode.is_file()))
+                    .unwrap_or(false)
+            })
         }
         "-d" if args.len() > 1 => {
             let abs = shell::with_shell(|sh| sh.resolve_path(&args[1]));
-            fs::with_fs(|fs| fs.resolve(&abs).and_then(|ino| fs.get(ino).map(|n| n.mode.is_dir())).unwrap_or(false))
+            fs::with_fs(|fs| {
+                fs.resolve(&abs)
+                    .and_then(|ino| fs.get(ino).map(|n| n.mode.is_dir()))
+                    .unwrap_or(false)
+            })
         }
         "-e" if args.len() > 1 => {
             let abs = shell::with_shell(|sh| sh.resolve_path(&args[1]));
@@ -1859,17 +2462,18 @@ fn cmd_test(args: &[String]) -> CmdResult {
         }
         "-z" if args.len() > 1 => args[1].is_empty(),
         "-n" if args.len() > 1 => !args[1].is_empty(),
-        _ if args.len() == 3 => {
-            match args[1].as_str() {
-                "=" | "==" => args[0] == args[2],
-                "!=" => args[0] != args[2],
-                _ => false,
-            }
-        }
+        _ if args.len() == 3 => match args[1].as_str() {
+            "=" | "==" => args[0] == args[2],
+            "!=" => args[0] != args[2],
+            _ => false,
+        },
         _ => !args[0].is_empty(),
     };
 
-    CmdResult { output: Vec::new(), success }
+    CmdResult {
+        output: Vec::new(),
+        success,
+    }
 }
 
 fn cmd_exit(_args: &[String]) -> CmdResult {
@@ -1882,31 +2486,126 @@ fn cmd_exit(_args: &[String]) -> CmdResult {
 
 fn cmd_ping(args: &[String]) -> CmdResult {
     let host = args.first().map(|s| s.as_str()).unwrap_or("localhost");
-    // Resolve via DNS
-    let ip_str = match crate::net::dns::resolve(host) {
+
+    // Parse optional count flag: -c N (default 4)
+    let mut count: u16 = 4;
+    let mut target_host = host;
+    let mut i = 0;
+    let arg_strs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    while i < arg_strs.len() {
+        match arg_strs[i] {
+            "-c" => {
+                if i + 1 < arg_strs.len() {
+                    count = arg_strs[i + 1].parse().unwrap_or(4);
+                    i += 2;
+                } else {
+                    return CmdResult::err(String::from("ping: option requires an argument -- 'c'"));
+                }
+            }
+            s if !s.starts_with('-') => {
+                target_host = s;
+                i += 1;
+            }
+            _ => { i += 1; }
+        }
+    }
+    if count == 0 { count = 4; }
+    if count > 20 { count = 20; } // safety limit in kernel context
+
+    // Resolve hostname via DNS
+    let ip = match crate::net::dns::resolve(target_host) {
         Ok(entry) => {
             if let Some(addr) = entry.addresses.first() {
-                format!("{}", addr)
+                *addr
             } else {
-                String::from("127.0.0.1")
+                return CmdResult::err(format!("ping: {}: Name or service not known", target_host));
             }
         }
         Err(_) => {
-            return CmdResult::err(format!("ping: {}: Name or service not known", host));
+            return CmdResult::err(format!("ping: {}: Name or service not known", target_host));
         }
     };
-    // Record loopback traffic
-    crate::net::loopback_transfer(84 * 3);
-    let output = vec![
-        format!("PING {} ({}) 56(84) bytes of data.", host, ip_str),
-        format!("64 bytes from {} ({}): icmp_seq=1 ttl=64 time=0.04 ms", host, ip_str),
-        format!("64 bytes from {} ({}): icmp_seq=2 ttl=64 time=0.03 ms", host, ip_str),
-        format!("64 bytes from {} ({}): icmp_seq=3 ttl=64 time=0.03 ms", host, ip_str),
-        String::new(),
-        format!("--- {} ping statistics ---", host),
-        String::from("3 packets transmitted, 3 received, 0% packet loss, time 2ms"),
-        String::from("rtt min/avg/max/mdev = 0.030/0.033/0.040/0.005 ms"),
-    ];
+
+    let mut output = Vec::new();
+    output.push(format!("PING {} ({}) 56(84) bytes of data.", target_host, ip));
+
+    let ping_id: u16 = 0x4B50; // "KP" for KPIO
+    let mut received: u16 = 0;
+    let mut rtt_min: u64 = u64::MAX;
+    let mut rtt_max: u64 = 0;
+    let mut rtt_sum: u64 = 0;
+
+    for seq in 1..=count {
+        // Send ICMP echo request
+        let tx_tick = match crate::net::ipv4::send_echo_request(ip, ping_id, seq) {
+            Some(t) => t,
+            None => {
+                output.push(format!("From {} icmp_seq={} Destination Host Unreachable", ip, seq));
+                continue;
+            }
+        };
+
+        // Wait for reply (up to ~2 seconds = 200 ticks at 100 Hz)
+        let mut got_reply = false;
+        for _ in 0..200 {
+            crate::net::poll_rx();
+            crate::net::ipv4::icmp_tick();
+
+            if let Some(reply) = crate::net::ipv4::recv_echo_reply(ping_id, seq) {
+                let rtt_ticks = reply.rx_tick.saturating_sub(tx_tick);
+                // Each tick is ~10ms at 100 Hz timer
+                let rtt_us = rtt_ticks * 10_000; // microseconds
+                let rtt_ms_whole = rtt_us / 1000;
+                let rtt_ms_frac = (rtt_us % 1000) / 100;
+
+                output.push(format!(
+                    "64 bytes from {} ({}): icmp_seq={} ttl={} time={}.{} ms",
+                    target_host, reply.src, seq, reply.ttl, rtt_ms_whole, rtt_ms_frac
+                ));
+
+                received += 1;
+                rtt_sum += rtt_us;
+                if rtt_us < rtt_min { rtt_min = rtt_us; }
+                if rtt_us > rtt_max { rtt_max = rtt_us; }
+                got_reply = true;
+                break;
+            }
+
+            // ~10ms delay per iteration
+            for _ in 0..100_000 {
+                core::hint::spin_loop();
+            }
+        }
+
+        if !got_reply {
+            output.push(format!("Request timeout for icmp_seq {}", seq));
+        }
+    }
+
+    // Statistics
+    let loss_pct = if count > 0 {
+        ((count - received) as u32 * 100) / count as u32
+    } else {
+        100
+    };
+
+    output.push(String::new());
+    output.push(format!("--- {} ping statistics ---", target_host));
+    output.push(format!(
+        "{} packets transmitted, {} received, {}% packet loss",
+        count, received, loss_pct
+    ));
+
+    if received > 0 {
+        let avg = rtt_sum / received as u64;
+        output.push(format!(
+            "rtt min/avg/max = {}.{}/{}.{}/{}.{} ms",
+            rtt_min / 1000, (rtt_min % 1000) / 100,
+            avg / 1000, (avg % 1000) / 100,
+            rtt_max / 1000, (rtt_max % 1000) / 100,
+        ));
+    }
+
     CmdResult::ok(output)
 }
 
@@ -1914,9 +2613,29 @@ fn cmd_ifconfig(_args: &[String]) -> CmdResult {
     let ifaces = crate::net::interfaces();
     let mut output = Vec::new();
     for iface in &ifaces {
-        let flags = if iface.up { "UP,LOOPBACK,RUNNING" } else { "DOWN" };
-        output.push(format!("{}: flags=73<{}>  mtu {}", iface.name, flags, iface.mtu));
-        output.push(format!("        inet {}  netmask {}", iface.ip, iface.netmask));
+        let flags = if iface.name == "lo" {
+            if iface.up { "UP,LOOPBACK,RUNNING" } else { "LOOPBACK" }
+        } else if iface.up {
+            "UP,BROADCAST,RUNNING,MULTICAST"
+        } else {
+            "DOWN"
+        };
+        let flag_num = if iface.name == "lo" { 73 } else { 4163 };
+        output.push(format!(
+            "{}: flags={}<{}>  mtu {}",
+            iface.name, flag_num, flags, iface.mtu
+        ));
+        output.push(format!(
+            "        inet {}  netmask {}",
+            iface.ip, iface.netmask
+        ));
+        if iface.name != "lo" {
+            output.push(format!(
+                "        ether {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+                iface.mac[0], iface.mac[1], iface.mac[2],
+                iface.mac[3], iface.mac[4], iface.mac[5]
+            ));
+        }
         output.push(format!(
             "        RX packets {}  bytes {} ({} B)",
             iface.rx_packets, iface.rx_bytes, iface.rx_bytes
@@ -1954,6 +2673,213 @@ fn cmd_netstat(_args: &[String]) -> CmdResult {
     CmdResult::ok(output)
 }
 
+fn cmd_nslookup(args: &[String]) -> CmdResult {
+    let host = match args.first() {
+        Some(h) => h.as_str(),
+        None => return CmdResult::err(String::from("Usage: nslookup <hostname>")),
+    };
+
+    let cfg = crate::net::ipv4::config();
+    let mut output = Vec::new();
+    output.push(format!("Server:  {}", cfg.dns));
+    output.push(format!("Address: {}#53", cfg.dns));
+    output.push(String::new());
+
+    match crate::net::dns::resolve(host) {
+        Ok(entry) => {
+            output.push(format!("Non-authoritative answer:"));
+            output.push(format!("Name:    {}", entry.hostname));
+            for addr in &entry.addresses {
+                output.push(format!("Address: {}", addr));
+            }
+        }
+        Err(e) => {
+            output.push(format!("** server can't find {}: {}", host, e));
+        }
+    }
+
+    CmdResult::ok(output)
+}
+
+fn cmd_curl(args: &[String]) -> CmdResult {
+    if args.is_empty() {
+        return CmdResult::err(String::from("Usage: curl [-v] [-I] <url>"));
+    }
+
+    let mut verbose = false;
+    let mut head_only = false;
+    let mut url: Option<&str> = None;
+
+    for arg in args {
+        match arg.as_str() {
+            "-v" | "--verbose" => verbose = true,
+            "-I" | "--head" => head_only = true,
+            s if !s.starts_with('-') => url = Some(s),
+            _ => {}
+        }
+    }
+
+    let url = match url {
+        Some(u) => u,
+        None => return CmdResult::err(String::from("curl: no URL specified")),
+    };
+
+    let mut output = Vec::new();
+
+    if verbose {
+        output.push(format!("* Trying {}...", url));
+    }
+
+    let response = crate::net::http::get(url);
+
+    if verbose {
+        output.push(format!("< HTTP/1.1 {} {}", response.status, response.status_text));
+        output.push(format!("< Content-Type: {}", response.content_type));
+        output.push(format!("< Content-Length: {}", response.body.len()));
+        output.push(String::new());
+    }
+
+    if head_only {
+        output.push(format!("HTTP/1.1 {} {}", response.status, response.status_text));
+        output.push(format!("Content-Type: {}", response.content_type));
+        output.push(format!("Content-Length: {}", response.body.len()));
+    } else {
+        // Output body as text (or hex for binary)
+        match core::str::from_utf8(&response.body) {
+            Ok(text) => {
+                for line in text.lines() {
+                    output.push(String::from(line));
+                }
+            }
+            Err(_) => {
+                output.push(format!("[Binary data: {} bytes]", response.body.len()));
+            }
+        }
+    }
+
+    if response.status >= 400 {
+        CmdResult {
+            output,
+            success: false,
+        }
+    } else {
+        CmdResult::ok(output)
+    }
+}
+
+fn cmd_wget(args: &[String]) -> CmdResult {
+    if args.is_empty() {
+        return CmdResult::err(String::from("Usage: wget <url> [-O <filename>]"));
+    }
+
+    let mut url: Option<&str> = None;
+    let mut output_file: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-O" | "-o" => {
+                if i + 1 < args.len() {
+                    output_file = Some(args[i + 1].as_str());
+                    i += 2;
+                } else {
+                    return CmdResult::err(String::from("wget: option requires an argument -- 'O'"));
+                }
+            }
+            s if !s.starts_with('-') => {
+                url = Some(s);
+                i += 1;
+            }
+            _ => { i += 1; }
+        }
+    }
+
+    let url = match url {
+        Some(u) => u,
+        None => return CmdResult::err(String::from("wget: missing URL")),
+    };
+
+    let mut output = Vec::new();
+    output.push(format!("--  {}", url));
+
+    // Parse URL to get default filename
+    let default_name = url.rsplit('/').next().unwrap_or("index.html");
+    let default_name = if default_name.is_empty() { "index.html" } else { default_name };
+    let save_as = output_file.unwrap_or(default_name);
+
+    output.push(format!("Resolving host..."));
+
+    let response = crate::net::http::get(url);
+
+    output.push(format!("HTTP response: {} {}", response.status, response.status_text));
+    output.push(format!("Length: {} [{}]", response.body.len(), response.content_type));
+    output.push(format!("Saving to: '{}'", save_as));
+    output.push(String::new());
+
+    if response.status < 400 && !response.body.is_empty() {
+        // Save to VFS
+        let cwd = shell::with_shell(|sh| sh.cwd.clone());
+        let full_path = if save_as.starts_with('/') {
+            String::from(save_as)
+        } else {
+            format!("{}/{}", cwd, save_as)
+        };
+
+        // Resolve parent directory and create the file
+        let saved = fs::with_fs(|vfs| {
+            match vfs.resolve_parent(&full_path) {
+                Some((parent_ino, name)) => {
+                    // Try to create a new file
+                    match vfs.create_file(parent_ino, &name, &response.body) {
+                        Ok(_) => true,
+                        Err(_) => {
+                            // File might already exist, try resolving and writing
+                            if let Some(ino) = vfs.resolve(&full_path) {
+                                vfs.write_file(ino, &response.body).is_ok()
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                }
+                None => false,
+            }
+        });
+
+        if saved {
+            output.push(format!("'{}' saved [{} bytes]", save_as, response.body.len()));
+        } else {
+            output.push(format!("wget: cannot save '{}': file system error", save_as));
+        }
+    } else {
+        output.push(format!("wget: server returned error {} {}", response.status, response.status_text));
+        return CmdResult { output, success: false };
+    }
+
+    CmdResult::ok(output)
+}
+
+fn cmd_dhcp(_args: &[String]) -> CmdResult {
+    let mut output = Vec::new();
+    output.push(String::from("Starting DHCP discovery..."));
+
+    match crate::net::dhcp::discover_and_apply() {
+        Ok(lease) => {
+            output.push(format!("DHCP lease acquired:"));
+            output.push(format!("  IP Address:  {}", lease.ip));
+            output.push(format!("  Subnet Mask: {}", lease.netmask));
+            output.push(format!("  Gateway:     {}", lease.gateway));
+            output.push(format!("  DNS Server:  {}", lease.dns));
+            output.push(format!("  Lease Time:  {} seconds", lease.lease_time));
+        }
+        Err(e) => {
+            output.push(format!("DHCP failed: {}", e));
+            return CmdResult { output, success: false };
+        }
+    }
+
+    CmdResult::ok(output)
+}
+
 // ════════════════════════════════════════════════════════════
 //  Hardware commands
 // ════════════════════════════════════════════════════════════
@@ -1968,8 +2894,12 @@ fn cmd_lspci(_args: &[String]) -> CmdResult {
         for dev in &devices {
             output.push(format!(
                 "  {:02x}:{:02x}.{} [{:04x}:{:04x}] class {}",
-                dev.address.bus, dev.address.device, dev.address.function,
-                dev.vendor_id, dev.device_id, dev.class
+                dev.address.bus,
+                dev.address.device,
+                dev.address.function,
+                dev.vendor_id,
+                dev.device_id,
+                dev.class
             ));
         }
     }
@@ -1997,7 +2927,9 @@ fn cmd_acpi(_args: &[String]) -> CmdResult {
     let count = crate::hw::acpi::table_count();
     let mut output = Vec::new();
     if count == 0 {
-        output.push(String::from("ACPI: not available (no RSDP or tables not parsed)"));
+        output.push(String::from(
+            "ACPI: not available (no RSDP or tables not parsed)",
+        ));
     } else {
         output.push(format!("ACPI tables ({}):", count));
         for sig in crate::hw::acpi::table_signatures() {
@@ -2006,7 +2938,10 @@ fn cmd_acpi(_args: &[String]) -> CmdResult {
         let lapic = crate::hw::acpi::local_apic_count();
         let ioapic = crate::hw::acpi::io_apic_count();
         if lapic > 0 || ioapic > 0 {
-            output.push(format!("MADT: {} Local APIC(s), {} I/O APIC(s)", lapic, ioapic));
+            output.push(format!(
+                "MADT: {} Local APIC(s), {} I/O APIC(s)",
+                lapic, ioapic
+            ));
         }
     }
     CmdResult::ok(output)
@@ -2036,38 +2971,73 @@ fn cmd_man(args: &[String]) -> CmdResult {
 }
 
 fn cmd_help(_args: &[String]) -> CmdResult {
+    let b = ansi::bold();
+    let r = ansi::reset();
+    let g = ansi::green();
+    let c = ansi::cyan();
+    let y = ansi::yellow();
     let output = vec![
-        String::from("KPIO Shell — Built-in Commands"),
-        String::from("══════════════════════════════════════════════════════════"),
+        format!("{}{}KPIO Shell — Built-in Commands{}", b, c, r),
+        format!(
+            "{}══════════════════════════════════════════════════════════{}",
+            c, r
+        ),
         String::new(),
-        String::from("Filesystem:"),
-        String::from("  ls cd pwd mkdir rmdir touch rm cp mv cat head tail"),
-        String::from("  find du df stat file tree wc ln chmod chown basename dirname"),
+        format!("{}{}Filesystem:{}", b, y, r),
+        format!(
+            "  {}ls cd pwd mkdir rmdir touch rm cp mv cat head tail{}",
+            g, r
+        ),
+        format!(
+            "  {}find du df stat file tree wc ln chmod chown basename dirname{}",
+            g, r
+        ),
         String::new(),
-        String::from("Text Processing:"),
-        String::from("  echo printf grep sed sort uniq cut tr tee xargs tac nl od"),
+        format!("{}{}Text Processing:{}", b, y, r),
+        format!(
+            "  {}echo printf grep sed sort uniq cut tr tee xargs tac nl od{}",
+            g, r
+        ),
         String::new(),
-        String::from("System Info:"),
-        String::from("  uname whoami hostname uptime free top ps kill id groups"),
-        String::from("  env printenv export unset who"),
+        format!("{}{}System Info:{}", b, y, r),
+        format!(
+            "  {}uname whoami hostname uptime free top ps kill id groups{}",
+            g, r
+        ),
+        format!("  {}env printenv export unset who{}", g, r),
         String::new(),
-        String::from("Utilities:"),
-        String::from("  date cal clear history alias which type true false yes seq"),
-        String::from("  sleep time test exit"),
+        format!("{}{}Utilities:{}", b, y, r),
+        format!(
+            "  {}date cal clear history alias which type true false yes seq{}",
+            g, r
+        ),
+        format!("  {}sleep time test exit{}", g, r),
         String::new(),
-        String::from("Network:"),
-        String::from("  ping ifconfig netstat"),
+        format!("{}{}Network:{}", b, y, r),
+        format!("  {}ping ifconfig netstat{}", g, r),
         String::new(),
-        String::from("Hardware:"),
-        String::from("  lspci lsblk acpi"),
+        format!("{}{}Hardware:{}", b, y, r),
+        format!("  {}lspci lsblk acpi{}", g, r),
         String::new(),
-        String::from("Misc:"),
-        String::from("  man help neofetch hexdump base64 md5sum sha256sum diff"),
+        format!("{}{}Misc:{}", b, y, r),
+        format!(
+            "  {}man help neofetch hexdump base64 md5sum sha256sum diff{}",
+            g, r
+        ),
         String::new(),
-        String::from("Shell Features:"),
-        String::from("  Pipes: cmd1 | cmd2          Variable expansion: $VAR ${VAR}"),
-        String::from("  Redirect: > >> <            Chaining: ; && ||"),
-        String::from("  Quoting: \"double\" 'single'  History: up/down arrows"),
+        format!("{}{}Shell Features:{}", b, y, r),
+        format!(
+            "  Pipes: {}cmd1 | cmd2{}          Variable expansion: {}$VAR ${{VAR}}{}",
+            g, r, g, r
+        ),
+        format!(
+            "  Redirect: {}> >> <{}            Chaining: {};{} {}&&{} {}||{}",
+            g, r, g, r, g, r, g, r
+        ),
+        format!(
+            "  Quoting: {}\"double\" 'single'{}  History: {}up/down arrows{}",
+            g, r, g, r
+        ),
     ];
     CmdResult::ok(output)
 }
@@ -2077,18 +3047,60 @@ fn cmd_neofetch(_args: &[String]) -> CmdResult {
     let hours = secs / 3600;
     let mins = (secs % 3600) / 60;
 
+    let logo_c = ansi::cyan();
+    let label_c = format!("{}{}", ansi::bold(), ansi::yellow());
+    let val_c = ansi::white();
+    let r = ansi::reset();
+    let user_c = format!("{}{}", ansi::bold(), ansi::green());
+
     let output = vec![
-        String::from("        ████████████          root@kpio"),
-        String::from("      ██            ██        ─────────────────"),
-        String::from("    ██   ██████████   ██      OS: KPIO OS 1.0.0 x86_64"),
-        String::from("   ██  ██         ██  ██      Kernel: 1.0.0"),
-        format!("  ██  ██    KPIO    ██  ██      Uptime: {}h {}m", hours, mins),
-        String::from("  ██  ██           ██  ██      Shell: kpio-sh"),
-        String::from("  ██  ██           ██  ██      Terminal: kpio-term"),
-        String::from("   ██  ██         ██  ██      CPU: KPIO Virtual CPU @ 2000MHz"),
-        String::from("    ██   ██████████   ██      Memory: 64MiB / 500MiB"),
-        String::from("      ██            ██"),
-        String::from("        ████████████          ████████████████████"),
+        format!(
+            "{}        ████████████          {}{}root@kpio{}",
+            logo_c, user_c, "", r
+        ),
+        format!(
+            "{}      ██            ██        {}─────────────────{}",
+            logo_c, logo_c, r
+        ),
+        format!(
+            "{}    ██   ██████████   ██      {}OS: {}KPIO OS 1.0.0 x86_64{}",
+            logo_c, label_c, val_c, r
+        ),
+        format!(
+            "{}   ██  ██         ██  ██      {}Kernel: {}1.0.0{}",
+            logo_c, label_c, val_c, r
+        ),
+        format!(
+            "{}  ██  ██    KPIO    ██  ██      {}Uptime: {}{}h {}m{}",
+            logo_c, label_c, val_c, hours, mins, r
+        ),
+        format!(
+            "{}  ██  ██           ██  ██      {}Shell: {}kpio-sh{}",
+            logo_c, label_c, val_c, r
+        ),
+        format!(
+            "{}  ██  ██           ██  ██      {}Terminal: {}kpio-term{}",
+            logo_c, label_c, val_c, r
+        ),
+        format!(
+            "{}   ██  ██         ██  ██      {}CPU: {}KPIO Virtual CPU @ 2000MHz{}",
+            logo_c, label_c, val_c, r
+        ),
+        format!(
+            "{}    ██   ██████████   ██      {}Memory: {}64MiB / 500MiB{}",
+            logo_c, label_c, val_c, r
+        ),
+        format!("{}      ██            ██{}", logo_c, r),
+        format!(
+            "{}        ████████████          {}████{}████{}████{}████{}████{}",
+            logo_c,
+            ansi::red(),
+            ansi::green(),
+            ansi::yellow(),
+            ansi::blue(),
+            ansi::magenta(),
+            r
+        ),
     ];
     CmdResult::ok(output)
 }
@@ -2112,9 +3124,16 @@ fn cmd_hexdump(args: &[String]) -> CmdResult {
     let mut output = Vec::new();
     for (offset, chunk) in data.chunks(16).enumerate() {
         let hex: Vec<String> = chunk.iter().map(|b| format!("{:02x}", b)).collect();
-        let ascii: String = chunk.iter().map(|&b| {
-            if b >= 0x20 && b < 0x7f { b as char } else { '.' }
-        }).collect();
+        let ascii: String = chunk
+            .iter()
+            .map(|&b| {
+                if b >= 0x20 && b < 0x7f {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
         let hex_str = format!("{:<48}", hex.join(" "));
         output.push(format!("{:08x}  {}  |{}|", offset * 16, hex_str, ascii));
     }
@@ -2200,6 +3219,11 @@ fn cmd_diff(args: &[String]) -> CmdResult {
         return CmdResult::ok_empty();
     }
 
+    let del_c = ansi::red();
+    let add_c = ansi::green();
+    let hdr_c = ansi::cyan();
+    let r = ansi::reset();
+
     let mut output = Vec::new();
     let max = core::cmp::max(lines1.len(), lines2.len());
     for i in 0..max {
@@ -2207,24 +3231,27 @@ fn cmd_diff(args: &[String]) -> CmdResult {
         let l2 = lines2.get(i);
         match (l1, l2) {
             (Some(a), Some(b)) if a != b => {
-                output.push(format!("{}c{}", i + 1, i + 1));
-                output.push(format!("< {}", a));
+                output.push(format!("{}{}c{}{}", hdr_c, i + 1, i + 1, r));
+                output.push(format!("{}< {}{}", del_c, a, r));
                 output.push(String::from("---"));
-                output.push(format!("> {}", b));
+                output.push(format!("{}>; {}{}", add_c, b, r));
             }
             (Some(a), None) => {
-                output.push(format!("{}d{}", i + 1, lines2.len()));
-                output.push(format!("< {}", a));
+                output.push(format!("{}{}d{}{}", hdr_c, i + 1, lines2.len(), r));
+                output.push(format!("{}< {}{}", del_c, a, r));
             }
             (None, Some(b)) => {
-                output.push(format!("{}a{}", lines1.len(), i + 1));
-                output.push(format!("> {}", b));
+                output.push(format!("{}{}a{}{}", hdr_c, lines1.len(), i + 1, r));
+                output.push(format!("{}>; {}{}", add_c, b, r));
             }
             _ => {}
         }
     }
 
-    CmdResult { output, success: false } // diff returns 1 when files differ
+    CmdResult {
+        output,
+        success: false,
+    } // diff returns 1 when files differ
 }
 
 // ════════════════════════════════════════════════════════════
@@ -2234,8 +3261,7 @@ fn cmd_diff(args: &[String]) -> CmdResult {
 fn read_file_content(abs_path: &str) -> Result<String, String> {
     let ino = fs::with_fs(|fs| fs.resolve(abs_path))
         .ok_or_else(|| format!("No such file or directory"))?;
-    let data = fs::with_fs(|fs| fs.read_file(ino))
-        .map_err(|e| String::from(e.as_str()))?;
+    let data = fs::with_fs(|fs| fs.read_file(ino)).map_err(|e| String::from(e.as_str()))?;
     Ok(String::from_utf8_lossy(&data).into_owned())
 }
 
@@ -2247,19 +3273,26 @@ fn read_file_lines(abs_path: &str) -> Result<Vec<String>, String> {
 fn read_file_bytes(abs_path: &str) -> Result<Vec<u8>, String> {
     let ino = fs::with_fs(|fs| fs.resolve(abs_path))
         .ok_or_else(|| String::from("No such file or directory"))?;
-    fs::with_fs(|fs| fs.read_file(ino))
-        .map_err(|e| String::from(e.as_str()))
+    fs::with_fs(|fs| fs.read_file(ino)).map_err(|e| String::from(e.as_str()))
 }
 
 fn human_size(bytes: u64) -> String {
-    if bytes < 1024 { return format!("{}B", bytes); }
-    if bytes < 1024 * 1024 { return format!("{:.1}K", bytes as f64 / 1024.0); }
-    if bytes < 1024 * 1024 * 1024 { return format!("{:.1}M", bytes as f64 / (1024.0 * 1024.0)); }
+    if bytes < 1024 {
+        return format!("{}B", bytes);
+    }
+    if bytes < 1024 * 1024 {
+        return format!("{:.1}K", bytes as f64 / 1024.0);
+    }
+    if bytes < 1024 * 1024 * 1024 {
+        return format!("{:.1}M", bytes as f64 / (1024.0 * 1024.0));
+    }
     format!("{:.1}G", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
 }
 
 fn simple_glob_match(pattern: &str, name: &str) -> bool {
-    if pattern == "*" { return true; }
+    if pattern == "*" {
+        return true;
+    }
     if pattern.starts_with("*.") {
         let ext = &pattern[1..]; // ".ext"
         return name.ends_with(ext);
@@ -2277,17 +3310,29 @@ fn simple_base64_encode(data: &[u8]) -> String {
     let mut i = 0;
     while i < data.len() {
         let b0 = data[i] as u32;
-        let b1 = if i + 1 < data.len() { data[i + 1] as u32 } else { 0 };
-        let b2 = if i + 2 < data.len() { data[i + 2] as u32 } else { 0 };
+        let b1 = if i + 1 < data.len() {
+            data[i + 1] as u32
+        } else {
+            0
+        };
+        let b2 = if i + 2 < data.len() {
+            data[i + 2] as u32
+        } else {
+            0
+        };
         let triple = (b0 << 16) | (b1 << 8) | b2;
         result.push(TABLE[((triple >> 18) & 0x3F) as usize] as char);
         result.push(TABLE[((triple >> 12) & 0x3F) as usize] as char);
         if i + 1 < data.len() {
             result.push(TABLE[((triple >> 6) & 0x3F) as usize] as char);
-        } else { result.push('='); }
+        } else {
+            result.push('=');
+        }
         if i + 2 < data.len() {
             result.push(TABLE[(triple & 0x3F) as usize] as char);
-        } else { result.push('='); }
+        } else {
+            result.push('=');
+        }
         i += 3;
     }
     result
