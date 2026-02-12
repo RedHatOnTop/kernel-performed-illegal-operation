@@ -21,9 +21,12 @@ pub mod html_render;
 pub mod input;
 pub mod mouse;
 pub mod render;
+pub mod notification;
+pub mod notification_panel;
 pub mod splash;
 pub mod taskbar;
 pub mod theme;
+pub mod toast;
 pub mod window;
 
 use crate::graphics::{DamageRect, FrameRateLimit, RenderPipeline};

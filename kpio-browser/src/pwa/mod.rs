@@ -14,6 +14,8 @@ pub mod fetch_interceptor;
 pub mod idb_engine;
 pub mod indexed_db;
 pub mod web_storage;
+pub mod notification_bridge;
+pub mod background_sync;
 
 pub use manifest::*;
 pub use window::*;
