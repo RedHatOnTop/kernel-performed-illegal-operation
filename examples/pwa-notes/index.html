@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KPIO Notes</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#4CAF50">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #FFFFFF; color: #333; }
+    header {
+      background: #4CAF50; color: white; padding: 16px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    #install-btn {
+      background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4);
+      padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+      display: none;
+    }
+    #install-btn:hover { background: rgba(255,255,255,0.35); }
+    .container { max-width: 600px; margin: 0 auto; padding: 16px; }
+    textarea {
+      width: 100%; height: 120px; border: 1px solid #ddd; border-radius: 8px;
+      padding: 12px; font-size: 14px; resize: vertical; outline: none;
+    }
+    textarea:focus { border-color: #4CAF50; }
+    .save-btn {
+      display: block; width: 100%; margin-top: 8px; padding: 10px;
+      background: #4CAF50; color: white; border: none; border-radius: 8px;
+      font-size: 14px; cursor: pointer;
+    }
+    .save-btn:hover { background: #43A047; }
+    .notes-list { margin-top: 24px; }
+    .note-card {
+      background: #f9f9f9; border: 1px solid #eee; border-radius: 8px;
+      padding: 12px; margin-bottom: 8px; position: relative;
+    }
+    .note-card .text { white-space: pre-wrap; font-size: 14px; }
+    .note-card .meta { font-size: 11px; color: #999; margin-top: 6px; }
+    .note-card .delete {
+      position: absolute; top: 8px; right: 10px; background: none;
+      border: none; color: #ccc; cursor: pointer; font-size: 16px;
+    }
+    .note-card .delete:hover { color: #e53935; }
+    .empty { text-align: center; color: #aaa; padding: 40px 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📝 KPIO Notes</h1>
+    <button id="install-btn">설치</button>
+  </header>
+  <div class="container">
+    <textarea id="note-input" placeholder="메모를 입력하세요..."></textarea>
+    <button class="save-btn" onclick="saveNote()">저장</button>
+    <div class="notes-list" id="notes-list"></div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'kpio_notes';
+
+    function loadNotes() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      } catch { return []; }
+    }
+
+    function saveNotes(notes) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    }
+
+    function saveNote() {
+      const input = document.getElementById('note-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const notes = loadNotes();
+      notes.unshift({
+        id: Date.now(),
+        text: text,
+        created: new Date().toLocaleString('ko-KR')
+      });
+      saveNotes(notes);
+      input.value = '';
+      renderNotes();
+    }
+
+    function deleteNote(id) {
+      const notes = loadNotes().filter(n => n.id !== id);
+      saveNotes(notes);
+      renderNotes();
+    }
+
+    function renderNotes() {
+      const list = document.getElementById('notes-list');
+      const notes = loadNotes();
+
+      if (notes.length === 0) {
+        list.innerHTML = '<div class="empty">메모가 없습니다. 새 메모를 작성해보세요!</div>';
+        return;
+      }
+
+      list.innerHTML = notes.map(n => `
+        <div class="note-card">
+          <button class="delete" onclick="deleteNote(${n.id})">✕</button>
+          <div class="text">${escapeHtml(n.text)}</div>
+          <div class="meta">${n.created}</div>
+        </div>
+      `).join('');
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Service Worker registration
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+
+    // Install prompt
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredPrompt = e;
+      document.getElementById('install-btn').style.display = 'block';
+    });
+    document.getElementById('install-btn').addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        document.getElementById('install-btn').style.display = 'none';
+      }
+    });
+
+    renderNotes();
+  </script>
+</body>
+</html>

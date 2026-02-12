@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KPIO Weather</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2196F3">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(135deg, #2196F3, #1565C0);
+      color: white; min-height: 100vh;
+    }
+    header {
+      padding: 16px; display: flex; justify-content: space-between; align-items: center;
+    }
+    header h1 { font-size: 18px; }
+    #install-btn {
+      background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4);
+      padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+      display: none;
+    }
+    .container { max-width: 480px; margin: 0 auto; padding: 16px; }
+    .city-select {
+      width: 100%; padding: 10px; border-radius: 8px; border: none;
+      font-size: 14px; margin-bottom: 16px;
+    }
+    .weather-card {
+      background: rgba(255,255,255,0.15); border-radius: 16px;
+      padding: 24px; text-align: center; backdrop-filter: blur(10px);
+    }
+    .weather-card .temp { font-size: 64px; font-weight: 200; }
+    .weather-card .desc { font-size: 16px; opacity: 0.8; margin-top: 4px; }
+    .weather-card .details {
+      display: flex; justify-content: space-around; margin-top: 20px;
+      font-size: 13px; opacity: 0.7;
+    }
+    .weather-card .city-name { font-size: 22px; font-weight: 500; }
+    .notify-btn {
+      display: block; width: 100%; margin-top: 16px; padding: 12px;
+      background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 8px; font-size: 14px; cursor: pointer;
+    }
+    .notify-btn:hover { background: rgba(255,255,255,0.3); }
+    .offline-banner {
+      display: none; background: #FF9800; color: white; text-align: center;
+      padding: 8px; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-banner" id="offline-banner">오프라인 모드 — 캐시된 데이터 표시 중</div>
+  <header>
+    <h1>🌤 KPIO Weather</h1>
+    <button id="install-btn">설치</button>
+  </header>
+  <div class="container">
+    <select class="city-select" id="city-select" onchange="loadWeather()">
+      <option value="seoul">서울</option>
+      <option value="busan">부산</option>
+      <option value="jeju">제주</option>
+      <option value="incheon">인천</option>
+      <option value="daejeon">대전</option>
+    </select>
+
+    <div class="weather-card" id="weather-card">
+      <div class="city-name" id="city-name">서울</div>
+      <div class="temp" id="temp">--°</div>
+      <div class="desc" id="desc">로딩 중...</div>
+      <div class="details">
+        <div>💧 습도 <span id="humidity">--%</span></div>
+        <div>🌬 풍속 <span id="wind">--m/s</span></div>
+        <div>🌡 체감 <span id="feels">--°</span></div>
+      </div>
+    </div>
+
+    <button class="notify-btn" onclick="enableNotifications()">
+      🔔 기온 변화 알림 받기
+    </button>
+  </div>
+
+  <script>
+    // Mock weather data (since we can't access real APIs in KPIO OS)
+    const MOCK_WEATHER = {
+      seoul:   { name: '서울',   temp: 22, feels: 20, humidity: 55, wind: 3.2, desc: '맑음 ☀️' },
+      busan:   { name: '부산',   temp: 25, feels: 24, humidity: 65, wind: 4.1, desc: '구름 조금 ⛅' },
+      jeju:    { name: '제주',   temp: 27, feels: 28, humidity: 72, wind: 5.5, desc: '흐림 ☁️' },
+      incheon: { name: '인천',   temp: 21, feels: 19, humidity: 58, wind: 3.8, desc: '맑음 ☀️' },
+      daejeon: { name: '대전',   temp: 24, feels: 23, humidity: 50, wind: 2.5, desc: '맑음 ☀️' }
+    };
+
+    function loadWeather() {
+      const city = document.getElementById('city-select').value;
+
+      // Simulate fetch (in real app, this would be a network request)
+      const data = MOCK_WEATHER[city];
+      if (!data) return;
+
+      // Slight random variation to simulate live data
+      const variation = (Math.random() - 0.5) * 4;
+      const temp = Math.round(data.temp + variation);
+
+      document.getElementById('city-name').textContent = data.name;
+      document.getElementById('temp').textContent = temp + '°';
+      document.getElementById('desc').textContent = data.desc;
+      document.getElementById('humidity').textContent = data.humidity + '%';
+      document.getElementById('wind').textContent = data.wind + 'm/s';
+      document.getElementById('feels').textContent = Math.round(data.feels + variation) + '°';
+
+      // Cache the result
+      localStorage.setItem('kpio_weather_last_' + city, JSON.stringify({
+        ...data, temp, timestamp: Date.now()
+      }));
+    }
+
+    function enableNotifications() {
+      if ('Notification' in window) {
+        Notification.requestPermission().then(perm => {
+          if (perm === 'granted') {
+            new Notification('KPIO Weather', {
+              body: '기온 변화 알림이 활성화되었습니다.',
+              icon: 'icon-192.png'
+            });
+          }
+        });
+      }
+    }
+
+    // Offline detection
+    window.addEventListener('online', () => {
+      document.getElementById('offline-banner').style.display = 'none';
+      loadWeather();
+    });
+    window.addEventListener('offline', () => {
+      document.getElementById('offline-banner').style.display = 'block';
+    });
+
+    // SW registration + background sync
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then(reg => {
+        if ('sync' in reg) {
+          // Register periodic weather sync
+          reg.sync.register('weather-sync').catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
+    // Install prompt
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredPrompt = e;
+      document.getElementById('install-btn').style.display = 'block';
+    });
+    document.getElementById('install-btn').addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        document.getElementById('install-btn').style.display = 'none';
+      }
+    });
+
+    loadWeather();
+  </script>
+</body>
+</html>
