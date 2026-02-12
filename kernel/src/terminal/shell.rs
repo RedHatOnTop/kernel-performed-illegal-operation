@@ -11,7 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::fs; 
+use super::fs;
 
 // ────────────────────────── Types ──────────────────────────
 
@@ -26,13 +26,13 @@ pub struct Command {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Chain {
     /// Always run next
-    Sequence,   // ;
+    Sequence, // ;
     /// Run next only if prev succeeded
-    And,        // &&
+    And, // &&
     /// Run next only if prev failed
-    Or,         // ||
+    Or, // ||
     /// Pipe stdout → stdin
-    Pipe,       // |
+    Pipe, // |
 }
 
 /// Redirection target.
@@ -108,7 +108,9 @@ where
     F: FnOnce(&mut ShellState) -> R,
 {
     let mut guard = SHELL.lock();
-    let shell = guard.as_mut().expect("Shell not initialised — call terminal::shell::init()");
+    let shell = guard
+        .as_mut()
+        .expect("Shell not initialised — call terminal::shell::init()");
     f(shell)
 }
 
@@ -117,8 +119,16 @@ impl ShellState {
 
     pub fn prompt(&self) -> String {
         let user = self.env.get("USER").map(|s| s.as_str()).unwrap_or("user");
-        let host = self.env.get("HOSTNAME").map(|s| s.as_str()).unwrap_or("kpio");
-        let home = self.env.get("HOME").map(|s| s.as_str()).unwrap_or("/home/root");
+        let host = self
+            .env
+            .get("HOSTNAME")
+            .map(|s| s.as_str())
+            .unwrap_or("kpio");
+        let home = self
+            .env
+            .get("HOME")
+            .map(|s| s.as_str())
+            .unwrap_or("/home/root");
 
         let display_cwd = if self.cwd == home {
             String::from("~")
@@ -136,9 +146,13 @@ impl ShellState {
 
     pub fn add_history(&mut self, line: &str) {
         let line = line.trim();
-        if line.is_empty() { return; }
+        if line.is_empty() {
+            return;
+        }
         // Don't duplicate consecutive entries
-        if self.history.last().map(|s| s.as_str()) == Some(line) { return; }
+        if self.history.last().map(|s| s.as_str()) == Some(line) {
+            return;
+        }
         if self.history.len() >= self.history_max {
             self.history.remove(0);
         }
@@ -152,10 +166,17 @@ impl ShellState {
         if path.starts_with('/') {
             normalise_path(path)
         } else if path.starts_with("~/") {
-            let home = self.env.get("HOME").map(|s| s.as_str()).unwrap_or("/home/root");
+            let home = self
+                .env
+                .get("HOME")
+                .map(|s| s.as_str())
+                .unwrap_or("/home/root");
             normalise_path(&alloc::format!("{}/{}", home, &path[2..]))
         } else if path == "~" {
-            self.env.get("HOME").cloned().unwrap_or_else(|| String::from("/home/root"))
+            self.env
+                .get("HOME")
+                .cloned()
+                .unwrap_or_else(|| String::from("/home/root"))
         } else {
             normalise_path(&alloc::format!("{}/{}", self.cwd, path))
         }
@@ -165,7 +186,10 @@ impl ShellState {
 
     pub fn change_dir(&mut self, path: &str) -> Result<(), String> {
         let target = if path == "-" {
-            self.env.get("OLDPWD").cloned().unwrap_or_else(|| String::from("/"))
+            self.env
+                .get("OLDPWD")
+                .cloned()
+                .unwrap_or_else(|| String::from("/"))
         } else {
             self.resolve_path(path)
         };
@@ -208,12 +232,16 @@ impl ShellState {
                     // ${VAR}
                     i += 1;
                     let start = i;
-                    while i < chars.len() && chars[i] != '}' { i += 1; }
+                    while i < chars.len() && chars[i] != '}' {
+                        i += 1;
+                    }
                     let name: String = chars[start..i].iter().collect();
                     if let Some(val) = self.env.get(&name) {
                         result.push_str(val);
                     }
-                    if i < chars.len() { i += 1; } // skip '}'
+                    if i < chars.len() {
+                        i += 1;
+                    } // skip '}'
                 } else {
                     // $VAR
                     let start = i;
@@ -237,12 +265,22 @@ impl ShellState {
 
     pub fn expand_alias(&self, line: &str) -> String {
         let trimmed = line.trim();
-        if trimmed.is_empty() { return String::from(trimmed); }
+        if trimmed.is_empty() {
+            return String::from(trimmed);
+        }
 
         // Only expand the first word
         let first_space = trimmed.find(' ');
-        let first_word = if let Some(sp) = first_space { &trimmed[..sp] } else { trimmed };
-        let rest = if let Some(sp) = first_space { &trimmed[sp..] } else { "" };
+        let first_word = if let Some(sp) = first_space {
+            &trimmed[..sp]
+        } else {
+            trimmed
+        };
+        let rest = if let Some(sp) = first_space {
+            &trimmed[sp..]
+        } else {
+            ""
+        };
 
         if let Some(expansion) = self.aliases.get(first_word) {
             alloc::format!("{}{}", expansion, rest)
@@ -296,19 +334,25 @@ pub fn parse(input: &str) -> Pipeline {
                 if i + 1 < tokens.len() {
                     redirects.push(Redirect::StdoutOverwrite(tokens[i + 1].clone()));
                     i += 2;
-                } else { i += 1; }
+                } else {
+                    i += 1;
+                }
             }
             ">>" => {
                 if i + 1 < tokens.len() {
                     redirects.push(Redirect::StdoutAppend(tokens[i + 1].clone()));
                     i += 2;
-                } else { i += 1; }
+                } else {
+                    i += 1;
+                }
             }
             "<" => {
                 if i + 1 < tokens.len() {
                     redirects.push(Redirect::StdinFrom(tokens[i + 1].clone()));
                     i += 2;
-                } else { i += 1; }
+                } else {
+                    i += 1;
+                }
             }
             _ => {
                 current_args.push(tokens[i].clone());
@@ -329,7 +373,10 @@ pub fn parse(input: &str) -> Pipeline {
 fn build_segment(args: &mut Vec<String>, redirects: &mut Vec<Redirect>) -> Segment {
     let program = args.remove(0);
     let seg = Segment {
-        command: Command { program, args: args.clone() },
+        command: Command {
+            program,
+            args: args.clone(),
+        },
         redirects: redirects.clone(),
     };
     args.clear();
@@ -345,11 +392,14 @@ fn tokenise(input: &str) -> Vec<String> {
 
     while i < chars.len() {
         // Skip whitespace
-        if chars[i].is_whitespace() { i += 1; continue; }
+        if chars[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
 
         // Two-character operators
         if i + 1 < chars.len() {
-            let two: String = chars[i..=i+1].iter().collect();
+            let two: String = chars[i..=i + 1].iter().collect();
             match two.as_str() {
                 "&&" | "||" | ">>" => {
                     tokens.push(two);
@@ -383,22 +433,28 @@ fn tokenise(input: &str) -> Vec<String> {
                         't' => s.push('\t'),
                         '\\' => s.push('\\'),
                         '"' => s.push('"'),
-                        c => { s.push('\\'); s.push(c); }
+                        c => {
+                            s.push('\\');
+                            s.push(c);
+                        }
                     }
                 } else {
                     s.push(chars[i]);
                 }
                 i += 1;
             }
-            if i < chars.len() { i += 1; } // closing quote
+            if i < chars.len() {
+                i += 1;
+            } // closing quote
             tokens.push(s);
             continue;
         }
 
         // Regular word
         let mut word = String::new();
-        while i < chars.len() && !chars[i].is_whitespace()
-              && !matches!(chars[i], '|' | ';' | '>' | '<')
+        while i < chars.len()
+            && !chars[i].is_whitespace()
+            && !matches!(chars[i], '|' | ';' | '>' | '<')
         {
             if chars[i] == '\\' && i + 1 < chars.len() {
                 i += 1;
@@ -450,13 +506,17 @@ pub fn execute(line: &str) -> Vec<String> {
         let stdin_content = segment.redirects.iter().find_map(|r| {
             if let Redirect::StdinFrom(path) = r {
                 let abs = with_shell(|sh| sh.resolve_path(path));
-                fs::with_fs(|fs| {
-                    fs.resolve(&abs).and_then(|ino| fs.read_file(ino).ok())
-                }).map(|data| {
-                    String::from_utf8_lossy(&data).lines()
-                        .map(String::from).collect::<Vec<_>>()
-                })
-            } else { None }
+                fs::with_fs(|fs| fs.resolve(&abs).and_then(|ino| fs.read_file(ino).ok())).map(
+                    |data| {
+                        String::from_utf8_lossy(&data)
+                            .lines()
+                            .map(String::from)
+                            .collect::<Vec<_>>()
+                    },
+                )
+            } else {
+                None
+            }
         });
 
         let input = stdin_content.or(pipe_input.take());
@@ -477,7 +537,9 @@ pub fn execute(line: &str) -> Vec<String> {
                 Redirect::StdoutOverwrite(path) => {
                     let abs = with_shell(|sh| sh.resolve_path(path));
                     let data = result.output.join("\n");
-                    let data_bytes = if data.is_empty() { Vec::new() } else {
+                    let data_bytes = if data.is_empty() {
+                        Vec::new()
+                    } else {
                         let mut b = data.into_bytes();
                         b.push(b'\n');
                         b
@@ -492,7 +554,9 @@ pub fn execute(line: &str) -> Vec<String> {
                 Redirect::StdoutAppend(path) => {
                     let abs = with_shell(|sh| sh.resolve_path(path));
                     let data = result.output.join("\n");
-                    let data_bytes = if data.is_empty() { Vec::new() } else {
+                    let data_bytes = if data.is_empty() {
+                        Vec::new()
+                    } else {
                         let mut b = data.into_bytes();
                         b.push(b'\n');
                         b
@@ -539,7 +603,8 @@ pub fn complete(input: &str) -> Vec<String> {
     if parts.is_empty() || (parts.len() == 1 && !input.ends_with(' ')) {
         // Complete command name
         let prefix = parts.first().copied().unwrap_or("");
-        let mut candidates: Vec<String> = super::commands::COMMAND_LIST.iter()
+        let mut candidates: Vec<String> = super::commands::COMMAND_LIST
+            .iter()
             .filter(|c| c.starts_with(prefix))
             .map(|c| String::from(*c))
             .collect();
@@ -556,15 +621,47 @@ pub fn complete(input: &str) -> Vec<String> {
         candidates
     } else {
         // Complete file/dir name
-        let partial = if input.ends_with(' ') { "" } else { parts.last().unwrap_or(&"") };
+        let partial = if input.ends_with(' ') {
+            ""
+        } else {
+            parts.last().unwrap_or(&"")
+        };
         complete_path(partial)
+    }
+}
+
+/// Try tab-completing the input line. Returns the completed line if exactly
+/// one candidate matches, or `None` if zero or multiple.
+pub fn tab_complete(input: &str) -> Option<String> {
+    let candidates = complete(input);
+
+    if candidates.len() == 1 {
+        // Replace the last word with the completion
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        if parts.is_empty() || (parts.len() == 1 && !input.ends_with(' ')) {
+            // Command completion — just return the command + space
+            Some(alloc::format!("{} ", candidates[0]))
+        } else {
+            // File/path completion — rebuild with completed token
+            let last_start = input
+                .rfind(parts.last().unwrap_or(&""))
+                .unwrap_or(input.len());
+            let prefix = &input[..last_start];
+            Some(alloc::format!("{}{}", prefix, candidates[0]))
+        }
+    } else {
+        None
     }
 }
 
 fn complete_path(partial: &str) -> Vec<String> {
     let (dir_path, prefix) = if partial.contains('/') {
         let idx = partial.rfind('/').unwrap();
-        let dir = if idx == 0 { String::from("/") } else { String::from(&partial[..idx]) };
+        let dir = if idx == 0 {
+            String::from("/")
+        } else {
+            String::from(&partial[..idx])
+        };
         let pfx = &partial[idx + 1..];
         (dir, String::from(pfx))
     } else {
@@ -582,7 +679,8 @@ fn complete_path(partial: &str) -> Vec<String> {
             Some(e) => e,
             None => return Vec::new(),
         };
-        entries.iter()
+        entries
+            .iter()
             .filter(|(name, _)| name.starts_with(&prefix))
             .map(|(name, child_ino)| {
                 let is_dir = fs.get(*child_ino).map(|n| n.mode.is_dir()).unwrap_or(false);
@@ -604,7 +702,9 @@ pub fn normalise_path(path: &str) -> String {
     for component in path.split('/') {
         match component {
             "" | "." => {}
-            ".." => { parts.pop(); }
+            ".." => {
+                parts.pop();
+            }
             c => parts.push(c),
         }
     }

@@ -1,9 +1,9 @@
 //! Desktop Environment
 //!
-//! Modern desktop shell with smooth gradient background and stylish icons.
+//! Flat desktop shell with subtle wallpaper and modern geometric icons.
 
 use super::render::{Color, Renderer};
-use super::theme::{Surface, Text, Accent, IconColor, Radius, Spacing, Size};
+use super::theme::{IconColor, Radius, Size, Spacing, Surface, Text};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -14,6 +14,7 @@ pub struct DesktopIcon {
     pub x: i32,
     pub y: i32,
     pub icon_type: IconType,
+    pub hovered: bool,
 }
 
 /// Icon types
@@ -27,110 +28,60 @@ pub enum IconType {
 }
 
 impl IconType {
-    /// Get icon pattern (16x16 bitmap)
-    pub fn get_pattern(&self) -> [u16; 16] {
+    /// Get icon pattern (32x32 bitmap — two u32 per row)
+    pub fn get_pattern(&self) -> [u32; 32] {
         match self {
             IconType::Files => [
-                0b0111111111110000,
-                0b0100000000010000,
-                0b0101111111110000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0100000000010000,
-                0b0111111111110000,
-                0b0000000000000000,
-                0b0000000000000000,
+                // Folder icon — open folder shape
+                0x00000000, 0x00000000, 0x1FFC0000, 0x20020000, 0x7FFE0000, 0x40010000, 0x40010000,
+                0x40010000, 0x40010000, 0x40010000, 0x40010000, 0x40010000, 0x40010000, 0x40010000,
+                0x40010000, 0x7FFE0000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000,
             ],
             IconType::Browser => [
-                0b0001111111100000,
-                0b0011111111110000,
-                0b0111111111111000,
-                0b0110000110001000,
-                0b0110000110001000,
-                0b0111111111111000,
-                0b0111111111111000,
-                0b0110000000001000,
-                0b0110000000001000,
-                0b0110000000001000,
-                0b0110000000001000,
-                0b0111111111111000,
-                0b0011111111110000,
-                0b0001111111100000,
-                0b0000000000000000,
-                0b0000000000000000,
+                // Globe / browser icon
+                0x00000000, 0x03FC0000, 0x0C030000, 0x13FC8000, 0x20004000, 0x2FF84000, 0x40002000,
+                0x4FF82000, 0x40002000, 0x40002000, 0x40002000, 0x4FF82000, 0x40002000, 0x2FF84000,
+                0x20004000, 0x13FC8000, 0x0C030000, 0x03FC0000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000,
             ],
             IconType::Terminal => [
-                0b0111111111111000,
-                0b0100000000001000,
-                0b0100000000001000,
-                0b0100110000001000,
-                0b0100011000001000,
-                0b0100001100001000,
-                0b0100000110001000,
-                0b0100000011001000,
-                0b0100000110001000,
-                0b0100001100001000,
-                0b0100011000001000,
-                0b0100110000001000,
-                0b0100000000001000,
-                0b0111111111111000,
-                0b0000000000000000,
-                0b0000000000000000,
+                // Terminal / console icon
+                0x00000000, 0x7FFE0000, 0x40010000, 0x7FFE0000, 0x40010000, 0x40010000, 0x43010000,
+                0x44810000, 0x48410000, 0x50210000, 0x48410000, 0x44810000, 0x43010000, 0x40010000,
+                0x403E0000, 0x40010000, 0x40010000, 0x7FFE0000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000,
             ],
             IconType::Settings => [
-                0b0000011000000000,
-                0b0000111100000000,
-                0b0011111111000000,
-                0b0111100111100000,
-                0b0110000001100000,
-                0b0110011001100000,
-                0b1110011001110000,
-                0b1100011000110000,
-                0b1100011000110000,
-                0b1110011001110000,
-                0b0110011001100000,
-                0b0110000001100000,
-                0b0111100111100000,
-                0b0011111111000000,
-                0b0000111100000000,
-                0b0000011000000000,
+                // Gear / cog icon
+                0x00000000, 0x01800000, 0x01800000, 0x0DB00000, 0x1FF80000, 0x38180000, 0x30080000,
+                0x30080000, 0x38180000, 0x1FF80000, 0x0DB00000, 0x01800000, 0x01800000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000,
             ],
             IconType::Trash => [
-                0b0001111111100000,
-                0b0000100001000000,
-                0b0111111111111000,
-                0b0100000000001000,
-                0b0100100100101000,
-                0b0100100100101000,
-                0b0100100100101000,
-                0b0100100100101000,
-                0b0100100100101000,
-                0b0100100100101000,
-                0b0100100100101000,
-                0b0100100100101000,
-                0b0100000000001000,
-                0b0011111111110000,
-                0b0000000000000000,
-                0b0000000000000000,
+                // Trash can icon
+                0x00000000, 0x07E00000, 0x02400000, 0x1FF80000, 0x10080000, 0x12480000, 0x12480000,
+                0x12480000, 0x12480000, 0x12480000, 0x12480000, 0x12480000, 0x10080000, 0x0FF00000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000,
             ],
         }
     }
-    
+
     /// Get the accent colour for this icon type
     pub fn color(&self) -> Color {
         match self {
-            IconType::Files    => IconColor::FILES,
-            IconType::Browser  => IconColor::BROWSER,
+            IconType::Files => IconColor::FILES,
+            IconType::Browser => IconColor::BROWSER,
             IconType::Terminal => IconColor::TERMINAL,
             IconType::Settings => IconColor::SETTINGS,
-            IconType::Trash    => IconColor::TRASH,
+            IconType::Trash => IconColor::TRASH,
         }
     }
 }
@@ -147,20 +98,82 @@ impl Desktop {
     pub fn new(width: u32, height: u32) -> Self {
         let gap = Size::DESKTOP_ICON_GAP as i32;
         let icons = alloc::vec![
-            DesktopIcon { name: String::from("Files"),    x: 24, y: 24,              icon_type: IconType::Files },
-            DesktopIcon { name: String::from("Browser"),  x: 24, y: 24 + gap,        icon_type: IconType::Browser },
-            DesktopIcon { name: String::from("Terminal"), x: 24, y: 24 + gap * 2,    icon_type: IconType::Terminal },
-            DesktopIcon { name: String::from("Settings"),x: 24, y: 24 + gap * 3,    icon_type: IconType::Settings },
-            DesktopIcon { name: String::from("Trash"),   x: 24, y: 24 + gap * 4,    icon_type: IconType::Trash },
+            DesktopIcon {
+                name: String::from("Files"),
+                x: 24,
+                y: 24,
+                icon_type: IconType::Files,
+                hovered: false
+            },
+            DesktopIcon {
+                name: String::from("Browser"),
+                x: 24,
+                y: 24 + gap,
+                icon_type: IconType::Browser,
+                hovered: false
+            },
+            DesktopIcon {
+                name: String::from("Terminal"),
+                x: 24,
+                y: 24 + gap * 2,
+                icon_type: IconType::Terminal,
+                hovered: false
+            },
+            DesktopIcon {
+                name: String::from("Settings"),
+                x: 24,
+                y: 24 + gap * 3,
+                icon_type: IconType::Settings,
+                hovered: false
+            },
+            DesktopIcon {
+                name: String::from("Trash"),
+                x: 24,
+                y: 24 + gap * 4,
+                icon_type: IconType::Trash,
+                hovered: false
+            },
         ];
-        Self { width, height, icons }
+        Self {
+            width,
+            height,
+            icons,
+        }
     }
 
-    /// Render desktop with smooth gradient background
+    /// Hit-test: returns which icon (if any) is at the given pixel
+    pub fn icon_at(&self, mx: i32, my: i32) -> Option<usize> {
+        let area = Size::ICON_AREA;
+        for (i, icon) in self.icons.iter().enumerate() {
+            if mx >= icon.x - 4
+                && mx < icon.x + area as i32 + 4
+                && my >= icon.y - 4
+                && my < icon.y + area as i32 + 20
+            {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Set hover state for desktop icons
+    pub fn set_hover(&mut self, idx: Option<usize>) {
+        for (i, icon) in self.icons.iter_mut().enumerate() {
+            icon.hovered = Some(i) == idx;
+        }
+    }
+
+    /// Render desktop with subtle flat wallpaper
     pub fn render(&self, renderer: &mut Renderer) {
-        // Smooth gradient background
-        renderer.fill_gradient_v(0, 0, self.width, self.height,
-            Surface::DESKTOP_TOP, Surface::DESKTOP_BOTTOM);
+        // Very subtle vertical gradient (flat wallpaper)
+        renderer.fill_gradient_v(
+            0,
+            0,
+            self.width,
+            self.height,
+            Surface::DESKTOP_TOP,
+            Surface::DESKTOP_BOTTOM,
+        );
 
         // Render desktop icons
         for icon in &self.icons {
@@ -168,33 +181,56 @@ impl Desktop {
         }
     }
 
-    /// Render a single modern-style desktop icon
+    /// Render a single flat desktop icon
     fn render_icon(&self, renderer: &mut Renderer, icon: &DesktopIcon) {
         let icon_area = Size::ICON_AREA;
-        let icon_size = Size::ICON_SIZE;
         let pattern = icon.icon_type.get_pattern();
         let tint = icon.icon_type.color();
 
-        // Translucent background pill behind the icon
-        renderer.fill_rounded_rect_aa(
-            icon.x - 4, icon.y - 4,
-            icon_area, icon_area + 16,
-            Radius::ICON,
-            Color::rgba(255, 255, 255, 14),
-        );
+        // Hover highlight — subtle translucent pill
+        if icon.hovered {
+            renderer.fill_rounded_rect_aa(
+                icon.x - 4,
+                icon.y - 4,
+                icon_area + 8,
+                icon_area + 24,
+                Radius::ICON,
+                Color::rgba(255, 255, 255, 16),
+            );
+        }
 
-        // Draw the icon bitmap, scaled 2× with AA fringe
+        // Draw the 32×32 icon bitmap at 2× scale (using top 16 rows of the 32-entry pattern)
         let scale = 2i32;
         let ix = icon.x + (icon_area as i32 - 16 * scale) / 2;
         let iy = icon.y + 4;
-        renderer.draw_icon_scaled(ix, iy, &pattern, tint, scale);
+
+        // The pattern is 32 u32 entries but actually represents 16 rows of 16-bit data
+        // stored in the upper 16 bits of each u32 (to keep the bitmap simple).
+        // We'll render the first 16 non-zero rows we find.
+        for (row, &bits) in pattern.iter().enumerate() {
+            if row >= 16 {
+                break;
+            } // Only use first 16 rows for the icon bitmap
+            for col in 0..16i32 {
+                if (bits >> (31 - col)) & 1 == 1 {
+                    let bx = ix + col * scale;
+                    let by = iy + row as i32 * scale;
+                    renderer.fill_rect(bx, by, scale as u32, scale as u32, tint);
+                }
+            }
+        }
 
         // Icon label (centered below)
         let name_len = icon.name.len() as i32 * 8;
         let name_x = icon.x + (icon_area as i32 - name_len) / 2;
-        let name_y = icon.y + icon_area as i32 - 6;
-        // Text shadow for readability
-        renderer.draw_text(name_x + 1, name_y + 1, &icon.name, Color::rgba(0, 0, 0, 120));
+        let name_y = icon.y + icon_area as i32;
+        // Text shadow for readability on dark wallpaper
+        renderer.draw_text(
+            name_x + 1,
+            name_y + 1,
+            &icon.name,
+            Color::rgba(0, 0, 0, 100),
+        );
         renderer.draw_text(name_x, name_y, &icon.name, Text::ON_DARK);
     }
 }

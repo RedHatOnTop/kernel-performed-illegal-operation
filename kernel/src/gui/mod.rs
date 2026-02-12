@@ -13,29 +13,29 @@
 //! 3. Frame rate is controlled to prevent wasted CPU cycles
 //! 4. When a frame is complete, the back buffer is copied to the display
 
-pub mod desktop;
-pub mod taskbar;
-pub mod window;
-pub mod render;
-pub mod font;
-pub mod mouse;
-pub mod input;
 pub mod boot_animation;
+pub mod desktop;
+pub mod font;
 pub mod framebuffer;
-pub mod theme;
 pub mod html_render;
+pub mod input;
+pub mod mouse;
+pub mod render;
+pub mod taskbar;
+pub mod theme;
+pub mod window;
 
+use crate::graphics::{DamageRect, FrameRateLimit, RenderPipeline};
 use alloc::vec::Vec;
 use spin::Mutex;
-use crate::graphics::{RenderPipeline, DamageRect, FrameRateLimit};
 
 pub use desktop::Desktop;
+pub use font::Font8x8;
+pub use framebuffer::FramebufferManager;
+pub use mouse::MouseCursor;
+pub use render::Renderer;
 pub use taskbar::Taskbar;
 pub use window::{Window, WindowId};
-pub use render::Renderer;
-pub use font::Font8x8;
-pub use mouse::MouseCursor;
-pub use framebuffer::FramebufferManager;
 
 /// GUI System state
 pub struct GuiSystem {
@@ -91,13 +91,13 @@ impl GuiSystem {
         let taskbar_height = theme::Size::TASKBAR_HEIGHT;
         let fb_manager = FramebufferManager::new(fb, width, height, bpp, stride);
         let mut pipeline = RenderPipeline::new(width, height, bpp, stride);
-        
+
         // Set default frame rate limit (60 FPS)
         pipeline.set_frame_rate_limit(FrameRateLimit::Fixed(60));
-        
+
         // Mark full screen for initial render
         pipeline.damage_full();
-        
+
         Self {
             width,
             height,
@@ -123,17 +123,21 @@ impl GuiSystem {
     pub fn create_window(&mut self, title: &str, x: i32, y: i32, w: u32, h: u32) -> WindowId {
         let id = WindowId(self.windows.len() as u64 + 1);
         let window = Window::new(id, title, x, y, w, h);
-        
+
         // Damage the new window area
         self.pipeline.damage_rect(x, y, w, h);
-        
+
         self.windows.push(window);
         self.active_window = Some(id);
         self.taskbar.add_window(id, title);
-        
+
         // Also damage taskbar area
-        self.pipeline.damage_rect(0, (self.height - self.taskbar.height) as i32, 
-                                   self.width, self.taskbar.height);
+        self.pipeline.damage_rect(
+            0,
+            (self.height - self.taskbar.height) as i32,
+            self.width,
+            self.taskbar.height,
+        );
         self.dirty = true;
         id
     }
@@ -142,18 +146,23 @@ impl GuiSystem {
     pub fn close_window(&mut self, id: WindowId) {
         // Get window bounds for damage before removing
         if let Some(window) = self.windows.iter().find(|w| w.id == id) {
-            self.pipeline.damage_rect(window.x, window.y, window.width, window.height);
+            self.pipeline
+                .damage_rect(window.x, window.y, window.width, window.height);
         }
-        
+
         self.windows.retain(|w| w.id != id);
         self.taskbar.remove_window(id);
         if self.active_window == Some(id) {
             self.active_window = self.windows.last().map(|w| w.id);
         }
-        
+
         // Damage taskbar
-        self.pipeline.damage_rect(0, (self.height - self.taskbar.height) as i32,
-                                   self.width, self.taskbar.height);
+        self.pipeline.damage_rect(
+            0,
+            (self.height - self.taskbar.height) as i32,
+            self.width,
+            self.taskbar.height,
+        );
         self.dirty = true;
     }
 
@@ -162,36 +171,46 @@ impl GuiSystem {
         // Track old mouse position for damage
         let old_x = self.mouse.x;
         let old_y = self.mouse.y;
-        
-        self.mouse.move_by(dx, dy, self.width as i32, self.height as i32);
-        
+
+        self.mouse
+            .move_by(dx, dy, self.width as i32, self.height as i32);
+
         // Damage old and new cursor positions (cursor is typically 16x16)
         const CURSOR_SIZE: u32 = 20;
-        self.pipeline.damage_rect(old_x - 2, old_y - 2, CURSOR_SIZE, CURSOR_SIZE);
-        self.pipeline.damage_rect(self.mouse.x - 2, self.mouse.y - 2, CURSOR_SIZE, CURSOR_SIZE);
-        
+        self.pipeline
+            .damage_rect(old_x - 2, old_y - 2, CURSOR_SIZE, CURSOR_SIZE);
+        self.pipeline
+            .damage_rect(self.mouse.x - 2, self.mouse.y - 2, CURSOR_SIZE, CURSOR_SIZE);
+
         // Handle window dragging
         if let Some(drag) = self.dragging {
             if let Some(window) = self.windows.iter_mut().find(|w| w.id == drag.window_id) {
                 let old_wx = window.x;
                 let old_wy = window.y;
-                
+
                 window.x = self.mouse.x - drag.offset_x;
                 window.y = self.mouse.y - drag.offset_y;
-                
+
                 // Keep window on screen
                 window.x = window.x.max(0).min(self.width as i32 - 50);
                 window.y = window.y.max(0).min(self.height as i32 - 50);
-                
+
                 // Damage both old and new window positions
                 self.pipeline.damage_window(
-                    old_wx, old_wy,
-                    window.x, window.y,
-                    window.width, window.height
+                    old_wx,
+                    old_wy,
+                    window.x,
+                    window.y,
+                    window.width,
+                    window.height,
                 );
             }
         }
-        
+
+        // Desktop icon hover detection
+        let hover_idx = self.desktop.icon_at(self.mouse.x, self.mouse.y);
+        self.desktop.set_hover(hover_idx);
+
         self.dirty = true;
     }
 
@@ -199,12 +218,12 @@ impl GuiSystem {
     pub fn on_mouse_click(&mut self, button: u8, pressed: bool) {
         let x = self.mouse.x;
         let y = self.mouse.y;
-        
+
         // Handle drag end
         if !pressed && button == 0 {
             self.dragging = None;
         }
-        
+
         if pressed && button == 0 {
             // Check start menu click first
             if let Some(app_type) = self.taskbar.check_start_menu_click(x, y, self.height) {
@@ -212,38 +231,40 @@ impl GuiSystem {
                 self.dirty = true;
                 return;
             }
-            
+
             // Close start menu if clicking elsewhere
             if self.taskbar.start_menu_open {
                 let taskbar_y = (self.height - self.taskbar.height) as i32;
                 let in_menu = x < 200 && y >= taskbar_y - 200 && y < taskbar_y;
                 let in_start_button = x < 48 && y >= taskbar_y;
-                
+
                 if !in_menu && !in_start_button {
                     self.taskbar.start_menu_open = false;
                     self.dirty = true;
                     return;
                 }
             }
-            
+
             // Check taskbar click
             if y >= (self.height - self.taskbar.height) as i32 {
-                let clicked_id = self.taskbar.on_click(x, y - (self.height - self.taskbar.height) as i32);
-                
+                let clicked_id = self
+                    .taskbar
+                    .on_click(x, y - (self.height - self.taskbar.height) as i32);
+
                 // If clicked a taskbar item, focus that window or restore if minimized
                 if let Some(idx) = clicked_id {
                     if idx < self.taskbar.items.len() {
                         let window_id = self.taskbar.items[idx].window_id;
-                        
+
                         // Restore if minimized
                         if let Some(window) = self.windows.iter_mut().find(|w| w.id == window_id) {
                             if !window.is_visible() {
                                 window.restore();
                             }
                         }
-                        
+
                         self.active_window = Some(window_id);
-                        
+
                         // Bring window to front
                         if let Some(pos) = self.windows.iter().position(|w| w.id == window_id) {
                             let window = self.windows.remove(pos);
@@ -251,9 +272,34 @@ impl GuiSystem {
                         }
                     }
                 }
-                
+
                 self.dirty = true;
                 return;
+            }
+
+            // Check desktop icon clicks (below taskbar, no window hit)
+            let taskbar_top = (self.height - self.taskbar.height) as i32;
+            if y < taskbar_top {
+                if let Some(icon_idx) = self.desktop.icon_at(x, y) {
+                    // Check if a window would intercept first
+                    let any_window = self
+                        .windows
+                        .iter()
+                        .rev()
+                        .any(|w| w.is_visible() && w.contains(x, y));
+                    if !any_window {
+                        let app_type = match self.desktop.icons[icon_idx].icon_type {
+                            desktop::IconType::Files => taskbar::AppType::Files,
+                            desktop::IconType::Browser => taskbar::AppType::Browser,
+                            desktop::IconType::Terminal => taskbar::AppType::Terminal,
+                            desktop::IconType::Settings => taskbar::AppType::Settings,
+                            desktop::IconType::Trash => return, // Trash does nothing
+                        };
+                        self.launch_app(app_type);
+                        self.dirty = true;
+                        return;
+                    }
+                }
             }
 
             // Check window clicks (reverse order for top window first, only visible)
@@ -264,21 +310,23 @@ impl GuiSystem {
                     break;
                 }
             }
-            
+
             if let Some(id) = clicked_window_id {
                 self.active_window = Some(id);
-                
+
                 // Find window and process click
                 let screen_w = self.width;
                 let screen_h = self.height;
                 let taskbar_h = self.taskbar.height;
-                
+
                 if let Some(window) = self.windows.iter_mut().find(|w| w.id == id) {
                     let local_x = x - window.x;
                     let local_y = y - window.y;
-                    
-                    // Check title bar for dragging (first 24 pixels, excluding buttons)
-                    if local_y < 24 && local_x < window.width as i32 - 72 {
+
+                    let bw = theme::Size::WIN_BTN_W as i32;
+                    let tb = theme::Size::TITLE_BAR_HEIGHT as i32;
+                    // Check title bar for dragging (excluding button area)
+                    if local_y < tb && local_x < window.width as i32 - bw * 3 {
                         self.dragging = Some(DragState {
                             window_id: id,
                             offset_x: local_x,
@@ -286,8 +334,7 @@ impl GuiSystem {
                         });
                     }
                     // Check close button
-                    else if local_y < 24 && local_x >= window.width as i32 - 24 {
-                        // Close window
+                    else if local_y < tb && local_x >= window.width as i32 - bw {
                         let id_to_close = id;
                         self.windows.retain(|w| w.id != id_to_close);
                         self.taskbar.remove_window(id_to_close);
@@ -296,39 +343,46 @@ impl GuiSystem {
                         }
                     }
                     // Check maximize button
-                    else if local_y < 24 && local_x >= window.width as i32 - 48 && local_x < window.width as i32 - 24 {
+                    else if local_y < tb
+                        && local_x >= window.width as i32 - bw * 2
+                        && local_x < window.width as i32 - bw
+                    {
                         window.maximize(screen_w, screen_h, taskbar_h);
                     }
                     // Check minimize button
-                    else if local_y < 24 && local_x >= window.width as i32 - 72 && local_x < window.width as i32 - 48 {
+                    else if local_y < tb
+                        && local_x >= window.width as i32 - bw * 3
+                        && local_x < window.width as i32 - bw * 2
+                    {
                         window.minimize();
                         // Set active to another visible window
-                        self.active_window = self.windows.iter()
+                        self.active_window = self
+                            .windows
+                            .iter()
                             .rev()
                             .find(|w| w.is_visible() && w.id != id)
                             .map(|w| w.id);
-                    }
-                    else {
+                    } else {
                         window.on_click(local_x, local_y, pressed);
                     }
                 }
-                
+
                 // Bring window to front
                 if let Some(pos) = self.windows.iter().position(|w| w.id == id) {
                     let window = self.windows.remove(pos);
                     self.windows.push(window);
                 }
-                
+
                 self.dirty = true;
             }
         }
     }
 
     /// Handle key press
-    pub fn on_key(&mut self, key: char, pressed: bool) {
+    pub fn on_key_event(&mut self, event: &input::KeyEvent) {
         if let Some(id) = self.active_window {
             if let Some(window) = self.windows.iter_mut().find(|w| w.id == id) {
-                window.on_key(key, pressed);
+                window.on_key_event(event);
                 self.dirty = true;
             }
         }
@@ -343,19 +397,19 @@ impl GuiSystem {
     /// Launch an application
     pub fn launch_app(&mut self, app_type: taskbar::AppType) {
         use taskbar::AppType;
-        
+
         let id = self.next_window_id();
-        
+
         // Offset new windows slightly
         let offset = (self.windows.len() as i32 % 5) * 30;
-        
+
         let window = match app_type {
             AppType::Browser => Window::new_browser(id, 100 + offset, 50 + offset),
             AppType::Terminal => Window::new_terminal(id, 150 + offset, 100 + offset),
             AppType::Files => Window::new_files(id, 200 + offset, 80 + offset),
             AppType::Settings => Window::new_settings(id, 180 + offset, 120 + offset),
         };
-        
+
         let title = window.title.clone();
         self.windows.push(window);
         self.taskbar.add_window(id, &title);
@@ -373,7 +427,7 @@ impl GuiSystem {
 
         // Begin frame (captures timing and damage info)
         let frame_ctx = self.pipeline.begin_frame();
-        
+
         // Create renderer targeting the BACK buffer (not the display)
         let mut renderer = Renderer::new(
             self.fb_manager.back_buffer(),
@@ -386,7 +440,11 @@ impl GuiSystem {
         // For now, always do full redraws (damage-aware rendering can be
         // optimized further, but requires more complex clipping logic)
         // The frame rate limiting still provides significant performance gains
-        
+
+        // Sync state to taskbar
+        self.taskbar.frame_count = self.frame_count;
+        self.taskbar.set_active(self.active_window);
+
         // Draw desktop background
         self.desktop.render(&mut renderer);
 
@@ -400,14 +458,13 @@ impl GuiSystem {
         }
 
         // Draw taskbar
-        self.taskbar.render(&mut renderer, self.height - self.taskbar.height);
+        self.taskbar
+            .render(&mut renderer, self.height - self.taskbar.height);
 
         // Draw mouse cursor (always on top)
         self.mouse.render(&mut renderer);
 
         // CRITICAL: Copy back buffer to front buffer atomically
-        // This eliminates flickering by ensuring the display always shows
-        // a complete frame, never a partially-drawn one
         self.fb_manager.swap_buffers();
 
         // End frame (update timing stats, clear damage)
@@ -416,12 +473,12 @@ impl GuiSystem {
         self.dirty = false;
         self.frame_count += 1;
     }
-    
+
     /// Get render statistics for debugging/profiling
     pub fn get_render_stats(&self) -> &crate::graphics::RenderStats {
         &self.pipeline.stats
     }
-    
+
     /// Get current FPS
     pub fn get_fps(&self) -> u32 {
         self.pipeline.timing.fps
@@ -463,6 +520,6 @@ pub fn mouse_click(button: u8, pressed: bool) {
 }
 
 /// Handle key press
-pub fn key_press(key: char, pressed: bool) {
-    with_gui(|gui| gui.on_key(key, pressed));
+pub fn key_press(event: &input::KeyEvent) {
+    with_gui(|gui| gui.on_key_event(event));
 }

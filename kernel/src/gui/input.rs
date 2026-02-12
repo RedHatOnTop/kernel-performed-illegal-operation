@@ -3,8 +3,8 @@
 //! Global input buffers for keyboard and mouse events.
 //! Used to pass events from interrupt handlers to the GUI system.
 
-use spin::Mutex;
 use alloc::collections::VecDeque;
+use spin::Mutex;
 
 /// Maximum events in each buffer
 const MAX_EVENTS: usize = 64;
@@ -15,6 +15,9 @@ pub struct KeyEvent {
     pub key: char,
     pub scancode: u8,
     pub pressed: bool,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
 }
 
 /// Mouse event
@@ -63,9 +66,9 @@ impl MouseState {
 
         if self.index == 3 {
             self.index = 0;
-            
+
             let flags = self.packet[0];
-            
+
             // Validate packet (bit 3 should always be 1)
             if flags & 0x08 == 0 {
                 return None;
@@ -101,10 +104,17 @@ impl MouseState {
 // ==================== Keyboard API ====================
 
 /// Push a keyboard event (called from interrupt handler)
-pub fn push_key_event(key: char, scancode: u8, pressed: bool) {
+pub fn push_key_event(key: char, scancode: u8, pressed: bool, ctrl: bool, shift: bool, alt: bool) {
     let mut buffer = KEYBOARD_BUFFER.lock();
     if buffer.len() < MAX_EVENTS {
-        buffer.push_back(KeyEvent { key, scancode, pressed });
+        buffer.push_back(KeyEvent {
+            key,
+            scancode,
+            pressed,
+            ctrl,
+            shift,
+            alt,
+        });
     }
 }
 
@@ -154,7 +164,7 @@ pub fn process_all_events() {
     // Process keyboard events
     while let Some(event) = pop_key_event() {
         super::with_gui(|gui| {
-            gui.on_key(event.key, event.pressed);
+            gui.on_key_event(&event);
         });
     }
 
@@ -162,11 +172,11 @@ pub fn process_all_events() {
     while let Some(event) = pop_mouse_event() {
         super::with_gui(|gui| {
             gui.on_mouse_move(event.dx as i32, event.dy as i32);
-            
+
             // Handle button clicks
             static mut PREV_LEFT: bool = false;
             static mut PREV_RIGHT: bool = false;
-            
+
             unsafe {
                 if event.buttons.left != PREV_LEFT {
                     gui.on_mouse_click(0, event.buttons.left);
