@@ -11,6 +11,9 @@ pub mod kernel_bridge;
 pub mod sw_bridge;
 pub mod cache_storage;
 pub mod fetch_interceptor;
+pub mod idb_engine;
+pub mod indexed_db;
+pub mod web_storage;
 
 pub use manifest::*;
 pub use window::*;
