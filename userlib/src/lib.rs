@@ -31,6 +31,7 @@ pub mod mem;
 pub mod ipc;
 pub mod thread;
 pub mod allocator;
+pub mod app;
 
 /// std compatibility layer for running std-based applications
 pub mod std;

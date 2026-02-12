@@ -76,6 +76,14 @@ pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::TabGetMemory => handle_tab_get_memory(ctx),
         SyscallNumber::WasmCacheGet => handle_wasm_cache_get(ctx),
         SyscallNumber::WasmCachePut => handle_wasm_cache_put(ctx),
+        
+        // App Management
+        SyscallNumber::AppInstall => handle_app_install(ctx),
+        SyscallNumber::AppLaunch => handle_app_launch(ctx),
+        SyscallNumber::AppTerminate => handle_app_terminate(ctx),
+        SyscallNumber::AppGetInfo => handle_app_get_info(ctx),
+        SyscallNumber::AppList => handle_app_list(ctx),
+        SyscallNumber::AppUninstall => handle_app_uninstall(ctx),
     }
 }
 
@@ -736,4 +744,231 @@ fn handle_wasm_cache_put(ctx: &SyscallContext) -> SyscallResult {
     
     // TODO: Store compiled WASM in cache
     Ok(0)
+}
+
+// ==========================================
+// App Management Syscalls (106-111)
+// ==========================================
+
+/// Install/register a new app.
+///
+/// Args:
+///   arg1 (rdi) = app_type: 0=WebApp, 1=WasmApp, 2=NativeApp
+///   arg2 (rsi) = name_ptr: pointer to app name UTF-8 string
+///   arg3 (rdx) = name_len: length of name string
+///   arg4 (r10) = entry_ptr: pointer to entry_point path UTF-8 string
+///   arg5 (r8)  = entry_len: length of entry_point string
+///
+/// Returns: app_id (u64) on success.
+fn handle_app_install(ctx: &SyscallContext) -> SyscallResult {
+    use alloc::string::String;
+    use crate::app::registry::{KernelAppType, APP_REGISTRY};
+    use crate::vfs::sandbox;
+
+    let app_type_raw = ctx.arg1;
+    let name_ptr = ctx.arg2 as *const u8;
+    let name_len = ctx.arg3 as usize;
+    let entry_ptr = ctx.arg4 as *const u8;
+    let entry_len = ctx.arg5 as usize;
+
+    // Validate pointers
+    if name_ptr.is_null() || name_len == 0 || name_len > 256 {
+        return Err(SyscallError::InvalidArgument);
+    }
+    if entry_ptr.is_null() || entry_len == 0 || entry_len > 1024 {
+        return Err(SyscallError::InvalidArgument);
+    }
+
+    // Read strings from caller memory
+    let name_slice = unsafe { core::slice::from_raw_parts(name_ptr, name_len) };
+    let name = core::str::from_utf8(name_slice)
+        .map_err(|_| SyscallError::InvalidArgument)?;
+
+    let entry_slice = unsafe { core::slice::from_raw_parts(entry_ptr, entry_len) };
+    let entry_point = core::str::from_utf8(entry_slice)
+        .map_err(|_| SyscallError::InvalidArgument)?;
+
+    // Determine app type
+    let app_type = match app_type_raw {
+        0 => KernelAppType::WebApp {
+            scope: String::from("/"),
+            offline_capable: false,
+        },
+        1 => KernelAppType::WasmApp { wasi_version: String::from("1") },
+        2 => KernelAppType::NativeApp,
+        _ => return Err(SyscallError::InvalidArgument),
+    };
+
+    // Register in kernel
+    let mut registry = APP_REGISTRY.lock();
+    match registry.register(app_type, String::from(name), String::from(entry_point), None) {
+        Ok(app_id) => {
+            // Create app sandbox directory
+            sandbox::create_app_directory(app_id);
+            // Persist registry
+            let _ = registry.save_to_vfs();
+            Ok(app_id.0)
+        }
+        Err(_) => Err(SyscallError::InvalidArgument),
+    }
+}
+
+/// Launch an installed app.
+///
+/// Args:
+///   arg1 (rdi) = app_id
+///
+/// Returns: instance_id (u64) on success.
+fn handle_app_launch(ctx: &SyscallContext) -> SyscallResult {
+    use crate::app::registry::{KernelAppId, APP_REGISTRY};
+    use crate::app::lifecycle::APP_LIFECYCLE;
+
+    let app_id = KernelAppId(ctx.arg1);
+
+    // Verify app exists
+    {
+        let registry = APP_REGISTRY.lock();
+        if registry.get(app_id).is_none() {
+            return Err(SyscallError::NotFound);
+        }
+    }
+
+    // Launch via lifecycle manager
+    let mut lifecycle = APP_LIFECYCLE.lock();
+    match lifecycle.launch(app_id) {
+        Ok(instance_id) => Ok(instance_id.0),
+        Err(crate::app::AppError::ResourceExhausted) => Err(SyscallError::OutOfMemory),
+        Err(crate::app::AppError::NotFound) => Err(SyscallError::NotFound),
+        Err(_) => Err(SyscallError::IoError),
+    }
+}
+
+/// Terminate a running app instance.
+///
+/// Args:
+///   arg1 (rdi) = instance_id
+///
+/// Returns: 0 on success.
+fn handle_app_terminate(ctx: &SyscallContext) -> SyscallResult {
+    use crate::app::lifecycle::{AppInstanceId, APP_LIFECYCLE};
+
+    let instance_id = AppInstanceId(ctx.arg1);
+
+    let mut lifecycle = APP_LIFECYCLE.lock();
+    match lifecycle.terminate(instance_id) {
+        Ok(()) => Ok(0),
+        Err(crate::app::AppError::InstanceNotFound) => Err(SyscallError::NotFound),
+        Err(_) => Err(SyscallError::IoError),
+    }
+}
+
+/// Get app info (serialized descriptor written to caller buffer).
+///
+/// Args:
+///   arg1 (rdi) = app_id
+///   arg2 (rsi) = buf_ptr: output buffer
+///   arg3 (rdx) = buf_len: buffer capacity
+///
+/// Returns: bytes written on success.
+fn handle_app_get_info(ctx: &SyscallContext) -> SyscallResult {
+    use crate::app::registry::{KernelAppId, APP_REGISTRY};
+
+    let app_id = KernelAppId(ctx.arg1);
+    let buf_ptr = ctx.arg2 as *mut u8;
+    let buf_len = ctx.arg3 as usize;
+
+    if buf_ptr.is_null() || buf_len == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+
+    let registry = APP_REGISTRY.lock();
+    let descriptor = registry.get(app_id)
+        .ok_or(SyscallError::NotFound)?;
+
+    // Serialize descriptor name + entry_point as simple text
+    let info = alloc::format!(
+        "id={},name={},entry={},type={}",
+        descriptor.id.0,
+        descriptor.name,
+        descriptor.entry_point,
+        match &descriptor.app_type {
+            crate::app::registry::KernelAppType::WebApp { .. } => "web",
+            crate::app::registry::KernelAppType::WasmApp { .. } => "wasm",
+            crate::app::registry::KernelAppType::NativeApp => "native",
+        }
+    );
+
+    let bytes = info.as_bytes();
+    let copy_len = bytes.len().min(buf_len);
+    let dest = unsafe { core::slice::from_raw_parts_mut(buf_ptr, copy_len) };
+    dest.copy_from_slice(&bytes[..copy_len]);
+
+    Ok(copy_len as u64)
+}
+
+/// List installed app IDs.
+///
+/// Args:
+///   arg1 (rdi) = buf_ptr: u64 array output buffer
+///   arg2 (rsi) = buf_capacity: number of u64 slots
+///
+/// Returns: number of app IDs written.
+fn handle_app_list(ctx: &SyscallContext) -> SyscallResult {
+    use crate::app::registry::APP_REGISTRY;
+
+    let buf_ptr = ctx.arg1 as *mut u64;
+    let buf_cap = ctx.arg2 as usize;
+
+    if buf_ptr.is_null() || buf_cap == 0 {
+        return Err(SyscallError::InvalidArgument);
+    }
+
+    let registry = APP_REGISTRY.lock();
+    let apps = registry.list();
+    let count = apps.len().min(buf_cap);
+
+    let dest = unsafe { core::slice::from_raw_parts_mut(buf_ptr, count) };
+    for (i, desc) in apps.iter().take(count).enumerate() {
+        dest[i] = desc.id.0;
+    }
+
+    Ok(count as u64)
+}
+
+/// Uninstall/remove an app.
+///
+/// Args:
+///   arg1 (rdi) = app_id
+///
+/// Returns: 0 on success.
+fn handle_app_uninstall(ctx: &SyscallContext) -> SyscallResult {
+    use crate::app::registry::{KernelAppId, APP_REGISTRY};
+    use crate::app::lifecycle::APP_LIFECYCLE;
+    use crate::vfs::sandbox;
+
+    let app_id = KernelAppId(ctx.arg1);
+
+    // Terminate all running instances of this app first
+    {
+        let lifecycle = APP_LIFECYCLE.lock();
+        let instances = lifecycle.instances_of(app_id);
+        drop(lifecycle);
+        for info in instances {
+            let mut lc = APP_LIFECYCLE.lock();
+            let _ = lc.terminate(info.instance_id);
+        }
+    }
+
+    // Remove from registry
+    let mut registry = APP_REGISTRY.lock();
+    match registry.unregister(app_id) {
+        Ok(_) => {
+            // Clean up sandbox directory
+            sandbox::remove_app_directory(app_id);
+            // Persist
+            let _ = registry.save_to_vfs();
+            Ok(0)
+        }
+        Err(_) => Err(SyscallError::NotFound),
+    }
 }

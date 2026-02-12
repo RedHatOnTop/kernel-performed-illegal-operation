@@ -142,6 +142,34 @@ pub enum SyscallNumber {
     WasmCacheGet = 104,
     /// WASM cache store.
     WasmCachePut = 105,
+    
+    // ==========================================
+    // KPIO Extensions - App Management (106-111)
+    // ==========================================
+    /// Install/register a new app.
+    /// Args: rdi=app_type(u64), rsi=name_ptr, rdx=name_len, r10=entry_ptr, r8=entry_len
+    /// Returns: app_id on success.
+    AppInstall = 106,
+    /// Launch an installed app.
+    /// Args: rdi=app_id
+    /// Returns: instance_id on success.
+    AppLaunch = 107,
+    /// Terminate a running app instance.
+    /// Args: rdi=instance_id
+    /// Returns: 0 on success.
+    AppTerminate = 108,
+    /// Get app info (serialized descriptor).
+    /// Args: rdi=app_id, rsi=buf_ptr, rdx=buf_len
+    /// Returns: bytes_written on success.
+    AppGetInfo = 109,
+    /// List installed app IDs.
+    /// Args: rdi=buf_ptr (u64 array), rsi=buf_capacity
+    /// Returns: number of app IDs written.
+    AppList = 110,
+    /// Uninstall/remove an app.
+    /// Args: rdi=app_id
+    /// Returns: 0 on success.
+    AppUninstall = 111,
 }
 
 impl TryFrom<u64> for SyscallNumber {
@@ -175,6 +203,12 @@ impl TryFrom<u64> for SyscallNumber {
             41 => Ok(SyscallNumber::GpuSubmit),
             42 => Ok(SyscallNumber::GpuPresent),
             100 => Ok(SyscallNumber::DebugPrint),
+            106 => Ok(SyscallNumber::AppInstall),
+            107 => Ok(SyscallNumber::AppLaunch),
+            108 => Ok(SyscallNumber::AppTerminate),
+            109 => Ok(SyscallNumber::AppGetInfo),
+            110 => Ok(SyscallNumber::AppList),
+            111 => Ok(SyscallNumber::AppUninstall),
             _ => Err(()),
         }
     }

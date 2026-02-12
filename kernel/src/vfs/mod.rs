@@ -8,6 +8,7 @@
 #![allow(dead_code)]
 
 pub mod fd;
+pub mod sandbox;
 
 use alloc::string::String;
 use alloc::vec::Vec;

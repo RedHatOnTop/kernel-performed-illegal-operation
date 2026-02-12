@@ -76,6 +76,14 @@ pub enum SyscallNumber {
     TabGetMemory = 103,
     WasmCacheGet = 104,
     WasmCachePut = 105,
+    
+    // App Management (106-111)
+    AppInstall = 106,
+    AppLaunch = 107,
+    AppTerminate = 108,
+    AppGetInfo = 109,
+    AppList = 110,
+    AppUninstall = 111,
 }
 
 /// System call error codes.
