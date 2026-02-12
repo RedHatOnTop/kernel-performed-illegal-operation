@@ -24,12 +24,20 @@ pub struct StartMenuItem {
 }
 
 /// Application types
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum AppType {
     Browser,
     Terminal,
     Files,
     Settings,
+    /// Installed WebApp — launched by kernel app_id
+    WebApp {
+        app_id: u64,
+        name: String,
+        start_url: String,
+        scope: String,
+        theme_color: Option<u32>,
+    },
 }
 
 /// Taskbar state
@@ -250,7 +258,7 @@ impl Taskbar {
             if y >= item_start {
                 let idx = ((y - item_start) / item_h as i32) as usize;
                 if idx < self.start_menu_items.len() {
-                    let app_type = self.start_menu_items[idx].app_type;
+                    let app_type = self.start_menu_items[idx].app_type.clone();
                     self.start_menu_open = false;
                     return Some(app_type);
                 }

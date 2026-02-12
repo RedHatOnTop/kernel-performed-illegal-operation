@@ -21,6 +21,7 @@ pub mod html_render;
 pub mod input;
 pub mod mouse;
 pub mod render;
+pub mod splash;
 pub mod taskbar;
 pub mod theme;
 pub mod window;
@@ -288,12 +289,33 @@ impl GuiSystem {
                         .rev()
                         .any(|w| w.is_visible() && w.contains(x, y));
                     if !any_window {
-                        let app_type = match self.desktop.icons[icon_idx].icon_type {
+                        let app_type = match &self.desktop.icons[icon_idx].icon_type {
                             desktop::IconType::Files => taskbar::AppType::Files,
                             desktop::IconType::Browser => taskbar::AppType::Browser,
                             desktop::IconType::Terminal => taskbar::AppType::Terminal,
                             desktop::IconType::Settings => taskbar::AppType::Settings,
                             desktop::IconType::Trash => return, // Trash does nothing
+                            desktop::IconType::InstalledApp { app_id, .. } => {
+                                // Look up the app descriptor to get launch info
+                                let reg = crate::app::registry::APP_REGISTRY.lock();
+                                if let Some(desc) = reg.get(crate::app::registry::KernelAppId(*app_id)) {
+                                    let (scope, _) = match &desc.app_type {
+                                        crate::app::registry::KernelAppType::WebApp { scope, offline_capable } => {
+                                            (scope.clone(), *offline_capable)
+                                        }
+                                        _ => (alloc::string::String::new(), false),
+                                    };
+                                    taskbar::AppType::WebApp {
+                                        app_id: *app_id,
+                                        name: desc.name.clone(),
+                                        start_url: desc.entry_point.clone(),
+                                        scope,
+                                        theme_color: None,
+                                    }
+                                } else {
+                                    return;
+                                }
+                            }
                         };
                         self.launch_app(app_type);
                         self.dirty = true;
@@ -408,6 +430,23 @@ impl GuiSystem {
             AppType::Terminal => Window::new_terminal(id, 150 + offset, 100 + offset),
             AppType::Files => Window::new_files(id, 200 + offset, 80 + offset),
             AppType::Settings => Window::new_settings(id, 180 + offset, 120 + offset),
+            AppType::WebApp {
+                app_id,
+                name,
+                start_url,
+                scope,
+                theme_color,
+            } => Window::new_webapp(
+                id,
+                app_id,
+                &name,
+                &start_url,
+                &scope,
+                theme_color,
+                window::PwaDisplayMode::Standalone,
+                120 + offset,
+                60 + offset,
+            ),
         };
 
         let title = window.title.clone();

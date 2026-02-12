@@ -3,7 +3,7 @@
 //! Flat desktop shell with subtle wallpaper and modern geometric icons.
 
 use super::render::{Color, Renderer};
-use super::theme::{IconColor, Radius, Size, Spacing, Surface, Text};
+use super::theme::{Accent, IconColor, Radius, Size, Spacing, Surface, Text};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -18,13 +18,18 @@ pub struct DesktopIcon {
 }
 
 /// Icon types
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum IconType {
     Files,
     Browser,
     Terminal,
     Settings,
     Trash,
+    /// Dynamically installed app (PWA / WebApp)
+    InstalledApp {
+        app_id: u64,
+        icon_data: Option<Vec<u8>>,
+    },
 }
 
 impl IconType {
@@ -71,6 +76,14 @@ impl IconType {
                 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
                 0x00000000, 0x00000000, 0x00000000, 0x00000000,
             ],
+            IconType::InstalledApp { .. } => [
+                // Generic app icon — rounded square with "A" letter shape
+                0x00000000, 0x0FFF0000, 0x1FFF8000, 0x18018000, 0x18018000, 0x18018000, 0x18018000,
+                0x18418000, 0x18E18000, 0x19B18000, 0x1B198000, 0x1E0F8000, 0x1FFF8000, 0x18018000,
+                0x18018000, 0x18018000, 0x18018000, 0x0FFF0000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            ],
         }
     }
 
@@ -82,6 +95,7 @@ impl IconType {
             IconType::Terminal => IconColor::TERMINAL,
             IconType::Settings => IconColor::SETTINGS,
             IconType::Trash => IconColor::TRASH,
+            IconType::InstalledApp { .. } => Accent::PRIMARY,
         }
     }
 }
@@ -232,5 +246,42 @@ impl Desktop {
             Color::rgba(0, 0, 0, 100),
         );
         renderer.draw_text(name_x, name_y, &icon.name, Text::ON_DARK);
+    }
+
+    /// Refresh installed-app icons from the kernel app registry.
+    ///
+    /// Keeps the five system icons, then appends one icon per registered
+    /// `WebApp` type application.  Icons are arranged in a single column
+    /// beneath the system icons.
+    pub fn refresh_app_icons(&mut self) {
+        use crate::app::registry::{self, APP_REGISTRY};
+
+        // Remove existing InstalledApp icons
+        self.icons.retain(|icon| !matches!(icon.icon_type, IconType::InstalledApp { .. }));
+
+        let gap = Size::DESKTOP_ICON_GAP as i32;
+        let system_count = self.icons.len() as i32; // normally 5
+
+        // Query the registry for all WebApp-type apps
+        let reg = APP_REGISTRY.lock();
+        let apps = reg.list();
+        let mut app_idx: i32 = 0;
+        for desc in apps {
+            // Only add WebApp-type apps to the desktop
+            if matches!(desc.app_type, registry::KernelAppType::WebApp { .. }) {
+                let icon = DesktopIcon {
+                    name: desc.name.clone(),
+                    x: 24,
+                    y: 24 + gap * (system_count + app_idx),
+                    icon_type: IconType::InstalledApp {
+                        app_id: desc.id.0,
+                        icon_data: desc.icon_data.clone(),
+                    },
+                    hovered: false,
+                };
+                self.icons.push(icon);
+                app_idx += 1;
+            }
+        }
     }
 }

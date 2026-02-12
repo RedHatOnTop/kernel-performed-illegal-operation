@@ -90,6 +90,17 @@ pub struct Window {
     pub scroll_y: i32,
 }
 
+/// PWA display mode (determines window chrome)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PwaDisplayMode {
+    /// Title bar only — no address bar
+    Standalone,
+    /// Title bar + minimal nav buttons (back/forward/reload)
+    MinimalUi,
+    /// No chrome at all — full-screen content
+    Fullscreen,
+}
+
 /// Window content types
 pub enum WindowContent {
     /// Simple text content
@@ -109,6 +120,16 @@ pub enum WindowContent {
     FileManager { path: String, items: Vec<String> },
     /// Settings
     Settings,
+    /// Installed PWA / Web App window
+    WebApp {
+        app_id: u64,
+        url: String,
+        content: String,
+        rendered: Option<RenderedPage>,
+        display_mode: PwaDisplayMode,
+        theme_color: Option<u32>,
+        scope: String,
+    },
 }
 
 impl Window {
@@ -252,6 +273,56 @@ impl Window {
             saved_y: y,
             saved_width: 600,
             saved_height: 450,
+            hovered_button: -1,
+            scroll_y: 0,
+        }
+    }
+
+    /// Create a PWA / Web App window
+    ///
+    /// `app_id` — kernel-level app id (u64)
+    /// `name` — display name from manifest (short_name or name)
+    /// `start_url` — initial URL to load
+    /// `scope` — navigation scope (URLs outside this open in a normal browser)
+    /// `theme_color` — optional ARGB title-bar colour from manifest
+    /// `display_mode` — Standalone / MinimalUi / Fullscreen
+    pub fn new_webapp(
+        id: WindowId,
+        app_id: u64,
+        name: &str,
+        start_url: &str,
+        scope: &str,
+        theme_color: Option<u32>,
+        display_mode: PwaDisplayMode,
+        x: i32,
+        y: i32,
+    ) -> Self {
+        Self {
+            id,
+            title: String::from(name),
+            x,
+            y,
+            width: 800,
+            height: 600,
+            state: WindowState::Normal,
+            content: WindowContent::WebApp {
+                app_id,
+                url: String::from(start_url),
+                content: String::new(),
+                rendered: Some(navigate_to_url(start_url)),
+                display_mode,
+                theme_color,
+                scope: String::from(scope),
+            },
+            input_buffer: String::new(),
+            cursor_pos: 0,
+            terminal_history: Vec::new(),
+            history_idx: 0,
+            history_saved_input: String::new(),
+            saved_x: x,
+            saved_y: y,
+            saved_width: 800,
+            saved_height: 600,
             hovered_button: -1,
             scroll_y: 0,
         }
@@ -405,6 +476,13 @@ impl Window {
                 if content_y >= 5 && content_y < 29 {
                     // Focus address bar
                 }
+            }
+            WindowContent::WebApp { display_mode, .. } => {
+                // MinimalUi mode has a small toolbar area
+                if *display_mode == PwaDisplayMode::MinimalUi && content_y < 29 {
+                    // Click on mini nav buttons (handled later)
+                }
+                // Otherwise clicks go to rendered content
             }
             _ => {}
         }
@@ -654,6 +732,39 @@ impl Window {
                     self.cursor_pos += 1;
                 }
             }
+            WindowContent::WebApp {
+                url,
+                content,
+                rendered,
+                display_mode,
+                scope,
+                ..
+            } => {
+                // MinimalUi allows address-bar-like input for within-scope navigation
+                if *display_mode == PwaDisplayMode::MinimalUi {
+                    if key == '\n' && !self.input_buffer.is_empty() {
+                        let target = self.input_buffer.clone();
+                        // Enforce scope: only navigate if within scope
+                        if target.starts_with(scope.as_str()) {
+                            *url = target;
+                            *rendered = Some(navigate_to_url(url));
+                            *content = String::new();
+                            self.scroll_y = 0;
+                        }
+                        self.input_buffer.clear();
+                        self.cursor_pos = 0;
+                    } else if key == '\x08' {
+                        if self.cursor_pos > 0 {
+                            self.input_buffer.remove(self.cursor_pos - 1);
+                            self.cursor_pos -= 1;
+                        }
+                    } else if key >= ' ' && !key.is_control() && (key as u32) < 0xF000 {
+                        self.input_buffer.insert(self.cursor_pos, key);
+                        self.cursor_pos += 1;
+                    }
+                }
+                // Standalone / Fullscreen: no user URL input
+            }
             _ => {}
         }
     }
@@ -687,7 +798,15 @@ impl Window {
         );
 
         // ── Title bar (flat solid) ──
-        let title_color = if is_active {
+        // WebApp windows can override the title bar color with theme_color
+        let title_color = if let WindowContent::WebApp { theme_color: Some(tc), .. } = &self.content {
+            Color::rgba(
+                (*tc >> 16) as u8,
+                (*tc >> 8) as u8,
+                *tc as u8,
+                255,
+            )
+        } else if is_active {
             Surface::WINDOW_TITLE_ACTIVE
         } else {
             Surface::WINDOW_TITLE_INACTIVE
@@ -1141,6 +1260,124 @@ impl Window {
                     renderer.draw_text(x + Spacing::XL as i32, cy + 8, name, Text::PRIMARY);
                     renderer.draw_text(x + Spacing::XL as i32, cy + 24, desc, Text::MUTED);
                     cy += card_h as i32 + Spacing::SM as i32;
+                }
+            }
+            WindowContent::WebApp {
+                url,
+                rendered,
+                display_mode,
+                theme_color,
+                ..
+            } => {
+                // MinimalUi: small nav bar at top
+                let content_top = if *display_mode == PwaDisplayMode::MinimalUi {
+                    let bar_h = 24u32;
+                    let bar_x = x + Spacing::SM as i32;
+                    let bar_y = y + 2;
+                    let bar_w = w - Spacing::LG;
+
+                    // Mini toolbar background
+                    renderer.fill_rounded_rect_aa(
+                        bar_x,
+                        bar_y,
+                        bar_w,
+                        bar_h,
+                        Radius::SM,
+                        Surface::INPUT_BG,
+                    );
+
+                    // Back / Forward / Reload buttons
+                    let btn_w = 22u32;
+                    renderer.draw_text(bar_x + 4, bar_y + 4, "<", Text::SECONDARY);
+                    renderer.draw_text(bar_x + 4 + btn_w as i32, bar_y + 4, ">", Text::SECONDARY);
+                    renderer.draw_text(
+                        bar_x + 4 + btn_w as i32 * 2,
+                        bar_y + 4,
+                        "\u{21BB}",
+                        Text::SECONDARY,
+                    );
+
+                    // URL display (truncated)
+                    let url_x = bar_x + 4 + btn_w as i32 * 3 + 6;
+                    renderer.draw_text(url_x, bar_y + 4, url, Text::MUTED);
+
+                    y + bar_h as i32 + 4
+                } else {
+                    // Standalone / Fullscreen: no nav bar
+                    y
+                };
+
+                // Render HTML content (identical to Browser minus address bar)
+                let scroll = self.scroll_y;
+                if let Some(page) = rendered {
+                    for cmd in &page.commands {
+                        match cmd {
+                            RenderCmd::FillRect {
+                                x: rx,
+                                y: ry,
+                                w: rw,
+                                h: rh,
+                                color,
+                            } => {
+                                let cy = content_top + ry - scroll;
+                                renderer.fill_rect(
+                                    x + rx,
+                                    cy,
+                                    *rw,
+                                    *rh,
+                                    Color::rgba(
+                                        (*color >> 16) as u8,
+                                        (*color >> 8) as u8,
+                                        *color as u8,
+                                        (*color >> 24) as u8,
+                                    ),
+                                );
+                            }
+                            RenderCmd::Text {
+                                x: tx,
+                                y: ty,
+                                text,
+                                color,
+                                ..
+                            } => {
+                                let cy = content_top + ty - scroll;
+                                if cy >= content_top - 16 && cy < y + h as i32 {
+                                    renderer.draw_text(
+                                        x + tx,
+                                        cy,
+                                        text,
+                                        Color::rgba(
+                                            (*color >> 16) as u8,
+                                            (*color >> 8) as u8,
+                                            *color as u8,
+                                            255,
+                                        ),
+                                    );
+                                }
+                            }
+                            RenderCmd::HRule {
+                                x: hx,
+                                y: hy,
+                                w: hw,
+                                color,
+                            } => {
+                                let cy = content_top + hy - scroll;
+                                if cy >= content_top && cy < y + h as i32 {
+                                    renderer.draw_hline(
+                                        x + hx,
+                                        cy,
+                                        *hw,
+                                        Color::rgba(
+                                            (*color >> 16) as u8,
+                                            (*color >> 8) as u8,
+                                            *color as u8,
+                                            255,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

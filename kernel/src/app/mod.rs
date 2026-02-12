@@ -25,6 +25,7 @@ pub mod error;
 pub mod lifecycle;
 pub mod permissions;
 pub mod registry;
+pub mod window_state;
 
 // Re-export the most commonly used types.
 pub use error::AppError;
