@@ -30,6 +30,7 @@
 extern crate alloc;
 
 mod allocator;
+mod app;
 mod driver;
 mod drivers;
 mod gdt;

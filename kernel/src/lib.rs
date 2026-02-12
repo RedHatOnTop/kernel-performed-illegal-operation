@@ -19,6 +19,7 @@
 extern crate alloc;
 
 pub mod allocator;
+pub mod app;
 pub mod browser;
 pub mod driver;
 pub mod drivers;
