@@ -8,6 +8,9 @@ pub mod window;
 pub mod push;
 pub mod install;
 pub mod kernel_bridge;
+pub mod sw_bridge;
+pub mod cache_storage;
+pub mod fetch_interceptor;
 
 pub use manifest::*;
 pub use window::*;
