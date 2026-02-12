@@ -178,6 +178,7 @@ impl InstallManager {
             icons,
             installed_at: 0, // Would get current time
             last_launched: None,
+            kernel_app_id: None,
         };
 
         // Remove pending prompt

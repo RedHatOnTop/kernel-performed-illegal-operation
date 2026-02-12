@@ -44,6 +44,7 @@ pub mod coordinator;
 pub mod memory;
 pub mod origin;
 pub mod integration;
+pub mod pwa_bridge;
 
 pub use protocol::{BrowserMessage, BrowserRequest, BrowserResponse};
 pub use coordinator::{BrowserCoordinator, TabId, TabInfo, TabState};

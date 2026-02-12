@@ -7,11 +7,13 @@ pub mod manifest;
 pub mod window;
 pub mod push;
 pub mod install;
+pub mod kernel_bridge;
 
 pub use manifest::*;
 pub use window::*;
 pub use push::*;
 pub use install::*;
+pub use kernel_bridge::KernelAppId;
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
@@ -79,6 +81,8 @@ pub struct InstalledApp {
     pub installed_at: u64,
     /// Last launched timestamp
     pub last_launched: Option<u64>,
+    /// Kernel-assigned app ID (if registered with kernel app manager)
+    pub kernel_app_id: Option<kernel_bridge::KernelAppId>,
 }
 
 /// App icon
@@ -186,9 +190,24 @@ impl PwaManager {
     }
 
     /// Install an app
-    pub fn install(&mut self, app: InstalledApp) -> Result<(), PwaError> {
+    pub fn install(&mut self, mut app: InstalledApp) -> Result<(), PwaError> {
         if self.installed_apps.contains_key(&app.id) {
             return Err(PwaError::AlreadyInstalled);
+        }
+
+        // If kernel bridge is connected and app doesn't have a kernel ID yet,
+        // register with kernel via the bridge
+        if app.kernel_app_id.is_none() && kernel_bridge::is_connected() {
+            // Build a minimal manifest to pass through the bridge
+            let mut manifest = WebAppManifest::new();
+            manifest.name = Some(app.name.clone());
+            manifest.start_url = app.start_url.clone();
+            manifest.scope = Some(app.scope.clone());
+            manifest.display = app.display;
+
+            if let Ok(kid) = kernel_bridge::pwa_install_to_kernel(&manifest) {
+                app.kernel_app_id = Some(kid);
+            }
         }
 
         self.installed_apps.insert(app.id.clone(), app);
@@ -197,7 +216,11 @@ impl PwaManager {
 
     /// Uninstall an app
     pub fn uninstall(&mut self, id: &str) -> Result<(), PwaError> {
-        if self.installed_apps.remove(id).is_some() {
+        if let Some(app) = self.installed_apps.remove(id) {
+            // If the app was registered with the kernel, unregister it
+            if let Some(kid) = app.kernel_app_id {
+                let _ = kernel_bridge::pwa_uninstall_from_kernel(kid);
+            }
             Ok(())
         } else {
             Err(PwaError::InvalidManifest("App not found".into()))
