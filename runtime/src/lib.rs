@@ -32,6 +32,8 @@ pub mod jit;
 pub mod service_worker;
 pub mod parser;
 pub mod opcodes;
+pub mod interpreter;
+pub mod executor;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -109,8 +111,8 @@ pub fn execute(
     args: &[u8],
 ) -> Result<Vec<u8>, RuntimeError> {
     let module = module::Module::from_bytes(wasm_bytes)?;
-    let instance = instance::Instance::new(&module)?;
-    instance.call(entry_point, args)
+    let mut inst = instance::Instance::new(&module)?;
+    inst.call(entry_point, args)
 }
 
 /// Load and validate a WASM module without executing.
