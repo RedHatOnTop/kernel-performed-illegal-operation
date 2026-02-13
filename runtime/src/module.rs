@@ -1,100 +1,161 @@
 //! WASM module loading and validation.
 //!
 //! This module handles parsing and validation of WASM binaries.
+//! All WASM sections are parsed into structured data that can be
+//! consumed by the interpreter engine and JIT compiler.
 
 use alloc::string::String;
-use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::opcodes::Instruction;
+use crate::parser::{ModuleValidator, ParseError, WasmParser};
 use crate::RuntimeError;
 
-/// A compiled WASM module.
-#[derive(Clone)]
+/// A parsed WASM module containing all sections.
+#[derive(Debug, Clone)]
 pub struct Module {
-    /// Module name (if provided).
-    name: Option<String>,
-    
-    /// Compiled code.
-    code: Vec<u8>,
-    
-    /// Exported functions.
-    exports: Vec<Export>,
-    
-    /// Imported functions.
-    imports: Vec<Import>,
-    
-    /// Memory requirements.
-    memory: Option<MemoryType>,
+    /// Type section: function signatures.
+    pub types: Vec<FunctionType>,
+    /// Import section: external imports.
+    pub imports: Vec<Import>,
+    /// Function section: type index per function body.
+    pub functions: Vec<u32>,
+    /// Table section: table definitions.
+    pub tables: Vec<TableType>,
+    /// Memory section: memory definitions.
+    pub memories: Vec<MemoryType>,
+    /// Global section: global variable definitions.
+    pub globals: Vec<Global>,
+    /// Export section: exported items.
+    pub exports: Vec<Export>,
+    /// Start section: optional start function index.
+    pub start: Option<u32>,
+    /// Element section: table initialization segments.
+    pub elements: Vec<Element>,
+    /// Code section: function bodies.
+    pub code: Vec<FunctionBody>,
+    /// Data section: memory initialization segments.
+    pub data: Vec<DataSegment>,
+    /// Module name (from custom "name" section).
+    pub name: Option<String>,
+    /// Data count section (for validation).
+    pub data_count: Option<u32>,
 }
 
 impl Module {
     /// Create a module from WASM bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RuntimeError> {
-        Self::validate(bytes)?;
-        
-        // Parse the WASM binary
-        let module = Self::parse(bytes)?;
-        
+        let module = WasmParser::parse(bytes).map_err(|e| {
+            RuntimeError::InvalidBinary(alloc::format!("{}", e))
+        })?;
+
+        // Validate the parsed module
+        module.validate_structure()?;
+
         Ok(module)
     }
-    
+
     /// Validate WASM bytes without creating a module.
     pub fn validate(bytes: &[u8]) -> Result<(), RuntimeError> {
-        // Check WASM magic number
+        // Check minimum size
         if bytes.len() < 8 {
             return Err(RuntimeError::InvalidBinary("Binary too small".into()));
         }
-        
+
+        // Check magic number
         if &bytes[0..4] != b"\0asm" {
             return Err(RuntimeError::InvalidBinary("Invalid magic number".into()));
         }
-        
-        // Check version (should be 1)
+
+        // Check version
         let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
         if version != 1 {
             return Err(RuntimeError::InvalidBinary(
-                alloc::format!("Unsupported WASM version: {}", version)
+                alloc::format!("Unsupported WASM version: {}", version),
             ));
         }
-        
+
+        // Full parse + validate
+        let module = WasmParser::parse(bytes).map_err(|e| {
+            RuntimeError::InvalidBinary(alloc::format!("{}", e))
+        })?;
+        module.validate_structure()?;
+
         Ok(())
     }
-    
-    /// Parse a WASM binary.
-    fn parse(bytes: &[u8]) -> Result<Self, RuntimeError> {
-        // Simplified parsing - real implementation would use wasmparser
-        Ok(Module {
-            name: None,
-            code: bytes.to_vec(),
-            exports: Vec::new(),
-            imports: Vec::new(),
-            memory: None,
+
+    /// Validate structural correctness of the parsed module.
+    pub fn validate_structure(&self) -> Result<(), RuntimeError> {
+        ModuleValidator::validate(self).map_err(|e| {
+            RuntimeError::InvalidBinary(alloc::format!("Validation: {}", e))
         })
     }
-    
+
     /// Get the module name.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
-    
+
     /// Get exported functions.
     pub fn exports(&self) -> &[Export] {
         &self.exports
     }
-    
+
     /// Get imported functions.
     pub fn imports(&self) -> &[Import] {
         &self.imports
     }
-    
-    /// Get memory requirements.
+
+    /// Get the primary memory definition (if any).
     pub fn memory(&self) -> Option<&MemoryType> {
-        self.memory.as_ref()
+        // Check imports first for an imported memory
+        for import in &self.imports {
+            if let ImportKind::Memory(ref mem) = import.kind {
+                return Some(mem);
+            }
+        }
+        self.memories.first()
     }
-    
-    /// Get the compiled code.
-    pub fn code(&self) -> &[u8] {
-        &self.code
+
+    /// Find an export by name.
+    pub fn find_export(&self, name: &str) -> Option<&Export> {
+        self.exports.iter().find(|e| e.name == name)
+    }
+
+    /// Get the function type for a function index (including imports).
+    pub fn function_type(&self, func_idx: u32) -> Option<&FunctionType> {
+        let import_func_count = self.import_function_count();
+        if (func_idx as usize) < import_func_count {
+            // It's an imported function
+            let mut idx = 0;
+            for import in &self.imports {
+                if let ImportKind::Function(type_idx) = import.kind {
+                    if idx == func_idx as usize {
+                        return self.types.get(type_idx as usize);
+                    }
+                    idx += 1;
+                }
+            }
+            None
+        } else {
+            // It's a local function
+            let local_idx = func_idx as usize - import_func_count;
+            let type_idx = self.functions.get(local_idx)?;
+            self.types.get(*type_idx as usize)
+        }
+    }
+
+    /// Count the number of imported functions.
+    pub fn import_function_count(&self) -> usize {
+        self.imports
+            .iter()
+            .filter(|i| matches!(i.kind, ImportKind::Function(_)))
+            .count()
+    }
+
+    /// Count total functions (imports + local).
+    pub fn total_function_count(&self) -> usize {
+        self.import_function_count() + self.functions.len()
     }
 }
 
@@ -136,8 +197,8 @@ pub struct Import {
 /// Import kinds.
 #[derive(Debug, Clone)]
 pub enum ImportKind {
-    /// Imported function.
-    Function(FunctionType),
+    /// Imported function (type index).
+    Function(u32),
     /// Imported table.
     Table(TableType),
     /// Imported memory.
@@ -147,7 +208,7 @@ pub enum ImportKind {
 }
 
 /// Function type (signature).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionType {
     /// Parameter types.
     pub params: Vec<ValueType>,
@@ -189,6 +250,15 @@ pub struct MemoryType {
     pub shared: bool,
 }
 
+/// Global variable definition (type + init expression).
+#[derive(Debug, Clone)]
+pub struct Global {
+    /// Global type.
+    pub global_type: GlobalType,
+    /// Initialization expression.
+    pub init_expr: Vec<Instruction>,
+}
+
 /// Global type.
 #[derive(Debug, Clone)]
 pub struct GlobalType {
@@ -196,4 +266,60 @@ pub struct GlobalType {
     pub value_type: ValueType,
     /// Is mutable.
     pub mutable: bool,
+}
+
+/// Element segment for table initialization.
+#[derive(Debug, Clone)]
+pub struct Element {
+    /// Table index (0 for MVP).
+    pub table_idx: u32,
+    /// Offset expression (empty if passive).
+    pub offset_expr: Vec<Instruction>,
+    /// Function indices.
+    pub func_indices: Vec<u32>,
+    /// Whether this is a passive segment.
+    pub passive: bool,
+}
+
+/// Function body (locals + instructions).
+#[derive(Debug, Clone)]
+pub struct FunctionBody {
+    /// Local variable declarations: (count, type).
+    pub locals: Vec<(u32, ValueType)>,
+    /// Decoded instructions.
+    pub instructions: Vec<Instruction>,
+    /// Raw byte representation (for JIT).
+    pub raw_bytes: Vec<u8>,
+}
+
+impl FunctionBody {
+    /// Get the total number of local variables.
+    pub fn local_count(&self) -> u32 {
+        self.locals.iter().map(|(count, _)| count).sum()
+    }
+
+    /// Get the type of a local variable by index.
+    pub fn local_type(&self, idx: u32) -> Option<ValueType> {
+        let mut offset = 0u32;
+        for &(count, vtype) in &self.locals {
+            if idx < offset + count {
+                return Some(vtype);
+            }
+            offset += count;
+        }
+        None
+    }
+}
+
+/// Data segment for memory initialization.
+#[derive(Debug, Clone)]
+pub struct DataSegment {
+    /// Memory index (0 for MVP).
+    pub memory_idx: u32,
+    /// Offset expression (empty if passive).
+    pub offset_expr: Vec<Instruction>,
+    /// Segment data bytes.
+    pub data: Vec<u8>,
+    /// Whether this is a passive segment.
+    pub passive: bool,
 }

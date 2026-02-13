@@ -30,6 +30,8 @@ pub mod memory;
 pub mod sandbox;
 pub mod jit;
 pub mod service_worker;
+pub mod parser;
+pub mod opcodes;
 
 use alloc::string::String;
 use alloc::vec::Vec;
