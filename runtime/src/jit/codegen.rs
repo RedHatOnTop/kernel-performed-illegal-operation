@@ -312,6 +312,38 @@ impl CodeGenerator {
                 self.emit_bytes(&[0x0F, 0xAF, 0xC1]); // imul eax, ecx
                 self.emit_byte(0x50); // push rax
             }
+            IrOpcode::I32DivS => {
+                self.emit_byte(0x59); // pop rcx (divisor)
+                self.emit_byte(0x58); // pop rax (dividend)
+                // cdq: sign-extend eax into edx:eax
+                self.emit_byte(0x99);
+                // idiv ecx
+                self.emit_bytes(&[0xF7, 0xF9]);
+                self.emit_byte(0x50); // push rax (quotient)
+            }
+            IrOpcode::I32DivU => {
+                self.emit_byte(0x59); // pop rcx (divisor)
+                self.emit_byte(0x58); // pop rax (dividend)
+                // xor edx, edx
+                self.emit_bytes(&[0x31, 0xD2]);
+                // div ecx
+                self.emit_bytes(&[0xF7, 0xF1]);
+                self.emit_byte(0x50); // push rax
+            }
+            IrOpcode::I32RemS => {
+                self.emit_byte(0x59); // pop rcx
+                self.emit_byte(0x58); // pop rax
+                self.emit_byte(0x99); // cdq
+                self.emit_bytes(&[0xF7, 0xF9]); // idiv ecx
+                self.emit_byte(0x52); // push rdx (remainder)
+            }
+            IrOpcode::I32RemU => {
+                self.emit_byte(0x59); // pop rcx
+                self.emit_byte(0x58); // pop rax
+                self.emit_bytes(&[0x31, 0xD2]); // xor edx, edx
+                self.emit_bytes(&[0xF7, 0xF1]); // div ecx
+                self.emit_byte(0x52); // push rdx (remainder)
+            }
             IrOpcode::I32And => {
                 self.emit_byte(0x58); // pop rax
                 self.emit_byte(0x59); // pop rcx
@@ -466,6 +498,43 @@ impl CodeGenerator {
             IrOpcode::Drop => {
                 // pop and discard
                 self.emit_bytes(&[0x48, 0x83, 0xC4, 0x08]); // add rsp, 8
+            }
+            IrOpcode::Select => {
+                // pop condition, val2, val1; push val1 if cond!=0 else val2
+                self.emit_byte(0x58); // pop rax (condition)
+                self.emit_byte(0x5A); // pop rdx (val2 / false)
+                self.emit_byte(0x59); // pop rcx (val1 / true)
+                self.emit_bytes(&[0x85, 0xC0]); // test eax, eax
+                // cmovz rcx, rdx  (if zero, pick val2)
+                self.emit_bytes(&[0x48, 0x0F, 0x44, 0xCA]); // cmovz rcx, rdx
+                self.emit_byte(0x51); // push rcx
+            }
+            IrOpcode::Block(_) => {
+                // Create label for block end
+                let label = self.labels.len();
+                self.labels.push(None);
+            }
+            IrOpcode::Loop(_) => {
+                // Record loop start position
+                let label = self.labels.len();
+                self.labels.push(Some(self.code.len()));
+            }
+            IrOpcode::If(_) => {
+                // Conditional branch
+                self.emit_byte(0x58); // pop rax
+                self.emit_bytes(&[0x85, 0xC0]); // test eax, eax
+                // jz rel32 (placeholder)
+                self.emit_bytes(&[0x0F, 0x84]);
+                let label = self.labels.len();
+                self.labels.push(None);
+                let patch_offset = self.code.len();
+                self.emit_i32(0); // placeholder
+                self.pending_labels.push((patch_offset, label, 0));
+            }
+            IrOpcode::Br(_depth) => {
+                // jmp rel32 (placeholder)
+                self.emit_byte(0xE9);
+                self.emit_i32(0); // placeholder
             }
             IrOpcode::Call(func_idx) => {
                 // Emit call placeholder - will be relocated

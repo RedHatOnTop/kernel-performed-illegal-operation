@@ -5,6 +5,7 @@
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 /// IR Opcode for the JIT compiler.
@@ -840,5 +841,567 @@ impl<'a> ByteReader<'a> {
         }
         
         Ok(result)
+    }
+}
+
+// ─── IR Interpreter ────────────────────────────────────────────────
+
+/// An interpreter that executes `IrFunction` instructions directly.
+///
+/// This is used to verify that WASM→IR translation preserves semantics,
+/// by comparing IR interpreter results against the WASM interpreter.
+pub struct IrInterpreter {
+    /// Value stack.
+    stack: Vec<i64>,
+    /// Local variables (all stored as i64).
+    locals: Vec<i64>,
+    /// Block stack for control flow: (kind, start_pc, stack_depth).
+    block_stack: Vec<IrBlock>,
+    /// Optional linear memory for Load/Store.
+    memory: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct IrBlock {
+    kind: BlockKind,
+    block_id: BlockId,
+    start_pc: usize,
+    stack_depth: usize,
+}
+
+/// Result of IR execution.
+#[derive(Debug, Clone, PartialEq)]
+pub enum IrExecResult {
+    /// Execution completed with return values.
+    Ok(Vec<i64>),
+    /// Execution trapped.
+    Trap(IrTrap),
+}
+
+/// IR execution trap.
+#[derive(Debug, Clone, PartialEq)]
+pub enum IrTrap {
+    DivisionByZero,
+    Unreachable,
+    StackOverflow,
+    StackUnderflow,
+    InvalidLocal(u32),
+    InvalidBranch,
+    IntegerOverflow,
+    MemoryBoundsViolation,
+}
+
+impl IrInterpreter {
+    pub fn new() -> Self {
+        Self {
+            stack: Vec::new(),
+            locals: Vec::new(),
+            block_stack: Vec::new(),
+            memory: Vec::new(),
+        }
+    }
+
+    /// Create an interpreter with linear memory for Load/Store testing.
+    pub fn with_memory(memory_size: usize) -> Self {
+        Self {
+            stack: Vec::new(),
+            locals: Vec::new(),
+            block_stack: Vec::new(),
+            memory: vec![0u8; memory_size],
+        }
+    }
+
+    /// Execute an IR function with the given arguments (as i64).
+    pub fn execute(&mut self, func: &IrFunction, args: &[i64]) -> IrExecResult {
+        self.stack.clear();
+        self.block_stack.clear();
+
+        // Initialize locals: params from args + declared locals as 0
+        let total_locals = func.params.len() + func.locals.len();
+        self.locals = vec![0i64; total_locals];
+        for (i, &arg) in args.iter().enumerate() {
+            if i < self.locals.len() {
+                self.locals[i] = arg;
+            }
+        }
+
+        let mut pc = 0usize;
+        let body_len = func.body.len();
+
+        while pc < body_len {
+            let inst = &func.body[pc];
+            pc += 1;
+
+            match inst.opcode {
+                // ── Constants ──
+                IrOpcode::Const32(v) => self.stack.push(v as i64),
+                IrOpcode::Const64(v) => self.stack.push(v),
+                IrOpcode::ConstF32(bits) => self.stack.push(bits as i64),
+                IrOpcode::ConstF64(bits) => self.stack.push(bits as i64),
+
+                // ── Locals ──
+                IrOpcode::LocalGet(idx) => {
+                    let val = match self.locals.get(idx as usize) {
+                        Some(&v) => v,
+                        None => return IrExecResult::Trap(IrTrap::InvalidLocal(idx)),
+                    };
+                    self.stack.push(val);
+                }
+                IrOpcode::LocalSet(idx) => {
+                    let val = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if (idx as usize) >= self.locals.len() {
+                        return IrExecResult::Trap(IrTrap::InvalidLocal(idx));
+                    }
+                    self.locals[idx as usize] = val;
+                }
+                IrOpcode::LocalTee(idx) => {
+                    let val = match self.peek() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if (idx as usize) >= self.locals.len() {
+                        return IrExecResult::Trap(IrTrap::InvalidLocal(idx));
+                    }
+                    self.locals[idx as usize] = val;
+                }
+
+                // ── i32 Arithmetic ──
+                IrOpcode::I32Add => { self.binop_i32(|a, b| Ok(a.wrapping_add(b))); }
+                IrOpcode::I32Sub => { self.binop_i32(|a, b| Ok(a.wrapping_sub(b))); }
+                IrOpcode::I32Mul => { self.binop_i32(|a, b| Ok(a.wrapping_mul(b))); }
+                IrOpcode::I32DivS => {
+                    let (a, b) = match self.pop2_i32() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    if a == i32::MIN && b == -1 { return IrExecResult::Trap(IrTrap::IntegerOverflow); }
+                    self.stack.push(a.wrapping_div(b) as i64);
+                }
+                IrOpcode::I32DivU => {
+                    let (a, b) = match self.pop2_i32() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    self.stack.push(((a as u32) / (b as u32)) as i64);
+                }
+                IrOpcode::I32RemS => {
+                    let (a, b) = match self.pop2_i32() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    self.stack.push(a.wrapping_rem(b) as i64);
+                }
+                IrOpcode::I32RemU => {
+                    let (a, b) = match self.pop2_i32() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    self.stack.push(((a as u32) % (b as u32)) as i64);
+                }
+                IrOpcode::I32And => { self.binop_i32(|a, b| Ok(a & b)); }
+                IrOpcode::I32Or  => { self.binop_i32(|a, b| Ok(a | b)); }
+                IrOpcode::I32Xor => { self.binop_i32(|a, b| Ok(a ^ b)); }
+                IrOpcode::I32Shl => { self.binop_i32(|a, b| Ok(a.wrapping_shl(b as u32))); }
+                IrOpcode::I32ShrS => { self.binop_i32(|a, b| Ok(a.wrapping_shr(b as u32))); }
+                IrOpcode::I32ShrU => { self.binop_i32(|a, b| Ok(((a as u32).wrapping_shr(b as u32)) as i32)); }
+                IrOpcode::I32Rotl => { self.binop_i32(|a, b| Ok((a as u32).rotate_left(b as u32) as i32)); }
+                IrOpcode::I32Rotr => { self.binop_i32(|a, b| Ok((a as u32).rotate_right(b as u32) as i32)); }
+                IrOpcode::I32Clz => { self.unop_i32(|a| (a as u32).leading_zeros() as i32); }
+                IrOpcode::I32Ctz => { self.unop_i32(|a| (a as u32).trailing_zeros() as i32); }
+                IrOpcode::I32Popcnt => { self.unop_i32(|a| (a as u32).count_ones() as i32); }
+                IrOpcode::I32Eqz => { self.unop_i32(|a| if a == 0 { 1 } else { 0 }); }
+
+                // ── i32 Comparisons ──
+                IrOpcode::I32Eq  => { self.cmp_i32(|a, b| a == b); }
+                IrOpcode::I32Ne  => { self.cmp_i32(|a, b| a != b); }
+                IrOpcode::I32LtS => { self.cmp_i32(|a, b| a < b); }
+                IrOpcode::I32GtS => { self.cmp_i32(|a, b| a > b); }
+                IrOpcode::I32LeS => { self.cmp_i32(|a, b| a <= b); }
+                IrOpcode::I32GeS => { self.cmp_i32(|a, b| a >= b); }
+                IrOpcode::I32LtU => { self.cmp_i32(|a, b| (a as u32) < (b as u32)); }
+                IrOpcode::I32GtU => { self.cmp_i32(|a, b| (a as u32) > (b as u32)); }
+                IrOpcode::I32LeU => { self.cmp_i32(|a, b| (a as u32) <= (b as u32)); }
+                IrOpcode::I32GeU => { self.cmp_i32(|a, b| (a as u32) >= (b as u32)); }
+
+                // ── i64 Arithmetic ──
+                IrOpcode::I64Add => { self.binop_i64(|a, b| a.wrapping_add(b)); }
+                IrOpcode::I64Sub => { self.binop_i64(|a, b| a.wrapping_sub(b)); }
+                IrOpcode::I64Mul => { self.binop_i64(|a, b| a.wrapping_mul(b)); }
+                IrOpcode::I64DivS => {
+                    let (a, b) = match self.pop2() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    if a == i64::MIN && b == -1 { return IrExecResult::Trap(IrTrap::IntegerOverflow); }
+                    self.stack.push(a.wrapping_div(b));
+                }
+                IrOpcode::I64DivU => {
+                    let (a, b) = match self.pop2() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    self.stack.push(((a as u64) / (b as u64)) as i64);
+                }
+                IrOpcode::I64RemS => {
+                    let (a, b) = match self.pop2() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    self.stack.push(a.wrapping_rem(b));
+                }
+                IrOpcode::I64RemU => {
+                    let (a, b) = match self.pop2() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if b == 0 { return IrExecResult::Trap(IrTrap::DivisionByZero); }
+                    self.stack.push(((a as u64) % (b as u64)) as i64);
+                }
+                IrOpcode::I64And => { self.binop_i64(|a, b| a & b); }
+                IrOpcode::I64Or  => { self.binop_i64(|a, b| a | b); }
+                IrOpcode::I64Xor => { self.binop_i64(|a, b| a ^ b); }
+                IrOpcode::I64Shl => { self.binop_i64(|a, b| a.wrapping_shl(b as u32)); }
+                IrOpcode::I64ShrS => { self.binop_i64(|a, b| a.wrapping_shr(b as u32)); }
+                IrOpcode::I64ShrU => { self.binop_i64(|a, b| ((a as u64).wrapping_shr(b as u32)) as i64); }
+                IrOpcode::I64Rotl => { self.binop_i64(|a, b| (a as u64).rotate_left(b as u32) as i64); }
+                IrOpcode::I64Rotr => { self.binop_i64(|a, b| (a as u64).rotate_right(b as u32) as i64); }
+                IrOpcode::I64Clz => { self.unop_i64(|a| (a as u64).leading_zeros() as i64); }
+                IrOpcode::I64Ctz => { self.unop_i64(|a| (a as u64).trailing_zeros() as i64); }
+                IrOpcode::I64Popcnt => { self.unop_i64(|a| (a as u64).count_ones() as i64); }
+                IrOpcode::I64Eqz => { self.unop_i64(|a| if a == 0 { 1 } else { 0 }); }
+
+                // ── i64 Comparisons ──
+                IrOpcode::I64Eq  => { self.cmp_i64(|a, b| a == b); }
+                IrOpcode::I64Ne  => { self.cmp_i64(|a, b| a != b); }
+                IrOpcode::I64LtS => { self.cmp_i64(|a, b| a < b); }
+                IrOpcode::I64GtS => { self.cmp_i64(|a, b| a > b); }
+                IrOpcode::I64LeS => { self.cmp_i64(|a, b| a <= b); }
+                IrOpcode::I64GeS => { self.cmp_i64(|a, b| a >= b); }
+                IrOpcode::I64LtU => { self.cmp_i64(|a, b| (a as u64) < (b as u64)); }
+                IrOpcode::I64GtU => { self.cmp_i64(|a, b| (a as u64) > (b as u64)); }
+                IrOpcode::I64LeU => { self.cmp_i64(|a, b| (a as u64) <= (b as u64)); }
+                IrOpcode::I64GeU => { self.cmp_i64(|a, b| (a as u64) >= (b as u64)); }
+
+                // ── Conversions ──
+                IrOpcode::I32WrapI64 => { self.unop_i64(|a| (a as i32) as i64); }
+                IrOpcode::I64ExtendI32S => { self.unop_i64(|a| (a as i32) as i64); }
+                IrOpcode::I64ExtendI32U => { self.unop_i64(|a| (a as u32) as i64); }
+                IrOpcode::I32Extend8S => { self.unop_i32(|a| (a as i8) as i32); }
+                IrOpcode::I32Extend16S => { self.unop_i32(|a| (a as i16) as i32); }
+                IrOpcode::I64Extend8S => { self.unop_i64(|a| (a as i8) as i64); }
+                IrOpcode::I64Extend16S => { self.unop_i64(|a| (a as i16) as i64); }
+                IrOpcode::I64Extend32S => { self.unop_i64(|a| (a as i32) as i64); }
+
+                // ── Control Flow ──
+                IrOpcode::Block(block_id) => {
+                    self.block_stack.push(IrBlock {
+                        kind: BlockKind::Block,
+                        block_id,
+                        start_pc: pc,
+                        stack_depth: self.stack.len(),
+                    });
+                }
+                IrOpcode::Loop(block_id) => {
+                    self.block_stack.push(IrBlock {
+                        kind: BlockKind::Loop,
+                        block_id,
+                        start_pc: pc, // loop target = start
+                        stack_depth: self.stack.len(),
+                    });
+                }
+                IrOpcode::If(block_id) => {
+                    let cond = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    self.block_stack.push(IrBlock {
+                        kind: BlockKind::If,
+                        block_id,
+                        start_pc: pc,
+                        stack_depth: self.stack.len(),
+                    });
+                    if cond == 0 {
+                        // Skip to matching Else or End
+                        let mut depth = 1u32;
+                        while pc < body_len && depth > 0 {
+                            match func.body[pc].opcode {
+                                IrOpcode::Block(_) | IrOpcode::Loop(_) | IrOpcode::If(_) => depth += 1,
+                                IrOpcode::End => depth -= 1,
+                                IrOpcode::Else if depth == 1 => { pc += 1; break; }
+                                _ => {}
+                            }
+                            if depth > 0 { pc += 1; }
+                        }
+                    }
+                }
+                IrOpcode::Else => {
+                    // Skip to matching End (true branch is done)
+                    let mut depth = 1u32;
+                    while pc < body_len && depth > 0 {
+                        match func.body[pc].opcode {
+                            IrOpcode::Block(_) | IrOpcode::Loop(_) | IrOpcode::If(_) => depth += 1,
+                            IrOpcode::End => depth -= 1,
+                            _ => {}
+                        }
+                        if depth > 0 { pc += 1; }
+                    }
+                    self.block_stack.pop();
+                }
+                IrOpcode::End => {
+                    self.block_stack.pop();
+                }
+                IrOpcode::Br(depth) => {
+                    match self.do_branch(depth, &func.body, &mut pc) {
+                        Ok(()) => {}
+                        Err(t) => return IrExecResult::Trap(t),
+                    }
+                }
+                IrOpcode::BrIf(depth) => {
+                    let cond = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    if cond != 0 {
+                        match self.do_branch(depth, &func.body, &mut pc) {
+                            Ok(()) => {}
+                            Err(t) => return IrExecResult::Trap(t),
+                        }
+                    }
+                }
+                IrOpcode::Return => {
+                    break;
+                }
+                IrOpcode::Unreachable => {
+                    return IrExecResult::Trap(IrTrap::Unreachable);
+                }
+
+                // ── Stack Ops ──
+                IrOpcode::Drop => { let _ = self.pop(); }
+                IrOpcode::Select => {
+                    let c = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let b = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let a = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    self.stack.push(if c != 0 { a } else { b });
+                }
+
+                // ── Call (simplified: not supported in IR interpreter standalone) ──
+                IrOpcode::Call(_) | IrOpcode::CallIndirect(_) => {
+                    // Calls require module context; skip for basic tests
+                }
+
+                // ── Memory operations with bounds checking ──
+                IrOpcode::Load32(offset) => {
+                    let addr = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let effective = (addr as u32).wrapping_add(offset) as usize;
+                    if effective + 4 > self.memory.len() {
+                        return IrExecResult::Trap(IrTrap::MemoryBoundsViolation);
+                    }
+                    let val = i32::from_le_bytes([
+                        self.memory[effective],
+                        self.memory[effective + 1],
+                        self.memory[effective + 2],
+                        self.memory[effective + 3],
+                    ]);
+                    self.stack.push(val as i64);
+                }
+                IrOpcode::Load64(offset) => {
+                    let addr = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let effective = (addr as u32).wrapping_add(offset) as usize;
+                    if effective + 8 > self.memory.len() {
+                        return IrExecResult::Trap(IrTrap::MemoryBoundsViolation);
+                    }
+                    let val = i64::from_le_bytes([
+                        self.memory[effective], self.memory[effective + 1],
+                        self.memory[effective + 2], self.memory[effective + 3],
+                        self.memory[effective + 4], self.memory[effective + 5],
+                        self.memory[effective + 6], self.memory[effective + 7],
+                    ]);
+                    self.stack.push(val);
+                }
+                IrOpcode::Store32(offset) => {
+                    let val = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let addr = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let effective = (addr as u32).wrapping_add(offset) as usize;
+                    if effective + 4 > self.memory.len() {
+                        return IrExecResult::Trap(IrTrap::MemoryBoundsViolation);
+                    }
+                    let bytes = (val as i32).to_le_bytes();
+                    self.memory[effective..effective + 4].copy_from_slice(&bytes);
+                }
+                IrOpcode::Store64(offset) => {
+                    let val = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let addr = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let effective = (addr as u32).wrapping_add(offset) as usize;
+                    if effective + 8 > self.memory.len() {
+                        return IrExecResult::Trap(IrTrap::MemoryBoundsViolation);
+                    }
+                    let bytes = val.to_le_bytes();
+                    self.memory[effective..effective + 8].copy_from_slice(&bytes);
+                }
+                IrOpcode::MemorySize => {
+                    let pages = (self.memory.len() / 65536) as i32;
+                    self.stack.push(pages as i64);
+                }
+                IrOpcode::MemoryGrow => {
+                    let delta = match self.pop() { Ok(v) => v, Err(t) => return IrExecResult::Trap(t) };
+                    let old_pages = (self.memory.len() / 65536) as i32;
+                    let new_size = self.memory.len() + (delta as usize) * 65536;
+                    if new_size > 256 * 65536 { // max 256 pages (16 MB)
+                        self.stack.push(-1i64);
+                    } else {
+                        self.memory.resize(new_size, 0);
+                        self.stack.push(old_pages as i64);
+                    }
+                }
+
+                // ── Everything else: no-op ──
+                _ => {}
+            }
+        }
+
+        // Collect results
+        let result_count = func.results.len();
+        let mut results = Vec::new();
+        let available = self.stack.len().min(result_count);
+        for _ in 0..available {
+            results.push(self.stack.pop().unwrap_or(0));
+        }
+        results.reverse();
+        IrExecResult::Ok(results)
+    }
+
+    fn pop(&mut self) -> Result<i64, IrTrap> {
+        self.stack.pop().ok_or(IrTrap::StackUnderflow)
+    }
+
+    fn peek(&self) -> Result<i64, IrTrap> {
+        self.stack.last().copied().ok_or(IrTrap::StackUnderflow)
+    }
+
+    fn pop2(&mut self) -> Result<(i64, i64), IrTrap> {
+        let b = self.pop()?;
+        let a = self.pop()?;
+        Ok((a, b))
+    }
+
+    fn pop2_i32(&mut self) -> Result<(i32, i32), IrTrap> {
+        let (a, b) = self.pop2()?;
+        Ok((a as i32, b as i32))
+    }
+
+    fn binop_i32<F: Fn(i32, i32) -> Result<i32, IrTrap>>(&mut self, f: F) {
+        if let Ok((a, b)) = self.pop2_i32() {
+            if let Ok(r) = f(a, b) {
+                self.stack.push(r as i64);
+            }
+        }
+    }
+
+    fn binop_i64<F: Fn(i64, i64) -> i64>(&mut self, f: F) {
+        if let Ok((a, b)) = self.pop2() {
+            self.stack.push(f(a, b));
+        }
+    }
+
+    fn unop_i32<F: Fn(i32) -> i32>(&mut self, f: F) {
+        if let Ok(a) = self.pop() {
+            self.stack.push(f(a as i32) as i64);
+        }
+    }
+
+    fn unop_i64<F: Fn(i64) -> i64>(&mut self, f: F) {
+        if let Ok(a) = self.pop() {
+            self.stack.push(f(a));
+        }
+    }
+
+    fn cmp_i32<F: Fn(i32, i32) -> bool>(&mut self, f: F) {
+        if let Ok((a, b)) = self.pop2_i32() {
+            self.stack.push(if f(a, b) { 1 } else { 0 });
+        }
+    }
+
+    fn cmp_i64<F: Fn(i64, i64) -> bool>(&mut self, f: F) {
+        if let Ok((a, b)) = self.pop2() {
+            self.stack.push(if f(a, b) { 1 } else { 0 });
+        }
+    }
+
+    /// Branch by depth: pop blocks and jump.
+    fn do_branch(&mut self, depth: u32, body: &[IrInstruction], pc: &mut usize) -> Result<(), IrTrap> {
+        if depth as usize >= self.block_stack.len() {
+            return Err(IrTrap::InvalidBranch);
+        }
+
+        let target_idx = self.block_stack.len() - 1 - depth as usize;
+        let target_block = self.block_stack[target_idx].clone();
+
+        // Pop blocks above the target
+        while self.block_stack.len() > target_idx + 1 {
+            self.block_stack.pop();
+        }
+
+        if target_block.kind == BlockKind::Loop {
+            // Loop: branch to start_pc (re-enter loop)
+            *pc = target_block.start_pc;
+        } else {
+            // Block/If: branch to end (skip to matching End)
+            self.block_stack.pop(); // pop the target block too
+            let mut depth_counter = 1u32;
+            while *pc < body.len() && depth_counter > 0 {
+                match body[*pc].opcode {
+                    IrOpcode::Block(_) | IrOpcode::Loop(_) | IrOpcode::If(_) => depth_counter += 1,
+                    IrOpcode::End => depth_counter -= 1,
+                    _ => {}
+                }
+                if depth_counter > 0 { *pc += 1; }
+            }
+            if *pc < body.len() { *pc += 1; } // skip the End
+        }
+
+        Ok(())
+    }
+}
+
+impl Default for IrInterpreter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn test_ir_const_and_add() {
+        let mut func = IrFunction::new(0, vec![], vec![IrType::I32]);
+        func.body = vec![
+            IrInstruction::new(IrOpcode::Const32(10), 0),
+            IrInstruction::new(IrOpcode::Const32(20), 0),
+            IrInstruction::new(IrOpcode::I32Add, 0),
+        ];
+        let mut interp = IrInterpreter::new();
+        let result = interp.execute(&func, &[]);
+        assert_eq!(result, IrExecResult::Ok(vec![30]));
+    }
+
+    #[test]
+    fn test_ir_locals() {
+        let mut func = IrFunction::new(0, vec![IrType::I32], vec![IrType::I32]);
+        func.body = vec![
+            IrInstruction::new(IrOpcode::LocalGet(0), 0),
+            IrInstruction::new(IrOpcode::Const32(5), 0),
+            IrInstruction::new(IrOpcode::I32Add, 0),
+        ];
+        let mut interp = IrInterpreter::new();
+        let result = interp.execute(&func, &[7]);
+        assert_eq!(result, IrExecResult::Ok(vec![12]));
+    }
+
+    #[test]
+    fn test_ir_div_by_zero() {
+        let mut func = IrFunction::new(0, vec![], vec![IrType::I32]);
+        func.body = vec![
+            IrInstruction::new(IrOpcode::Const32(10), 0),
+            IrInstruction::new(IrOpcode::Const32(0), 0),
+            IrInstruction::new(IrOpcode::I32DivS, 0),
+        ];
+        let mut interp = IrInterpreter::new();
+        let result = interp.execute(&func, &[]);
+        assert_eq!(result, IrExecResult::Trap(IrTrap::DivisionByZero));
+    }
+
+    #[test]
+    fn test_ir_memory_bounds() {
+        let mut func = IrFunction::new(0, vec![], vec![IrType::I32]);
+        func.body = vec![
+            IrInstruction::new(IrOpcode::Const32(0), 0),
+            IrInstruction::new(IrOpcode::Load32(0), 0),
+        ];
+        // No memory — should trap
+        let mut interp = IrInterpreter::new();
+        let result = interp.execute(&func, &[]);
+        assert_eq!(result, IrExecResult::Trap(IrTrap::MemoryBoundsViolation));
+
+        // With memory — should succeed
+        let mut interp = IrInterpreter::with_memory(64);
+        let result = interp.execute(&func, &[]);
+        assert_eq!(result, IrExecResult::Ok(vec![0]));
     }
 }
