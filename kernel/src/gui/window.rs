@@ -1423,9 +1423,9 @@ fn navigate_to_url(url: &str) -> RenderedPage {
     } else {
         // Unknown URL — show error page
         let error_html = alloc::format!(
-            "<html><body><h1>페이지를 찾을 수 없습니다</h1>\
-             <p>주소 <b>{}</b>에 연결할 수 없습니다.</p>\
-             <p>다음을 시도해 보세요:</p>\
+            "<html><body><h1>Page Not Found</h1>\
+             <p>Could not connect to <b>{}</b>.</p>\
+             <p>Try the following:</p>\
              <ul><li>kpio://home</li><li>http://localhost/</li><li>kpio://about</li></ul>\
              </body></html>",
             url

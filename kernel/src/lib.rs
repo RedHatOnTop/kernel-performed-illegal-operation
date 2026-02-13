@@ -1,11 +1,11 @@
 //! KPIO Kernel Library
 //!
-//! 이 크레이트는 커널의 공개 모듈과 테스트 프레임워크를 제공합니다.
+//! This crate provides the kernel's public modules and test framework.
 //!
-//! # 용도
+//! # Purpose
 //!
-//! - `cargo test` 통합 테스트 지원
-//! - 커널 내부 모듈의 공개 인터페이스 제공
+//! - Integration test support via `cargo test`
+//! - Public interface for internal kernel modules
 
 #![no_std]
 #![cfg_attr(test, no_main)]
@@ -46,9 +46,9 @@ pub mod i18n;
 #[cfg(test)]
 mod tests;
 
-/// 커널 테스트 매크로.
+/// Kernel test macro.
 ///
-/// 테스트 케이스를 간편하게 정의할 수 있습니다.
+/// Conveniently define test cases.
 ///
 /// # Example
 ///
@@ -80,10 +80,10 @@ pub static BOOTLOADER_CONFIG: BootloaderConfig = {
 #[cfg(test)]
 entry_point!(test_kernel_main, config = &BOOTLOADER_CONFIG);
 
-/// 테스트 모드 커널 엔트리 포인트.
+/// Test mode kernel entry point.
 #[cfg(test)]
 fn test_kernel_main(boot_info: &'static mut BootInfo) -> ! {
-    // 최소 초기화
+    // Minimal initialization
     serial::init();
     gdt::init();
     interrupts::init();

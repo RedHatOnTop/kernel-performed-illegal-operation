@@ -59,10 +59,10 @@ impl NewTabPage {
     /// Get greeting based on time of day
     pub fn greeting(&self, hour: u8) -> &'static str {
         match hour {
-            5..=11 => "좋은 아침이에요",
-            12..=17 => "좋은 오후예요",
-            18..=21 => "좋은 저녁이에요",
-            _ => "좋은 밤이에요",
+            5..=11 => "Good morning",
+            12..=17 => "Good afternoon",
+            18..=21 => "Good evening",
+            _ => "Good night",
         }
     }
 }
@@ -147,42 +147,42 @@ impl SettingsPage {
         alloc::vec![
             SettingsSectionInfo {
                 section: SettingsSection::General,
-                title: String::from("일반"),
+                title: String::from("General"),
                 icon: Icon::Settings,
             },
             SettingsSectionInfo {
                 section: SettingsSection::Appearance,
-                title: String::from("모양"),
+                title: String::from("Appearance"),
                 icon: Icon::Sun,
             },
             SettingsSectionInfo {
                 section: SettingsSection::Privacy,
-                title: String::from("개인 정보 보호"),
+                title: String::from("Privacy"),
                 icon: Icon::Lock,
             },
             SettingsSectionInfo {
                 section: SettingsSection::Search,
-                title: String::from("검색"),
+                title: String::from("Search"),
                 icon: Icon::Search,
             },
             SettingsSectionInfo {
                 section: SettingsSection::Downloads,
-                title: String::from("다운로드"),
+                title: String::from("Downloads"),
                 icon: Icon::Download,
             },
             SettingsSectionInfo {
                 section: SettingsSection::Languages,
-                title: String::from("언어"),
+                title: String::from("Languages"),
                 icon: Icon::Globe,
             },
             SettingsSectionInfo {
                 section: SettingsSection::Accessibility,
-                title: String::from("접근성"),
+                title: String::from("Accessibility"),
                 icon: Icon::Eye,
             },
             SettingsSectionInfo {
                 section: SettingsSection::About,
-                title: String::from("KPIO 정보"),
+                title: String::from("About KPIO"),
                 icon: Icon::Info,
             },
         ]
@@ -447,7 +447,7 @@ impl BookmarkFolder {
     pub fn root() -> Self {
         Self {
             id: 0,
-            name: String::from("북마크"),
+            name: String::from("Bookmarks"),
             parent_id: None,
             item_count: 0,
         }

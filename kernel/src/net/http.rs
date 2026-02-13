@@ -589,20 +589,20 @@ pub fn dispatch(req: &HttpRequest) -> HttpResponse {
 
 fn page_index() -> HttpResponse {
     let html = r#"<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head><meta charset="utf-8"><title>KPIO OS</title>
 <style>
 body{font-family:sans-serif;background:#0a0e17;color:#e0e0e0;margin:40px}
 h1{color:#4fc3f7}a{color:#81d4fa}
 </style></head>
 <body>
-<h1>KPIO OS에 오신 것을 환영합니다</h1>
-<p>이것은 커널 내장 웹 서버에서 제공되는 페이지입니다.</p>
+<h1>Welcome to KPIO OS</h1>
+<p>This page is served by the kernel's built-in web server.</p>
 <ul>
 <li><a href="/about">About KPIO</a></li>
-<li><a href="/status">시스템 상태 (JSON)</a></li>
-<li><a href="/api/time">현재 시간 API</a></li>
-<li><a href="/api/memory">메모리 정보 API</a></li>
+<li><a href="/status">System Status (JSON)</a></li>
+<li><a href="/api/time">Current Time API</a></li>
+<li><a href="/api/memory">Memory Info API</a></li>
 </ul>
 </body></html>"#;
     HttpResponse::ok("text/html; charset=utf-8", html.as_bytes())
@@ -610,15 +610,15 @@ h1{color:#4fc3f7}a{color:#81d4fa}
 
 fn page_about() -> HttpResponse {
     let html = r#"<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head><meta charset="utf-8"><title>About KPIO</title>
 <style>body{font-family:sans-serif;background:#0a0e17;color:#e0e0e0;margin:40px}h1{color:#4fc3f7}</style>
 </head>
 <body>
 <h1>About KPIO OS</h1>
-<p>KPIO는 Rust로 작성된 x86_64 운영체제 커널입니다.</p>
-<p>WebAssembly 런타임, Vulkan 그래픽스, 내장 브라우저를 지원합니다.</p>
-<p><a href="/" style="color:#81d4fa">← 홈으로</a></p>
+<p>KPIO is an x86_64 operating system kernel written in Rust.</p>
+<p>It supports a WebAssembly runtime, Vulkan graphics, and a built-in browser.</p>
+<p><a href="/" style="color:#81d4fa">← Home</a></p>
 </body></html>"#;
     HttpResponse::ok("text/html; charset=utf-8", html.as_bytes())
 }

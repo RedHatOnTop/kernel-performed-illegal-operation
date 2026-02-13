@@ -310,7 +310,7 @@ pub fn suspended_page_html(tab: &SuspendedTab) -> String {
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>{} (일시 중단됨)</title>
+    <title>{} (Suspended)</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -372,9 +372,9 @@ pub fn suspended_page_html(tab: &SuspendedTab) -> String {
         {}
         <div class="title">{}</div>
         <div class="url">{}</div>
-        <div class="message">이 탭은 메모리 절약을 위해 일시 중단되었습니다</div>
-        <button class="resume" onclick="location.href='{}'">탭 다시 로드</button>
-        <div class="info">클릭하면 원래 페이지로 돌아갑니다</div>
+        <div class="message">This tab has been suspended to save memory</div>
+        <button class="resume" onclick="location.href='{}'">Reload Tab</button>
+        <div class="info">Click to return to the original page</div>
     </div>
 </body>
 </html>"#,

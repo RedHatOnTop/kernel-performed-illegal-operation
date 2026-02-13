@@ -69,7 +69,7 @@ impl LocalProfile {
 
     /// Create default profile
     pub fn default_profile() -> Self {
-        let mut profile = Self::new(0, String::from("기본 프로필"));
+        let mut profile = Self::new(0, String::from("Default Profile"));
         profile.is_default = true;
         profile
     }

@@ -380,23 +380,23 @@ impl Default for PrivateModeInfo {
     fn default() -> Self {
         Self {
             hidden: alloc::vec![
-                String::from("방문 기록"),
-                String::from("검색 기록"),
-                String::from("쿠키 및 사이트 데이터"),
-                String::from("양식에 입력한 정보"),
-                String::from("임시 파일"),
+                String::from("Browsing history"),
+                String::from("Search history"),
+                String::from("Cookies and site data"),
+                String::from("Information entered in forms"),
+                String::from("Temporary files"),
             ],
             not_hidden: alloc::vec![
-                String::from("다운로드한 파일"),
-                String::from("북마크"),
-                String::from("인터넷 서비스 제공업체"),
-                String::from("고용주/학교 네트워크"),
-                String::from("방문한 웹사이트"),
+                String::from("Downloaded files"),
+                String::from("Bookmarks"),
+                String::from("Internet service provider"),
+                String::from("Employer/school network"),
+                String::from("Websites you visited"),
             ],
             tips: alloc::vec![
-                String::from("시크릿 모드를 종료하면 이 세션의 모든 데이터가 삭제됩니다"),
-                String::from("다운로드한 파일은 컴퓨터에 남아있습니다"),
-                String::from("확장 프로그램은 시크릿 모드에서 비활성화됩니다"),
+                String::from("All data from this session will be deleted when you exit incognito mode"),
+                String::from("Downloaded files will remain on your computer"),
+                String::from("Extensions are disabled in incognito mode"),
             ],
         }
     }
@@ -411,7 +411,7 @@ pub fn private_mode_welcome_html() -> String {
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>시크릿 모드</title>
+    <title>Incognito Mode</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -471,26 +471,26 @@ pub fn private_mode_welcome_html() -> String {
     <div class="container">
         <div class="header">
             <div class="icon">🕵️</div>
-            <h1>시크릿 모드</h1>
-            <p class="subtitle">이제 비공개로 탐색할 수 있습니다</p>
+            <h1>Incognito Mode</h1>
+            <p class="subtitle">You can now browse privately</p>
         </div>
         
         <div class="section">
-            <h2>✓ 저장되지 않는 항목</h2>
+            <h2>✓ Items not saved</h2>
             <ul>
                 {}
             </ul>
         </div>
         
         <div class="section warning">
-            <h2>⚠ 여전히 볼 수 있는 대상</h2>
+            <h2>⚠ Who can still see your activity</h2>
             <ul>
                 {}
             </ul>
         </div>
         
         <div class="section">
-            <h2>💡 참고</h2>
+            <h2>💡 Note</h2>
             <ul>
                 {}
             </ul>

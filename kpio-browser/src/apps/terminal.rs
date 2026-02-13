@@ -42,7 +42,7 @@ impl Terminal {
     pub fn new(id: u64) -> Self {
         Self {
             id,
-            title: String::from("터미널"),
+            title: String::from("Terminal"),
             cwd: String::from("/home"),
             shell: ShellType::Ksh,
             buffer: TerminalBuffer::new(1000),
@@ -279,16 +279,16 @@ impl Terminal {
             }
             "help" => {
                 Some(String::from(
-                    "내장 명령어:\n\
-                     cd [경로]    - 디렉토리 이동\n\
-                     pwd          - 현재 디렉토리 출력\n\
-                     echo [텍스트] - 텍스트 출력\n\
-                     clear        - 화면 지우기\n\
-                     export       - 환경 변수 설정\n\
-                     env          - 환경 변수 목록\n\
-                     history      - 명령어 기록\n\
-                     help         - 도움말\n\
-                     exit         - 터미널 종료"
+                    "Built-in commands:\n\
+                     cd [path]    - Change directory\n\
+                     pwd          - Print current directory\n\
+                     echo [text]  - Print text\n\
+                     clear        - Clear screen\n\
+                     export       - Set environment variable\n\
+                     env          - List environment variables\n\
+                     history      - Command history\n\
+                     help         - Help\n\
+                     exit         - Exit terminal"
                 ))
             }
             _ => None, // Not a builtin
@@ -350,7 +350,7 @@ impl Terminal {
     /// Write error to buffer
     pub fn write_error(&mut self, text: &str) {
         // In real implementation, would use different color
-        self.buffer.write_line(&alloc::format!("오류: {}", text));
+        self.buffer.write_line(&alloc::format!("Error: {}", text));
     }
 
     /// Clear screen
@@ -562,7 +562,7 @@ impl TerminalTab {
     pub fn new(id: u64) -> Self {
         Self {
             id,
-            title: String::from("터미널"),
+            title: String::from("Terminal"),
             terminal: Terminal::new(id),
         }
     }

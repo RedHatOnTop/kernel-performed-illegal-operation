@@ -187,7 +187,7 @@ impl Calculator {
             self.current = 1.0 / self.current;
             self.display = format_number(self.current);
         } else {
-            self.display = String::from("오류");
+            self.display = String::from("Error");
         }
     }
 
@@ -220,7 +220,7 @@ impl Calculator {
             self.current = self.from_radians(asin(self.current));
             self.display = format_number(self.current);
         } else {
-            self.display = String::from("오류");
+            self.display = String::from("Error");
         }
     }
 
@@ -230,7 +230,7 @@ impl Calculator {
             self.current = self.from_radians(acos(self.current));
             self.display = format_number(self.current);
         } else {
-            self.display = String::from("오류");
+            self.display = String::from("Error");
         }
     }
 
@@ -246,7 +246,7 @@ impl Calculator {
             self.current = log(self.current);
             self.display = format_number(self.current);
         } else {
-            self.display = String::from("오류");
+            self.display = String::from("Error");
         }
     }
 
@@ -256,7 +256,7 @@ impl Calculator {
             self.current = log10(self.current);
             self.display = format_number(self.current);
         } else {
-            self.display = String::from("오류");
+            self.display = String::from("Error");
         }
     }
 
@@ -284,7 +284,7 @@ impl Calculator {
             self.current = result;
             self.display = format_number(self.current);
         } else {
-            self.display = String::from("오류");
+            self.display = String::from("Error");
         }
     }
 
@@ -397,7 +397,7 @@ impl Default for Calculator {
 /// Format number for display
 fn format_number(n: f64) -> String {
     if n.is_nan() {
-        return String::from("오류");
+        return String::from("Error");
     }
     if n.is_infinite() {
         return if n.is_sign_positive() {

@@ -8,8 +8,8 @@ use core::panic::PanicInfo;
 
 /// Panic handler implementation.
 ///
-/// 테스트 모드에서는 test 모듈의 패닉 핸들러 사용,
-/// 일반 모드에서는 시리얼로 출력 후 halt.
+/// In test mode, the test module's panic handler is used;
+/// in normal mode, output to serial and halt.
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -36,7 +36,7 @@ fn panic(info: &PanicInfo) -> ! {
     crate::interrupts::hlt_loop()
 }
 
-/// 테스트 모드용 패닉 핸들러.
+/// Panic handler for test mode.
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {

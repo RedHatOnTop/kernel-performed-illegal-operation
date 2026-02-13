@@ -1,7 +1,7 @@
-//! 힙 할당자 초기화
+//! Heap allocator initialization
 //!
-//! 이 모듈은 커널 힙을 초기화하고 전역 할당자를 설정합니다.
-//! linked_list_allocator를 사용하여 동적 메모리 할당을 지원합니다.
+//! This module initializes the kernel heap and sets up the global allocator.
+//! It uses linked_list_allocator to support dynamic memory allocation.
 
 use linked_list_allocator::LockedHeap;
 use x86_64::{
@@ -11,36 +11,36 @@ use x86_64::{
     VirtAddr,
 };
 
-/// 힙 시작 가상 주소.
+/// Heap start virtual address.
 ///
-/// 커널 공간 상위에 위치하여 다른 매핑과 충돌하지 않도록 함.
+/// Located in the upper kernel space to avoid conflicts with other mappings.
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 
-/// 힙 크기 (16 MiB).
+/// Heap size (16 MiB).
 pub const HEAP_SIZE: usize = 16 * 1024 * 1024;
 
-/// 전역 힙 할당자.
+/// Global heap allocator.
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-/// 힙 초기화.
+/// Initialize the heap.
 ///
-/// 이 함수는 힙 영역에 대한 페이지를 할당하고 매핑한 후,
-/// 전역 할당자를 초기화합니다.
+/// This function allocates and maps pages for the heap area,
+/// then initializes the global allocator.
 ///
 /// # Arguments
 ///
-/// * `mapper` - 페이지 테이블 매퍼
-/// * `frame_allocator` - 물리 프레임 할당자
+/// * `mapper` - Page table mapper
+/// * `frame_allocator` - Physical frame allocator
 ///
 /// # Errors
 ///
-/// 페이지 매핑 실패 시 `MapToError` 반환.
+/// Returns `MapToError` on page mapping failure.
 pub fn init_heap(
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
 ) -> Result<(), MapToError<Size4KiB>> {
-    // 힙 영역의 페이지 범위 계산
+    // Calculate page range for the heap area
     let page_range = {
         let heap_start = VirtAddr::new(HEAP_START as u64);
         let heap_end = heap_start + HEAP_SIZE as u64 - 1u64;
@@ -49,7 +49,7 @@ pub fn init_heap(
         Page::range_inclusive(heap_start_page, heap_end_page)
     };
 
-    // 각 페이지에 대해 물리 프레임 할당 및 매핑
+    // Allocate and map physical frames for each page
     for page in page_range {
         let frame = frame_allocator
             .allocate_frame()
@@ -62,7 +62,7 @@ pub fn init_heap(
         }
     }
 
-    // 할당자 초기화
+    // Initialize the allocator
     unsafe {
         ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE);
     }
@@ -70,9 +70,9 @@ pub fn init_heap(
     Ok(())
 }
 
-/// 할당 실패 핸들러.
+/// Allocation error handler.
 ///
-/// 메모리 할당 실패 시 호출됩니다.
+/// Called when memory allocation fails.
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
     panic!("allocation error: {:?}", layout)

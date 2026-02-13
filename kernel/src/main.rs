@@ -546,4 +546,4 @@ fn draw_char(
     }
 }
 
-// 매크로는 serial.rs에서 정의됨
+// Macros are defined in serial.rs

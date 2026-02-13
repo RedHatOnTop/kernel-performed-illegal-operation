@@ -220,12 +220,12 @@ impl FileExplorer {
 
     /// Create new folder
     pub fn new_folder(&self) -> String {
-        alloc::format!("{}/새 폴더", self.current_path)
+        alloc::format!("{}/New Folder", self.current_path)
     }
 
     /// Create new file
     pub fn new_file(&self) -> String {
-        alloc::format!("{}/새 파일.txt", self.current_path)
+        alloc::format!("{}/New File.txt", self.current_path)
     }
 
     /// Set view mode
@@ -454,37 +454,37 @@ impl Default for Sidebar {
         Self {
             quick_access: alloc::vec![
                 SidebarItem {
-                    name: String::from("홈"),
+                    name: String::from("Home"),
                     path: String::from("/home"),
                     icon: String::from("home"),
                     item_type: SidebarItemType::QuickAccess,
                 },
                 SidebarItem {
-                    name: String::from("문서"),
+                    name: String::from("Documents"),
                     path: String::from("/home/documents"),
                     icon: String::from("file-text"),
                     item_type: SidebarItemType::QuickAccess,
                 },
                 SidebarItem {
-                    name: String::from("다운로드"),
+                    name: String::from("Downloads"),
                     path: String::from("/home/downloads"),
                     icon: String::from("download"),
                     item_type: SidebarItemType::QuickAccess,
                 },
                 SidebarItem {
-                    name: String::from("사진"),
+                    name: String::from("Photos"),
                     path: String::from("/home/pictures"),
                     icon: String::from("image"),
                     item_type: SidebarItemType::QuickAccess,
                 },
                 SidebarItem {
-                    name: String::from("음악"),
+                    name: String::from("Music"),
                     path: String::from("/home/music"),
                     icon: String::from("music"),
                     item_type: SidebarItemType::QuickAccess,
                 },
                 SidebarItem {
-                    name: String::from("동영상"),
+                    name: String::from("Videos"),
                     path: String::from("/home/videos"),
                     icon: String::from("video"),
                     item_type: SidebarItemType::QuickAccess,
@@ -493,7 +493,7 @@ impl Default for Sidebar {
             favorites: Vec::new(),
             drives: alloc::vec![
                 SidebarItem {
-                    name: String::from("시스템"),
+                    name: String::from("System"),
                     path: String::from("/"),
                     icon: String::from("hard-drive"),
                     item_type: SidebarItemType::Drive,

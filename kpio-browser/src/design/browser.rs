@@ -57,7 +57,7 @@ impl BrowserTab {
 
     /// New tab (blank)
     pub fn new_tab(id: u64) -> Self {
-        Self::new(id, "새 탭", "kpio://newtab")
+        Self::new(id, "New Tab", "kpio://newtab")
     }
 
     /// Set active

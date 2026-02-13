@@ -57,7 +57,7 @@ impl Desktop {
         alloc::vec![
             DesktopIcon {
                 id: 1,
-                name: String::from("파일"),
+                name: String::from("Files"),
                 icon: String::from("folder"),
                 position: (0, 0),
                 target: IconTarget::App(String::from("kpio.files")),
@@ -65,7 +65,7 @@ impl Desktop {
             },
             DesktopIcon {
                 id: 2,
-                name: String::from("휴지통"),
+                name: String::from("Trash"),
                 icon: String::from("trash"),
                 position: (0, 1),
                 target: IconTarget::Special(SpecialFolder::Trash),

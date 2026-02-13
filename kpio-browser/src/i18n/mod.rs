@@ -227,6 +227,15 @@ impl I18nManager {
             manager.languages.insert(tag, lang);
         }
 
+        // Load built-in message bundles for all supported languages
+        manager.bundles.insert("en-US".into(), english_bundle());
+        manager.bundles.insert("ko-KR".into(), korean_bundle());
+        manager.bundles.insert("ja-JP".into(), japanese_bundle());
+        manager.bundles.insert("zh-CN".into(), chinese_simplified_bundle());
+        manager.bundles.insert("es-ES".into(), spanish_bundle());
+        manager.bundles.insert("de-DE".into(), german_bundle());
+        manager.bundles.insert("fr-FR".into(), french_bundle());
+
         manager
     }
 
@@ -342,5 +351,6 @@ pub static I18N: RwLock<I18nManager> = RwLock::new(I18nManager {
         date_format: DateFormat::Short,
         time_format: TimeFormat::Short,
         first_day_of_week: 0,
+        locale: String::new(),
     },
 });

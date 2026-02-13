@@ -83,14 +83,14 @@ pub enum AppCategory {
 impl AppCategory {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::System => "시스템",
-            Self::Productivity => "생산성",
-            Self::Media => "미디어",
-            Self::Internet => "인터넷",
-            Self::Games => "게임",
-            Self::Development => "개발",
-            Self::Accessories => "보조프로그램",
-            Self::Settings => "설정",
+            Self::System => "System",
+            Self::Productivity => "Productivity",
+            Self::Media => "Media",
+            Self::Internet => "Internet",
+            Self::Games => "Games",
+            Self::Development => "Development",
+            Self::Accessories => "Accessories",
+            Self::Settings => "Settings",
         }
     }
 }
@@ -137,8 +137,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.files"),
             name: String::from("Files"),
-            localized_name: Some(String::from("파일")),
-            description: String::from("파일 및 폴더 탐색"),
+            localized_name: Some(String::from("Files")),
+            description: String::from("Browse files and folders"),
             icon: String::from("folder"),
             category: AppCategory::System,
             system: true,
@@ -148,8 +148,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.settings"),
             name: String::from("Settings"),
-            localized_name: Some(String::from("설정")),
-            description: String::from("시스템 설정"),
+            localized_name: Some(String::from("Settings")),
+            description: String::from("System settings"),
             icon: String::from("settings"),
             category: AppCategory::Settings,
             system: true,
@@ -159,8 +159,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.terminal"),
             name: String::from("Terminal"),
-            localized_name: Some(String::from("터미널")),
-            description: String::from("명령줄 인터페이스"),
+            localized_name: Some(String::from("Terminal")),
+            description: String::from("Command line interface"),
             icon: String::from("terminal"),
             category: AppCategory::Development,
             system: true,
@@ -170,8 +170,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.editor"),
             name: String::from("Text Editor"),
-            localized_name: Some(String::from("텍스트 편집기")),
-            description: String::from("텍스트 파일 편집"),
+            localized_name: Some(String::from("Text Editor")),
+            description: String::from("Edit text files"),
             icon: String::from("file-text"),
             category: AppCategory::Productivity,
             system: true,
@@ -181,8 +181,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.photos"),
             name: String::from("Photos"),
-            localized_name: Some(String::from("사진")),
-            description: String::from("이미지 보기 및 관리"),
+            localized_name: Some(String::from("Photos")),
+            description: String::from("View and manage images"),
             icon: String::from("image"),
             category: AppCategory::Media,
             system: true,
@@ -192,8 +192,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.videos"),
             name: String::from("Videos"),
-            localized_name: Some(String::from("동영상")),
-            description: String::from("비디오 재생"),
+            localized_name: Some(String::from("Videos")),
+            description: String::from("Video playback"),
             icon: String::from("video"),
             category: AppCategory::Media,
             system: true,
@@ -203,8 +203,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.calculator"),
             name: String::from("Calculator"),
-            localized_name: Some(String::from("계산기")),
-            description: String::from("계산기"),
+            localized_name: Some(String::from("Calculator")),
+            description: String::from("Calculator"),
             icon: String::from("calculator"),
             category: AppCategory::Accessories,
             system: true,
@@ -214,8 +214,8 @@ pub fn system_apps() -> Vec<AppInfo> {
         AppInfo {
             id: AppId::new("kpio.browser"),
             name: String::from("Browser"),
-            localized_name: Some(String::from("브라우저")),
-            description: String::from("웹 브라우저"),
+            localized_name: Some(String::from("Browser")),
+            description: String::from("Web browser"),
             icon: String::from("globe"),
             category: AppCategory::Internet,
             system: true,

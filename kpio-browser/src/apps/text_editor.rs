@@ -278,7 +278,7 @@ impl Document {
     /// Create new untitled document
     pub fn new_untitled() -> Self {
         Self {
-            name: String::from("제목 없음"),
+            name: String::from("Untitled"),
             path: None,
             content: String::new(),
             lines: alloc::vec![Line::new(String::new())],

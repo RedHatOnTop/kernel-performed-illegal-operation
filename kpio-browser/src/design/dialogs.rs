@@ -158,7 +158,7 @@ impl Alert {
             alert_type: AlertType::Info,
             title: title.into(),
             message: message.into(),
-            primary_text: String::from("확인"),
+            primary_text: String::from("OK"),
             secondary_text: None,
             open: true,
         }
@@ -170,7 +170,7 @@ impl Alert {
             alert_type: AlertType::Success,
             title: title.into(),
             message: message.into(),
-            primary_text: String::from("확인"),
+            primary_text: String::from("OK"),
             secondary_text: None,
             open: true,
         }
@@ -182,7 +182,7 @@ impl Alert {
             alert_type: AlertType::Warning,
             title: title.into(),
             message: message.into(),
-            primary_text: String::from("확인"),
+            primary_text: String::from("OK"),
             secondary_text: None,
             open: true,
         }
@@ -194,7 +194,7 @@ impl Alert {
             alert_type: AlertType::Error,
             title: title.into(),
             message: message.into(),
-            primary_text: String::from("확인"),
+            primary_text: String::from("OK"),
             secondary_text: None,
             open: true,
         }
@@ -206,8 +206,8 @@ impl Alert {
             alert_type: AlertType::Confirm,
             title: title.into(),
             message: message.into(),
-            primary_text: String::from("확인"),
-            secondary_text: Some(String::from("취소")),
+            primary_text: String::from("OK"),
+            secondary_text: Some(String::from("Cancel")),
             open: true,
         }
     }

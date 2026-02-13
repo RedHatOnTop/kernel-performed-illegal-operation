@@ -97,7 +97,7 @@ impl Taskbar {
             TaskbarItem {
                 id: 1,
                 app_id: String::from("kpio.files"),
-                name: String::from("파일"),
+                name: String::from("Files"),
                 icon: String::from("folder"),
                 state: TaskbarItemState::Pinned,
                 windows: Vec::new(),
@@ -107,7 +107,7 @@ impl Taskbar {
             TaskbarItem {
                 id: 2,
                 app_id: String::from("kpio.browser"),
-                name: String::from("브라우저"),
+                name: String::from("Browser"),
                 icon: String::from("globe"),
                 state: TaskbarItemState::Pinned,
                 windows: Vec::new(),
@@ -117,7 +117,7 @@ impl Taskbar {
             TaskbarItem {
                 id: 3,
                 app_id: String::from("kpio.terminal"),
-                name: String::from("터미널"),
+                name: String::from("Terminal"),
                 icon: String::from("terminal"),
                 state: TaskbarItemState::Pinned,
                 windows: Vec::new(),
@@ -127,7 +127,7 @@ impl Taskbar {
             TaskbarItem {
                 id: 4,
                 app_id: String::from("kpio.settings"),
-                name: String::from("설정"),
+                name: String::from("Settings"),
                 icon: String::from("settings"),
                 state: TaskbarItemState::Pinned,
                 windows: Vec::new(),

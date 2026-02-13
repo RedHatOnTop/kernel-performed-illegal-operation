@@ -100,6 +100,44 @@ impl BidiClass {
             '\u{0660}'..='\u{0669}' => Self::AN,
             '\u{06F0}'..='\u{06F9}' => Self::AN,
             
+            // CJK characters — all classified as L (strong left-to-right)
+            // Hangul Jamo
+            '\u{1100}'..='\u{11FF}' => Self::L,
+            // CJK Radicals Supplement + Kangxi Radicals
+            '\u{2E80}'..='\u{2FFF}' => Self::L,
+            // CJK Unified Ideographs Extension A + CJK Unified Ideographs
+            '\u{3400}'..='\u{9FFF}' => Self::L,
+            // Hiragana
+            '\u{3040}'..='\u{309F}' => Self::L,
+            // Katakana
+            '\u{30A0}'..='\u{30FF}' => Self::L,
+            // Bopomofo
+            '\u{3100}'..='\u{312F}' => Self::L,
+            // Hangul Compatibility Jamo
+            '\u{3130}'..='\u{318F}' => Self::L,
+            // CJK Compatibility
+            '\u{3300}'..='\u{33FF}' => Self::L,
+            // Hangul Syllables
+            '\u{AC00}'..='\u{D7AF}' => Self::L,
+            // Hangul Jamo Extended
+            '\u{D7B0}'..='\u{D7FF}' => Self::L,
+            // CJK Compatibility Ideographs
+            '\u{F900}'..='\u{FAFF}' => Self::L,
+            // Halfwidth and Fullwidth Forms (fullwidth Latin + halfwidth Katakana)
+            '\u{FF00}'..='\u{FFEF}' => Self::L,
+            // CJK Unified Ideographs Extension B+
+            '\u{20000}'..='\u{2FA1F}' => Self::L,
+            // Latin Extended (covers letters from European languages beyond ASCII)
+            '\u{00C0}'..='\u{024F}' => Self::L,
+            // Cyrillic
+            '\u{0400}'..='\u{04FF}' => Self::L,
+            // Greek
+            '\u{0370}'..='\u{03FF}' => Self::L,
+            // Thai
+            '\u{0E00}'..='\u{0E7F}' => Self::L,
+            // Devanagari
+            '\u{0900}'..='\u{097F}' => Self::L,
+            
             // Explicit directional marks
             '\u{200E}' => Self::L,  // LRM
             '\u{200F}' => Self::R,  // RLM

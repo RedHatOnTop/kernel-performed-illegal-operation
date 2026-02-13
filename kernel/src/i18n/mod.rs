@@ -94,6 +94,10 @@ impl TranslationStore {
         // Load built-in translations
         store.load_english();
         store.load_korean();
+        store.load_japanese();
+        store.load_chinese_simplified();
+        store.load_spanish();
+        store.load_german();
         
         store
     }
@@ -161,8 +165,8 @@ impl TranslationStore {
         // Desktop
         ko.insert("desktop.welcome", "KPIO OS에 오신 것을 환영합니다");
         ko.insert("desktop.logout", "로그아웃");
-        ko.insert("desktop.shutdown", "시스템 종료");
-        ko.insert("desktop.restart", "다시 시작");
+        ko.insert("desktop.shutdown", "종료");
+        ko.insert("desktop.restart", "재시작");
         ko.insert("desktop.lock", "화면 잠금");
         ko.insert("desktop.search", "검색");
         
@@ -174,12 +178,12 @@ impl TranslationStore {
         ko.insert("browser.downloads", "다운로드");
         ko.insert("browser.settings", "설정");
         ko.insert("browser.private_mode", "시크릿 모드");
-        ko.insert("browser.address_bar", "URL 입력 또는 검색");
+        ko.insert("browser.address_bar", "URL 또는 검색어 입력");
         
         // Settings
         ko.insert("settings.title", "설정");
         ko.insert("settings.general", "일반");
-        ko.insert("settings.appearance", "모양");
+        ko.insert("settings.appearance", "화면");
         ko.insert("settings.network", "네트워크");
         ko.insert("settings.security", "보안");
         ko.insert("settings.privacy", "개인정보");
@@ -192,7 +196,7 @@ impl TranslationStore {
         ko.insert("files.copy", "복사");
         ko.insert("files.paste", "붙여넣기");
         ko.insert("files.delete", "삭제");
-        ko.insert("files.rename", "이름 바꾸기");
+        ko.insert("files.rename", "이름 변경");
         ko.insert("files.properties", "속성");
         
         // Common
@@ -205,9 +209,213 @@ impl TranslationStore {
         ko.insert("common.no", "아니오");
         ko.insert("common.error", "오류");
         ko.insert("common.warning", "경고");
-        ko.insert("common.info", "정보");
+        ko.insert("common.info", "알림");
         
         self.translations.insert("ko", ko);
+    }
+
+    /// Load Japanese translations
+    fn load_japanese(&mut self) {
+        let mut ja = BTreeMap::new();
+        
+        ja.insert("desktop.welcome", "KPIO OSへようこそ");
+        ja.insert("desktop.logout", "ログアウト");
+        ja.insert("desktop.shutdown", "シャットダウン");
+        ja.insert("desktop.restart", "再起動");
+        ja.insert("desktop.lock", "画面ロック");
+        ja.insert("desktop.search", "検索");
+        
+        ja.insert("browser.new_tab", "新しいタブ");
+        ja.insert("browser.close_tab", "タブを閉じる");
+        ja.insert("browser.bookmarks", "ブックマーク");
+        ja.insert("browser.history", "履歴");
+        ja.insert("browser.downloads", "ダウンロード");
+        ja.insert("browser.settings", "設定");
+        ja.insert("browser.private_mode", "プライベートブラウジング");
+        ja.insert("browser.address_bar", "URLまたは検索語を入力");
+        
+        ja.insert("settings.title", "設定");
+        ja.insert("settings.general", "一般");
+        ja.insert("settings.appearance", "外観");
+        ja.insert("settings.network", "ネットワーク");
+        ja.insert("settings.security", "セキュリティ");
+        ja.insert("settings.privacy", "プライバシー");
+        ja.insert("settings.language", "言語");
+        ja.insert("settings.about", "情報");
+        
+        ja.insert("files.new_folder", "新しいフォルダ");
+        ja.insert("files.new_file", "新しいファイル");
+        ja.insert("files.copy", "コピー");
+        ja.insert("files.paste", "貼り付け");
+        ja.insert("files.delete", "削除");
+        ja.insert("files.rename", "名前の変更");
+        ja.insert("files.properties", "プロパティ");
+        
+        ja.insert("common.ok", "OK");
+        ja.insert("common.cancel", "キャンセル");
+        ja.insert("common.apply", "適用");
+        ja.insert("common.save", "保存");
+        ja.insert("common.close", "閉じる");
+        ja.insert("common.yes", "はい");
+        ja.insert("common.no", "いいえ");
+        ja.insert("common.error", "エラー");
+        ja.insert("common.warning", "警告");
+        ja.insert("common.info", "情報");
+        
+        self.translations.insert("ja", ja);
+    }
+
+    /// Load Chinese Simplified translations
+    fn load_chinese_simplified(&mut self) {
+        let mut zh = BTreeMap::new();
+        
+        zh.insert("desktop.welcome", "欢迎使用 KPIO OS");
+        zh.insert("desktop.logout", "注销");
+        zh.insert("desktop.shutdown", "关机");
+        zh.insert("desktop.restart", "重启");
+        zh.insert("desktop.lock", "锁定屏幕");
+        zh.insert("desktop.search", "搜索");
+        
+        zh.insert("browser.new_tab", "新标签页");
+        zh.insert("browser.close_tab", "关闭标签页");
+        zh.insert("browser.bookmarks", "书签");
+        zh.insert("browser.history", "历史记录");
+        zh.insert("browser.downloads", "下载");
+        zh.insert("browser.settings", "设置");
+        zh.insert("browser.private_mode", "无痕浏览");
+        zh.insert("browser.address_bar", "输入网址或搜索");
+        
+        zh.insert("settings.title", "设置");
+        zh.insert("settings.general", "通用");
+        zh.insert("settings.appearance", "外观");
+        zh.insert("settings.network", "网络");
+        zh.insert("settings.security", "安全");
+        zh.insert("settings.privacy", "隐私");
+        zh.insert("settings.language", "语言");
+        zh.insert("settings.about", "关于");
+        
+        zh.insert("files.new_folder", "新建文件夹");
+        zh.insert("files.new_file", "新建文件");
+        zh.insert("files.copy", "复制");
+        zh.insert("files.paste", "粘贴");
+        zh.insert("files.delete", "删除");
+        zh.insert("files.rename", "重命名");
+        zh.insert("files.properties", "属性");
+        
+        zh.insert("common.ok", "确定");
+        zh.insert("common.cancel", "取消");
+        zh.insert("common.apply", "应用");
+        zh.insert("common.save", "保存");
+        zh.insert("common.close", "关闭");
+        zh.insert("common.yes", "是");
+        zh.insert("common.no", "否");
+        zh.insert("common.error", "错误");
+        zh.insert("common.warning", "警告");
+        zh.insert("common.info", "信息");
+        
+        self.translations.insert("zh-CN", zh);
+    }
+
+    /// Load Spanish translations
+    fn load_spanish(&mut self) {
+        let mut es = BTreeMap::new();
+        
+        es.insert("desktop.welcome", "Bienvenido a KPIO OS");
+        es.insert("desktop.logout", "Cerrar sesión");
+        es.insert("desktop.shutdown", "Apagar");
+        es.insert("desktop.restart", "Reiniciar");
+        es.insert("desktop.lock", "Bloquear pantalla");
+        es.insert("desktop.search", "Buscar");
+        
+        es.insert("browser.new_tab", "Nueva pestaña");
+        es.insert("browser.close_tab", "Cerrar pestaña");
+        es.insert("browser.bookmarks", "Marcadores");
+        es.insert("browser.history", "Historial");
+        es.insert("browser.downloads", "Descargas");
+        es.insert("browser.settings", "Configuración");
+        es.insert("browser.private_mode", "Navegación privada");
+        es.insert("browser.address_bar", "Introduce URL o búsqueda");
+        
+        es.insert("settings.title", "Configuración");
+        es.insert("settings.general", "General");
+        es.insert("settings.appearance", "Apariencia");
+        es.insert("settings.network", "Red");
+        es.insert("settings.security", "Seguridad");
+        es.insert("settings.privacy", "Privacidad");
+        es.insert("settings.language", "Idioma");
+        es.insert("settings.about", "Acerca de");
+        
+        es.insert("files.new_folder", "Nueva carpeta");
+        es.insert("files.new_file", "Nuevo archivo");
+        es.insert("files.copy", "Copiar");
+        es.insert("files.paste", "Pegar");
+        es.insert("files.delete", "Eliminar");
+        es.insert("files.rename", "Cambiar nombre");
+        es.insert("files.properties", "Propiedades");
+        
+        es.insert("common.ok", "Aceptar");
+        es.insert("common.cancel", "Cancelar");
+        es.insert("common.apply", "Aplicar");
+        es.insert("common.save", "Guardar");
+        es.insert("common.close", "Cerrar");
+        es.insert("common.yes", "Sí");
+        es.insert("common.no", "No");
+        es.insert("common.error", "Error");
+        es.insert("common.warning", "Advertencia");
+        es.insert("common.info", "Información");
+        
+        self.translations.insert("es", es);
+    }
+
+    /// Load German translations
+    fn load_german(&mut self) {
+        let mut de = BTreeMap::new();
+        
+        de.insert("desktop.welcome", "Willkommen bei KPIO OS");
+        de.insert("desktop.logout", "Abmelden");
+        de.insert("desktop.shutdown", "Herunterfahren");
+        de.insert("desktop.restart", "Neustart");
+        de.insert("desktop.lock", "Bildschirm sperren");
+        de.insert("desktop.search", "Suchen");
+        
+        de.insert("browser.new_tab", "Neuer Tab");
+        de.insert("browser.close_tab", "Tab schließen");
+        de.insert("browser.bookmarks", "Lesezeichen");
+        de.insert("browser.history", "Verlauf");
+        de.insert("browser.downloads", "Downloads");
+        de.insert("browser.settings", "Einstellungen");
+        de.insert("browser.private_mode", "Privates Surfen");
+        de.insert("browser.address_bar", "URL oder Suchbegriff eingeben");
+        
+        de.insert("settings.title", "Einstellungen");
+        de.insert("settings.general", "Allgemein");
+        de.insert("settings.appearance", "Darstellung");
+        de.insert("settings.network", "Netzwerk");
+        de.insert("settings.security", "Sicherheit");
+        de.insert("settings.privacy", "Datenschutz");
+        de.insert("settings.language", "Sprache");
+        de.insert("settings.about", "Über");
+        
+        de.insert("files.new_folder", "Neuer Ordner");
+        de.insert("files.new_file", "Neue Datei");
+        de.insert("files.copy", "Kopieren");
+        de.insert("files.paste", "Einfügen");
+        de.insert("files.delete", "Löschen");
+        de.insert("files.rename", "Umbenennen");
+        de.insert("files.properties", "Eigenschaften");
+        
+        de.insert("common.ok", "OK");
+        de.insert("common.cancel", "Abbrechen");
+        de.insert("common.apply", "Anwenden");
+        de.insert("common.save", "Speichern");
+        de.insert("common.close", "Schließen");
+        de.insert("common.yes", "Ja");
+        de.insert("common.no", "Nein");
+        de.insert("common.error", "Fehler");
+        de.insert("common.warning", "Warnung");
+        de.insert("common.info", "Information");
+        
+        self.translations.insert("de", de);
     }
 
     /// Set current locale
@@ -322,6 +530,14 @@ pub mod date {
                 Locale::Korean => {
                     let period_ko = if hour < 12 { "오전" } else { "오후" };
                     alloc::format!("{} {}:{:02}", period_ko, hour_12, minute)
+                }
+                Locale::Japanese => {
+                    let period_ja = if hour < 12 { "午前" } else { "午後" };
+                    alloc::format!("{} {}:{:02}", period_ja, hour_12, minute)
+                }
+                Locale::ChineseSimplified => {
+                    let period_zh = if hour < 12 { "上午" } else { "下午" };
+                    alloc::format!("{} {}:{:02}", period_zh, hour_12, minute)
                 }
                 _ => alloc::format!("{}:{:02} {}", hour_12, minute, period),
             }

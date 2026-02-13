@@ -437,13 +437,13 @@ pub enum BlockReason {
 impl BlockReason {
     pub fn description(&self) -> &'static str {
         match self {
-            Self::Tracker => "추적기",
-            Self::Cryptominer => "암호화폐 채굴기",
-            Self::Fingerprinting => "핑거프린팅",
-            Self::SocialTracker => "소셜 미디어 추적기",
-            Self::ThirdPartyCookie => "제3자 쿠키",
-            Self::ThirdParty => "제3자 요청",
-            Self::CustomBlocklist => "사용자 차단 목록",
+            Self::Tracker => "Tracker",
+            Self::Cryptominer => "Cryptominer",
+            Self::Fingerprinting => "Fingerprinting",
+            Self::SocialTracker => "Social media tracker",
+            Self::ThirdPartyCookie => "Third-party cookie",
+            Self::ThirdParty => "Third-party request",
+            Self::CustomBlocklist => "Custom blocklist",
         }
     }
 }
