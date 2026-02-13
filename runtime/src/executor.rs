@@ -16,6 +16,7 @@ use crate::memory::LinearMemory;
 use crate::module::{ExportKind, FunctionType, ImportKind, Module, ValueType};
 use crate::opcodes::Instruction;
 use crate::parser::BlockType;
+use crate::wasi::WasiCtx;
 
 /// Host function signature.
 pub type HostFn = fn(&mut ExecutorContext, &[WasmValue]) -> Result<Vec<WasmValue>, TrapError>;
@@ -49,6 +50,8 @@ pub struct ExecutorContext {
     pub stderr: Vec<u8>,
     /// Exit code if proc_exit was called.
     pub exit_code: Option<i32>,
+    /// WASI context for WASI system calls.
+    pub wasi_ctx: Option<WasiCtx>,
 }
 
 impl ExecutorContext {
@@ -143,6 +146,7 @@ impl ExecutorContext {
             stdout: Vec::new(),
             stderr: Vec::new(),
             exit_code: None,
+            wasi_ctx: None,
         };
 
         // Initialize data segments
