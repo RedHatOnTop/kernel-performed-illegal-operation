@@ -141,7 +141,7 @@ App fetch("/api/data")
   → FetchResult::Response(cached_data)
 ```
 
-## VFS 디렉토리 구조
+## VFS Directory Structure
 
 ```
 /

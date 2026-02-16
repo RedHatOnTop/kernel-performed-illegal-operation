@@ -2,8 +2,6 @@
 
 This directory contains design and implementation documentation for KPIO.
 
-If you need the archived original Korean versions of docs that were translated, see [docs/ko](ko/).
-
 ## Getting Started
 
 - [Build Instructions](building.md)
@@ -20,20 +18,13 @@ If you need the archived original Korean versions of docs that were translated, 
 - [WebAssembly Runtime](architecture/wasm-runtime.md)
 - [System Call Design](architecture/syscall-design.md)
 
-## Design Phases
+## Phase 7: App Execution Layer (Current)
 
-- [Phase 0: Foundation](design/PHASE_0_FOUNDATION.md)
-- [Phase 1: Core](design/PHASE_1_CORE.md)
-- [Phase 1: Execution Plan](design/PHASE_1_EXECUTION_PLAN.md)
-- [Phase 2: Browser Integration](design/PHASE_2_USERSPACE.md)
-- [Phase 3: Graphics](design/PHASE_3_GRAPHICS.md)
-- [Phase 4: Polish](design/PHASE_4_POLISH.md)
-
-## Integration
-
-- [Servo Integration Plan](servo-integration-plan.md)
-- [Phase 2 Servo Integration Architecture](architecture/phase2-servo-integration.md)
-- [Phase 2 Implementation Checklist](architecture/phase2-implementation-checklist.md)
+- [Phase 7-1: Web App Platform](phase7/PHASE_7-1_WEB_APP_PLATFORM.md)
+- [Phase 7-2: WASM App Runtime](phase7/PHASE_7-2_WASM_APP_RUNTIME_EN.md)
+- [Phase 7-2: Execution Master](phase7/PHASE_7-2_EXECUTION_MASTER.md)
+- [Web App Architecture](phase7/WEB_APP_ARCHITECTURE.md)
+- [Web App Developer Guide](phase7/WEB_APP_DEVELOPER_GUIDE.md)
 
 ## Project Docs
 

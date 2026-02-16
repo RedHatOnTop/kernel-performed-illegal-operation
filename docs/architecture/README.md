@@ -170,7 +170,7 @@ The runtime bridges kernel services and user-space applications:
 |-----------|---------|
 | KPIO Runtime (`runtime/`) | Embedded WASM execution engine (parser/module/instance/interpreter + tiered JIT scaffold) |
 | WASI Preview 1 | File I/O, clocks, random, args/env via `wasi_snapshot_preview1` |
-| Host Extensions | `kpio`/`kpio_gpu`/`kpio_net` namespaces (부분 구현) |
+| Host Extensions | `kpio`/`kpio_gpu`/`kpio_gui`/`kpio_system`/`kpio_net` namespaces (fully implemented) |
 
 See [WebAssembly Runtime Document](wasm-runtime.md) for detailed specifications.
 
@@ -398,11 +398,11 @@ enum Capability {
 
 | Optimization | Implementation |
 |--------------|----------------|
-| Tiered execution | Interpreter 기본 + JIT 프레임워크 확장 중 |
-| SIMD/bulk/reference types | 런타임 설정 플래그로 기능 제어 |
-| Fuel/limits | 실행 연료 및 자원 제한(DoS 완화) |
+| Tiered execution | Interpreter default + JIT framework with 5 optimization passes |
+| SIMD/bulk/reference types | Feature-gated via runtime configuration flags |
+| Fuel/limits | Execution fuel and resource limits (DoS mitigation) |
 
-성능 수치는 인터프리터 중심 현재 구현에서 JIT 완성도에 따라 크게 변동될 수 있어, 벤치마크 기반으로 지속 갱신합니다.
+Performance numbers are expected to improve significantly from the current interpreter baseline as the JIT compiler matures. Benchmarks will be continuously updated.
 
 ### 6.2 Graphics Performance
 
