@@ -29,7 +29,7 @@
 | 7-2.S5 | Interpreter 실행 정확성-II | 메모리/부동소수/트랩/간접호출 검증 | ✅ 완료 |
 | 7-2.S6 | Instance·Engine 통합 | instantiate/call/lifecycle/caching 검증 | ✅ 완료 |
 | 7-2.S7 | WASI P1 파일·프로세스 | fd/path/args/env/proc_exit 검증 | ✅ 완료 |
-| 7-2.S8 | Host 바인딩 확장 | wasi_snapshot_preview1 + kpio host 연결 | ⏳ 대기 |
+| 7-2.S8 | Host 바인딩 확장 | wasi_snapshot_preview1 + kpio host 연결 | ✅ 완료 |
 | 7-2.S9 | 패키징·컴포넌트·E2E | `.kpioapp`/component 기반 실행 검증 | ⏳ 대기 |
 
 ---
@@ -217,14 +217,19 @@
 - host function registration과 import dispatch 안정성을 확보한다.
 
 **작업**
-- [ ] wasi_snapshot_preview1 네임스페이스 등록 점검
-- [ ] kpio/kpio_gpu/kpio_net 확장 우선순위 정의
-- [ ] host call ABI(포인터/길이/errno) 규칙 점검
+- [x] wasi_snapshot_preview1 네임스페이스 등록 점검
+- [x] kpio/kpio_gpu/kpio_net 확장 우선순위 정의
+- [x] host call ABI(포인터/길이/errno) 규칙 점검
 
 **품질 게이트**
-- [ ] S8-QG1: host dispatch 경로 다이어그램 갱신
-- [ ] S8-QG2: 등록 함수 목록과 실제 구현 매핑 완료
-- [ ] S8-QG3: stub/implemented 상태표 최신화
+- [x] S8-QG1: host dispatch 경로 다이어그램 갱신
+- [x] S8-QG2: 등록 함수 목록과 실제 구현 매핑 완료
+- [x] S8-QG3: stub/implemented 상태표 최신화
+
+**게이트 결과**
+- 통과율: **3/3 = 100%**
+- 판정: **PASS**
+- 근거 문서: `docs/phase7/PHASE_7-2_S8_HOST_BINDING_GATE_REPORT.md`
 
 ---
 
@@ -263,4 +268,5 @@
 - 2026-02-16: `7-2.S5` 완료 (PASS, 100%)
 - 2026-02-16: `7-2.S6` 완료 (PASS, 100%)
 - 2026-02-16: `7-2.S7` 완료 (PASS, 100%)
-- 다음 활성화 대상: `7-2.S8`
+- 2026-02-16: `7-2.S8` 완료 (PASS, 100%)
+- 다음 활성화 대상: `7-2.S9`
