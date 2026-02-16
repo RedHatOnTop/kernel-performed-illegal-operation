@@ -6,8 +6,8 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::syscall;
 use super::time::Duration;
+use crate::syscall;
 
 static NEXT_THREAD_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -32,12 +32,12 @@ impl Thread {
     pub fn id(&self) -> ThreadId {
         self.id
     }
-    
+
     /// Gets the thread's name.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
-    
+
     /// Unparks (wakes) this thread.
     pub fn unpark(&self) {
         let _ = syscall::thread_unpark(self.id.0);
@@ -86,17 +86,17 @@ impl<T> JoinHandle<T> {
     pub fn thread(&self) -> &Thread {
         &self.thread
     }
-    
+
     /// Waits for the thread to finish.
     pub fn join(self) -> Result<T, Box<dyn core::any::Any + Send + 'static>> {
         // Wait for thread completion
         let _ = syscall::thread_join(self.kernel_handle);
-        
+
         // In real implementation, result would be retrieved from shared memory
         // For now, this is a placeholder
         Err(Box::new(()))
     }
-    
+
     /// Checks if the thread has finished.
     pub fn is_finished(&self) -> bool {
         syscall::thread_is_finished(self.kernel_handle).unwrap_or(true)
@@ -117,19 +117,19 @@ impl Builder {
             stack_size: None,
         }
     }
-    
+
     /// Sets the name of the thread.
     pub fn name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
-    
+
     /// Sets the stack size for the new thread.
     pub fn stack_size(mut self, size: usize) -> Self {
         self.stack_size = Some(size);
         self
     }
-    
+
     /// Spawns a new thread.
     pub fn spawn<F, T>(self, f: F) -> Result<JoinHandle<T>, SpawnError>
     where
@@ -137,23 +137,20 @@ impl Builder {
         T: Send + 'static,
     {
         let stack_size = self.stack_size.unwrap_or(2 * 1024 * 1024); // 2MB default
-        
+
         // Box the closure (use double indirection to avoid fat pointer issues)
         let boxed: Box<Box<dyn FnOnce() -> T + Send + 'static>> = Box::new(Box::new(f));
         let raw = Box::into_raw(boxed) as *mut () as usize;
-        
+
         // Create thread via syscall
-        let kernel_handle = syscall::thread_spawn(
-            thread_entry::<T> as usize,
-            raw,
-            stack_size,
-        ).map_err(|_| SpawnError)?;
-        
+        let kernel_handle = syscall::thread_spawn(thread_entry::<T> as usize, raw, stack_size)
+            .map_err(|_| SpawnError)?;
+
         let thread = Thread {
             id: ThreadId::new(),
             name: self.name,
         };
-        
+
         Ok(JoinHandle {
             thread,
             result: None,
@@ -170,15 +167,15 @@ impl Default for Builder {
 
 /// Entry point for spawned threads
 extern "C" fn thread_entry<T>(closure_ptr: usize) -> ! {
-    let closure: Box<Box<dyn FnOnce() -> T + Send + 'static>> = 
+    let closure: Box<Box<dyn FnOnce() -> T + Send + 'static>> =
         unsafe { Box::from_raw(closure_ptr as *mut Box<dyn FnOnce() -> T + Send + 'static>) };
-    
+
     let _result = (*closure)();
-    
+
     // Store result somewhere for join() to retrieve
     // Then exit the thread
     syscall::thread_exit(0);
-    
+
     // This should never be reached
     loop {
         core::hint::spin_loop();
@@ -234,7 +231,9 @@ pub struct ScopedJoinHandle<'scope, T> {
 impl<'scope, T> ScopedJoinHandle<'scope, T> {
     /// Waits for the thread to finish.
     pub fn join(mut self) -> Result<T, Box<dyn core::any::Any + Send + 'static>> {
-        self.result.take().ok_or_else(|| Box::new(()) as Box<dyn core::any::Any + Send>)
+        self.result
+            .take()
+            .ok_or_else(|| Box::new(()) as Box<dyn core::any::Any + Send>)
     }
 }
 
@@ -260,7 +259,7 @@ impl<T: 'static> LocalKey<T> {
     pub const fn new(init: fn() -> T) -> Self {
         LocalKey { init }
     }
-    
+
     /// Acquires a reference to the value in this TLS slot.
     pub fn with<F, R>(&'static self, f: F) -> R
     where

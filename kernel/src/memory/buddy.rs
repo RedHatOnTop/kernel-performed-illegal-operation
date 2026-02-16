@@ -17,8 +17,8 @@
 //! Order 10: 4MB blocks (2^22)
 //! ```
 
-use spin::Mutex;
 use core::sync::atomic::{AtomicU64, Ordering};
+use spin::Mutex;
 
 /// Maximum order (4MB = 2^22 bytes, order 10 = 2^(12+10) = 2^22)
 pub const MAX_ORDER: usize = 10;
@@ -97,33 +97,33 @@ impl BuddyAllocator {
             allocated_bitmap: [0; 64],
         }
     }
-    
+
     /// Initialize the allocator with a memory region.
     pub fn init(&mut self, base: usize, size: usize) {
         self.base = base;
         self.size = size;
-        
+
         // Add the entire region as the largest possible block
         let order = Self::size_to_order(size).min(MAX_ORDER);
         self.add_to_free_list(order, base);
     }
-    
+
     /// Allocate a block of the given size.
     pub fn allocate(&mut self, size: usize) -> Option<usize> {
         let size = size.max(MIN_BLOCK_SIZE);
         let order = Self::size_to_order(size);
-        
+
         if order > MAX_ORDER {
             BUDDY_STATS.failures.fetch_add(1, Ordering::Relaxed);
             return None;
         }
-        
+
         // Find a free block of sufficient size
         let block_order = self.find_free_block(order)?;
-        
+
         // Remove from free list
         let addr = self.remove_from_free_list(block_order)?;
-        
+
         // Split if necessary
         let mut current_order = block_order;
         while current_order > order {
@@ -132,50 +132,50 @@ impl BuddyAllocator {
             self.add_to_free_list(current_order, buddy_addr);
             BUDDY_STATS.splits.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         // Mark as allocated
         self.set_allocated(addr, order, true);
-        
+
         BUDDY_STATS.allocations.fetch_add(1, Ordering::Relaxed);
         Some(addr)
     }
-    
+
     /// Free a previously allocated block.
     pub fn deallocate(&mut self, addr: usize, size: usize) {
         let size = size.max(MIN_BLOCK_SIZE);
         let mut order = Self::size_to_order(size);
         let mut addr = addr;
-        
+
         // Mark as free
         self.set_allocated(addr, order, false);
-        
+
         // Try to merge with buddy
         while order < MAX_ORDER {
             let buddy_addr = self.buddy_address(addr, order);
-            
+
             // Check if buddy is free
             if !self.is_free_at_order(buddy_addr, order) {
                 break;
             }
-            
+
             // Remove buddy from free list
             if !self.remove_specific_from_free_list(order, buddy_addr) {
                 break;
             }
-            
+
             // Merge
             addr = addr.min(buddy_addr);
             order += 1;
-            
+
             BUDDY_STATS.merges.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         // Add merged block to free list
         self.add_to_free_list(order, addr);
-        
+
         BUDDY_STATS.deallocations.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     /// Find the buddy address for a block.
     fn buddy_address(&self, addr: usize, order: usize) -> usize {
         let block_size = Self::order_to_size(order);
@@ -183,7 +183,7 @@ impl BuddyAllocator {
         let buddy_relative = relative ^ block_size;
         self.base + buddy_relative
     }
-    
+
     /// Convert size to order.
     fn size_to_order(size: usize) -> usize {
         let mut order = 0;
@@ -194,12 +194,12 @@ impl BuddyAllocator {
         }
         order
     }
-    
+
     /// Convert order to size.
     fn order_to_size(order: usize) -> usize {
         MIN_BLOCK_SIZE << order
     }
-    
+
     /// Find a free block of at least the given order.
     fn find_free_block(&self, min_order: usize) -> Option<usize> {
         for order in min_order..=MAX_ORDER {
@@ -209,23 +209,23 @@ impl BuddyAllocator {
         }
         None
     }
-    
+
     /// Add a block to the free list.
     fn add_to_free_list(&mut self, order: usize, addr: usize) {
         if self.next_slot >= self.blocks.len() {
             return; // Out of metadata slots
         }
-        
+
         let slot = self.next_slot;
         self.next_slot += 1;
-        
+
         self.blocks[slot] = Some(FreeBlock {
             addr,
             next: self.free_lists[order],
         });
         self.free_lists[order] = Some(slot);
     }
-    
+
     /// Remove a block from the free list.
     fn remove_from_free_list(&mut self, order: usize) -> Option<usize> {
         let slot = self.free_lists[order]?;
@@ -234,12 +234,12 @@ impl BuddyAllocator {
         self.blocks[slot] = None;
         Some(block.addr)
     }
-    
+
     /// Remove a specific block from the free list.
     fn remove_specific_from_free_list(&mut self, order: usize, addr: usize) -> bool {
         let mut prev: Option<usize> = None;
         let mut current = self.free_lists[order];
-        
+
         while let Some(slot) = current {
             if let Some(block) = self.blocks[slot] {
                 if block.addr == addr {
@@ -262,7 +262,7 @@ impl BuddyAllocator {
         }
         false
     }
-    
+
     /// Check if a block at a given order is free.
     fn is_free_at_order(&self, addr: usize, order: usize) -> bool {
         let mut current = self.free_lists[order];
@@ -278,13 +278,13 @@ impl BuddyAllocator {
         }
         false
     }
-    
+
     /// Mark a block as allocated or free in the bitmap.
     fn set_allocated(&mut self, addr: usize, _order: usize, allocated: bool) {
         let relative = (addr - self.base) / MIN_BLOCK_SIZE;
         let word = relative / 64;
         let bit = relative % 64;
-        
+
         if word < self.allocated_bitmap.len() {
             if allocated {
                 self.allocated_bitmap[word] |= 1 << bit;
@@ -293,11 +293,11 @@ impl BuddyAllocator {
             }
         }
     }
-    
+
     /// Get statistics about memory usage.
     pub fn stats(&self) -> BuddyAllocatorStats {
         let mut free_blocks = [0usize; MAX_ORDER + 1];
-        
+
         for order in 0..=MAX_ORDER {
             let mut count = 0;
             let mut current = self.free_lists[order];
@@ -311,12 +311,12 @@ impl BuddyAllocator {
             }
             free_blocks[order] = count;
         }
-        
+
         let mut total_free = 0;
         for order in 0..=MAX_ORDER {
             total_free += free_blocks[order] * Self::order_to_size(order);
         }
-        
+
         BuddyAllocatorStats {
             free_blocks,
             total_size: self.size,
@@ -362,7 +362,7 @@ pub fn stats() -> BuddyAllocatorStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_size_to_order() {
         assert_eq!(BuddyAllocator::size_to_order(4096), 0);
@@ -370,7 +370,7 @@ mod tests {
         assert_eq!(BuddyAllocator::size_to_order(4097), 1);
         assert_eq!(BuddyAllocator::size_to_order(16384), 2);
     }
-    
+
     #[test]
     fn test_order_to_size() {
         assert_eq!(BuddyAllocator::order_to_size(0), 4096);

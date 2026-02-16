@@ -8,8 +8,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use spin::RwLock;
 
-use super::{DisplayMode, InstalledApp, AppIcon, PwaError};
 use super::manifest::WebAppManifest;
+use super::{AppIcon, DisplayMode, InstalledApp, PwaError};
 
 /// Installation prompt
 pub struct BeforeInstallPromptEvent {
@@ -160,12 +160,14 @@ impl InstallManager {
     }
 
     /// Install app
-    pub fn install(&mut self, url: &str, manifest: &WebAppManifest) -> Result<InstalledApp, PwaError> {
+    pub fn install(
+        &mut self,
+        url: &str,
+        manifest: &WebAppManifest,
+    ) -> Result<InstalledApp, PwaError> {
         let app_id = generate_app_id(url);
 
-        let icons: Vec<AppIcon> = manifest.icons.iter()
-            .map(|i| i.to_app_icon())
-            .collect();
+        let icons: Vec<AppIcon> = manifest.icons.iter().map(|i| i.to_app_icon()).collect();
 
         let app = InstalledApp {
             id: app_id.clone(),
@@ -269,7 +271,12 @@ impl InstallCriteria {
     }
 
     /// Check manifest against criteria
-    pub fn check(&self, manifest: &WebAppManifest, has_service_worker: bool, is_https: bool) -> InstallCheckResult {
+    pub fn check(
+        &self,
+        manifest: &WebAppManifest,
+        has_service_worker: bool,
+        is_https: bool,
+    ) -> InstallCheckResult {
         let mut errors = Vec::new();
 
         if self.require_https && !is_https {
@@ -292,7 +299,10 @@ impl InstallCriteria {
             let has_large_icon = manifest.icons.iter().any(|icon| {
                 icon.sizes.split_whitespace().any(|s| {
                     if let Some((w, _)) = s.split_once('x') {
-                        w.parse::<u32>().ok().map(|w| w >= self.min_icon_size).unwrap_or(false)
+                        w.parse::<u32>()
+                            .ok()
+                            .map(|w| w >= self.min_icon_size)
+                            .unwrap_or(false)
                     } else {
                         false
                     }

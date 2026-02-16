@@ -6,8 +6,8 @@
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use spin::RwLock;
 
 use super::capability::{Capability, CapabilityRights};
@@ -22,7 +22,7 @@ impl ServiceId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     /// Get raw ID value.
     pub fn as_u64(self) -> u64 {
         self.0
@@ -106,41 +106,40 @@ impl ServiceInfo {
             owner_pid: 0,
         }
     }
-    
+
     /// Set description.
     pub fn description(mut self, desc: &str) -> Self {
         self.description = desc.to_string();
         self
     }
-    
+
     /// Set version.
     pub fn version(mut self, version: u32) -> Self {
         self.version = version;
         self
     }
-    
+
     /// Set required rights.
     pub fn required_rights(mut self, rights: CapabilityRights) -> Self {
         self.required_rights = rights;
         self
     }
-    
+
     /// Set max connections.
     pub fn max_connections(mut self, max: u32) -> Self {
         self.max_connections = max;
         self
     }
-    
+
     /// Set owner PID.
     pub fn owner(mut self, pid: u64) -> Self {
         self.owner_pid = pid;
         self
     }
-    
+
     /// Check if service can accept new connection.
     pub fn can_accept_connection(&self) -> bool {
-        self.state == ServiceState::Running 
-            && self.current_connections < self.max_connections
+        self.state == ServiceState::Running && self.current_connections < self.max_connections
     }
 }
 
@@ -207,7 +206,7 @@ impl ServiceRegistry {
             next_connection_id: spin::Mutex::new(1),
         }
     }
-    
+
     /// Register a new service.
     pub fn register(
         &self,
@@ -220,7 +219,7 @@ impl ServiceRegistry {
         if name.is_empty() || !Self::validate_name(name) {
             return Err(ServiceError::InvalidName(name.to_string()));
         }
-        
+
         // Check if already exists
         {
             let by_name = self.by_name.read();
@@ -228,7 +227,7 @@ impl ServiceRegistry {
                 return Err(ServiceError::AlreadyExists(name.to_string()));
             }
         }
-        
+
         // Allocate ID
         let id = {
             let mut next = self.next_id.lock();
@@ -236,41 +235,45 @@ impl ServiceRegistry {
             *next += 1;
             id
         };
-        
+
         // Create accept channel
         let channel_id = ChannelId(id.0);
         let channel = Arc::new(Channel::new(channel_id, channel_id));
-        
+
         // Create service info
         let info = ServiceInfo::new(id, name)
             .description(description)
             .required_rights(required_rights)
             .owner(owner_pid);
-        
+
         // Register
         {
             let mut by_name = self.by_name.write();
             let mut by_id = self.by_id.write();
-            
-            by_name.insert(name.to_string(), RegisteredService {
-                info,
-                accept_channel: channel.clone(),
-                connections: Vec::new(),
-            });
+
+            by_name.insert(
+                name.to_string(),
+                RegisteredService {
+                    info,
+                    accept_channel: channel.clone(),
+                    connections: Vec::new(),
+                },
+            );
             by_id.insert(id, name.to_string());
         }
-        
+
         Ok((id, channel))
     }
-    
+
     /// Set service state.
     pub fn set_state(&self, id: ServiceId, state: ServiceState) -> Result<(), ServiceError> {
         let by_id = self.by_id.read();
-        let name = by_id.get(&id)
+        let name = by_id
+            .get(&id)
             .ok_or_else(|| ServiceError::NotFound(format!("ID: {:?}", id)))?
             .clone();
         drop(by_id);
-        
+
         let mut by_name = self.by_name.write();
         if let Some(service) = by_name.get_mut(&name) {
             service.info.state = state;
@@ -279,39 +282,40 @@ impl ServiceRegistry {
             Err(ServiceError::NotFound(name))
         }
     }
-    
+
     /// Unregister a service.
     pub fn unregister(&self, id: ServiceId) -> Result<(), ServiceError> {
         let by_id = self.by_id.read();
-        let name = by_id.get(&id)
+        let name = by_id
+            .get(&id)
             .ok_or_else(|| ServiceError::NotFound(format!("ID: {:?}", id)))?
             .clone();
         drop(by_id);
-        
+
         let mut by_name = self.by_name.write();
         let mut by_id = self.by_id.write();
-        
+
         by_name.remove(&name);
         by_id.remove(&id);
-        
+
         Ok(())
     }
-    
+
     /// Lookup service by name.
     pub fn lookup(&self, name: &str) -> Option<ServiceInfo> {
         let by_name = self.by_name.read();
         by_name.get(name).map(|s| s.info.clone())
     }
-    
+
     /// Lookup service by ID.
     pub fn lookup_by_id(&self, id: ServiceId) -> Option<ServiceInfo> {
         let by_id = self.by_id.read();
         let name = by_id.get(&id)?;
-        
+
         let by_name = self.by_name.read();
         by_name.get(name).map(|s| s.info.clone())
     }
-    
+
     /// Connect to a service.
     pub fn connect(
         &self,
@@ -319,24 +323,28 @@ impl ServiceRegistry {
         client_capability: Capability,
     ) -> Result<ServiceConnection, ServiceError> {
         let mut by_name = self.by_name.write();
-        let service = by_name.get_mut(name)
+        let service = by_name
+            .get_mut(name)
             .ok_or_else(|| ServiceError::NotFound(name.to_string()))?;
-        
+
         // Check state
         if service.info.state != ServiceState::Running {
             return Err(ServiceError::NotRunning);
         }
-        
+
         // Check capacity
         if !service.info.can_accept_connection() {
             return Err(ServiceError::TooManyConnections);
         }
-        
+
         // Check permissions
-        if !client_capability.rights().contains(service.info.required_rights) {
+        if !client_capability
+            .rights()
+            .contains(service.info.required_rights)
+        {
             return Err(ServiceError::PermissionDenied);
         }
-        
+
         // Create connection
         let connection_id = {
             let mut next = self.next_connection_id.lock();
@@ -344,16 +352,16 @@ impl ServiceRegistry {
             *next += 1;
             id
         };
-        
+
         // Create client channel (connected to server's accept channel)
         let client_channel_id = ChannelId(connection_id);
         let server_channel_id = ChannelId(service.info.id.0);
         let channel = Arc::new(Channel::new(client_channel_id, server_channel_id));
-        
+
         // Update connection count
         service.info.current_connections += 1;
         service.connections.push(connection_id);
-        
+
         Ok(ServiceConnection {
             service_id: service.info.id,
             capability: client_capability,
@@ -361,20 +369,29 @@ impl ServiceRegistry {
             connection_id,
         })
     }
-    
+
     /// Disconnect from a service.
-    pub fn disconnect(&self, service_id: ServiceId, connection_id: u64) -> Result<(), ServiceError> {
+    pub fn disconnect(
+        &self,
+        service_id: ServiceId,
+        connection_id: u64,
+    ) -> Result<(), ServiceError> {
         let by_id = self.by_id.read();
-        let name = by_id.get(&service_id)
+        let name = by_id
+            .get(&service_id)
             .ok_or_else(|| ServiceError::NotFound(format!("ID: {:?}", service_id)))?
             .clone();
         drop(by_id);
-        
+
         let mut by_name = self.by_name.write();
         if let Some(service) = by_name.get_mut(&name) {
-            if let Some(pos) = service.connections.iter().position(|&id| id == connection_id) {
+            if let Some(pos) = service
+                .connections
+                .iter()
+                .position(|&id| id == connection_id)
+            {
                 service.connections.remove(pos);
-                service.info.current_connections = 
+                service.info.current_connections =
                     service.info.current_connections.saturating_sub(1);
             }
             Ok(())
@@ -382,22 +399,23 @@ impl ServiceRegistry {
             Err(ServiceError::NotFound(name))
         }
     }
-    
+
     /// List all registered services.
     pub fn list_services(&self) -> Vec<ServiceInfo> {
         let by_name = self.by_name.read();
         by_name.values().map(|s| s.info.clone()).collect()
     }
-    
+
     /// List services matching a prefix.
     pub fn list_by_prefix(&self, prefix: &str) -> Vec<ServiceInfo> {
         let by_name = self.by_name.read();
-        by_name.iter()
+        by_name
+            .iter()
             .filter(|(name, _)| name.starts_with(prefix))
             .map(|(_, s)| s.info.clone())
             .collect()
     }
-    
+
     /// Validate service name.
     fn validate_name(name: &str) -> bool {
         // Names must be:
@@ -405,16 +423,17 @@ impl ServiceRegistry {
         // - Only contain alphanumeric, '.', '_', '-'
         // - Not start with '.'
         // - Max 255 characters
-        
+
         if name.is_empty() || name.len() > 255 {
             return false;
         }
-        
+
         if name.starts_with('.') {
             return false;
         }
-        
-        name.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
+
+        name.chars()
+            .all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
     }
 }
 
@@ -432,12 +451,7 @@ pub fn register_service(
     description: &str,
     owner_pid: u64,
 ) -> Result<(ServiceId, Arc<Channel>), ServiceError> {
-    GLOBAL_REGISTRY.register(
-        name,
-        description,
-        owner_pid,
-        CapabilityRights::CONNECT,
-    )
+    GLOBAL_REGISTRY.register(name, description, owner_pid, CapabilityRights::CONNECT)
 }
 
 /// Start a registered service.
@@ -483,31 +497,31 @@ impl ServiceBuilder {
             max_connections: 256,
         }
     }
-    
+
     /// Set description.
     pub fn description(mut self, desc: &str) -> Self {
         self.description = desc.to_string();
         self
     }
-    
+
     /// Set owner PID.
     pub fn owner(mut self, pid: u64) -> Self {
         self.owner_pid = pid;
         self
     }
-    
+
     /// Set required rights.
     pub fn required_rights(mut self, rights: CapabilityRights) -> Self {
         self.required_rights = rights;
         self
     }
-    
+
     /// Set max connections.
     pub fn max_connections(mut self, max: u32) -> Self {
         self.max_connections = max;
         self
     }
-    
+
     /// Register the service.
     pub fn register(self) -> Result<(ServiceId, Arc<Channel>), ServiceError> {
         GLOBAL_REGISTRY.register(

@@ -2,7 +2,7 @@
 //!
 //! This module provides IPC channels for communication between processes.
 
-use crate::syscall::{syscall0, syscall1, syscall3, SyscallNumber, SyscallResult, SyscallError};
+use crate::syscall::{syscall0, syscall1, syscall3, SyscallError, SyscallNumber, SyscallResult};
 
 /// IPC channel handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,12 +15,12 @@ impl Channel {
     pub const fn from_raw(id: u64) -> Self {
         Self { id }
     }
-    
+
     /// Get the raw channel ID.
     pub const fn raw(&self) -> u64 {
         self.id
     }
-    
+
     /// Send data through the channel.
     pub fn send(&self, data: &[u8]) -> SyscallResult {
         unsafe {
@@ -32,7 +32,7 @@ impl Channel {
             )
         }
     }
-    
+
     /// Receive data from the channel.
     ///
     /// Returns the number of bytes received.
@@ -46,12 +46,10 @@ impl Channel {
             )
         }
     }
-    
+
     /// Close this channel endpoint.
     pub fn close(self) -> SyscallResult {
-        unsafe {
-            syscall1(SyscallNumber::ChannelClose, self.id)
-        }
+        unsafe { syscall1(SyscallNumber::ChannelClose, self.id) }
     }
 }
 
@@ -60,14 +58,12 @@ impl Channel {
 /// Returns `(channel_a, channel_b)` - two connected endpoints.
 /// Data sent on one channel can be received on the other.
 pub fn channel_pair() -> Result<(Channel, Channel), SyscallError> {
-    let result = unsafe {
-        syscall0(SyscallNumber::ChannelCreate)?
-    };
-    
+    let result = unsafe { syscall0(SyscallNumber::ChannelCreate)? };
+
     // IDs are packed into a single u64
     let id_a = (result >> 32) as u64;
     let id_b = (result & 0xFFFF_FFFF) as u64;
-    
+
     Ok((Channel::from_raw(id_a), Channel::from_raw(id_b)))
 }
 
@@ -112,7 +108,7 @@ impl MessageHeader {
             length,
         }
     }
-    
+
     /// Create a new request message header.
     pub const fn request(seq: u16, length: u32) -> Self {
         Self {
@@ -122,7 +118,7 @@ impl MessageHeader {
             length,
         }
     }
-    
+
     /// Create a new response message header.
     pub const fn response(seq: u16, length: u32) -> Self {
         Self {
@@ -132,7 +128,7 @@ impl MessageHeader {
             length,
         }
     }
-    
+
     /// Size of the header in bytes.
     pub const fn size() -> usize {
         core::mem::size_of::<Self>()
@@ -153,21 +149,18 @@ impl RpcChannel {
             next_seq: 0,
         }
     }
-    
+
     /// Send a request and wait for response.
     pub fn call(&mut self, request: &[u8], response_buf: &mut [u8]) -> Result<usize, SyscallError> {
         // Build request with header
         let seq = self.next_seq;
         self.next_seq = self.next_seq.wrapping_add(1);
-        
+
         let header = MessageHeader::request(seq, request.len() as u32);
         let header_bytes = unsafe {
-            core::slice::from_raw_parts(
-                &header as *const _ as *const u8,
-                MessageHeader::size(),
-            )
+            core::slice::from_raw_parts(&header as *const _ as *const u8, MessageHeader::size())
         };
-        
+
         // Send header + data
         // TODO: Use scatter-gather for efficiency
         let mut msg = [0u8; 4096];
@@ -175,12 +168,12 @@ impl RpcChannel {
         if total_len > msg.len() {
             return Err(SyscallError::InvalidArgument);
         }
-        
+
         msg[..MessageHeader::size()].copy_from_slice(header_bytes);
         msg[MessageHeader::size()..total_len].copy_from_slice(request);
-        
+
         self.channel.send(&msg[..total_len])?;
-        
+
         // Wait for response
         loop {
             match self.channel.recv(response_buf) {
@@ -198,7 +191,7 @@ impl RpcChannel {
             }
         }
     }
-    
+
     /// Get the underlying channel.
     pub fn into_channel(self) -> Channel {
         self.channel

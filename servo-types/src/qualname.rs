@@ -2,8 +2,8 @@
 //!
 //! Compatible with Servo's QualName in markup5ever.
 
+use crate::namespace::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::{LocalName, Namespace, Prefix};
-use crate::namespace::{HTML_NAMESPACE, SVG_NAMESPACE, MATHML_NAMESPACE};
 use core::fmt;
 use core::hash::{Hash, Hasher};
 
@@ -167,10 +167,7 @@ macro_rules! qualname {
     };
     // Namespace and local name
     ($ns:expr, $local:expr) => {
-        $crate::QualName::with_ns(
-            $crate::Namespace::new($ns),
-            $crate::LocalName::new($local),
-        )
+        $crate::QualName::with_ns($crate::Namespace::new($ns), $crate::LocalName::new($local))
     };
     // Prefix, namespace, and local name
     ($prefix:expr, $ns:expr, $local:expr) => {
@@ -231,10 +228,7 @@ mod tests {
     #[test]
     fn test_qualname_expanded() {
         let name = QualName::html(LocalName::new("div"));
-        assert_eq!(
-            name.expanded_name(),
-            "{http://www.w3.org/1999/xhtml}div"
-        );
+        assert_eq!(name.expanded_name(), "{http://www.w3.org/1999/xhtml}div");
     }
 
     #[test]

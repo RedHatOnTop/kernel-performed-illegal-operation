@@ -5,9 +5,9 @@
 //! - NVMe for modern SSDs
 //! - AHCI/SATA for traditional drives
 
-pub mod virtio;
-pub mod nvme;
 pub mod ahci;
+pub mod nvme;
+pub mod virtio;
 
 use crate::{BlockDeviceInfo, StorageError};
 
@@ -72,9 +72,7 @@ pub fn register_device(device: &'static dyn BlockDevice) -> Result<usize, Storag
 
 /// Get a block device by index.
 pub fn get_device(index: usize) -> Option<&'static dyn BlockDevice> {
-    unsafe {
-        DEVICES.get(index)?.as_ref().map(|ptr| &**ptr)
-    }
+    unsafe { DEVICES.get(index)?.as_ref().map(|ptr| &**ptr) }
 }
 
 /// Get the number of registered devices.

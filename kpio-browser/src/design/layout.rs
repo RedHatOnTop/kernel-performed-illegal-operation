@@ -2,8 +2,8 @@
 //!
 //! Flexbox-inspired layout primitives for KPIO Browser UI.
 
-use alloc::vec::Vec;
 use super::tokens::spacing;
+use alloc::vec::Vec;
 
 /// Flex container
 #[derive(Debug, Clone)]
@@ -133,7 +133,12 @@ pub struct EdgeInsets {
 impl EdgeInsets {
     /// Create new edge insets
     pub const fn new(top: u32, right: u32, bottom: u32, left: u32) -> Self {
-        Self { top, right, bottom, left }
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
     }
 
     /// Zero insets

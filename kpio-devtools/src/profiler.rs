@@ -6,10 +6,10 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
-use alloc::boxed::Box;
 
 /// Profile ID.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -52,38 +52,38 @@ impl Profile {
             time_deltas: Vec::new(),
         }
     }
-    
+
     /// Duration in microseconds.
     pub fn duration(&self) -> f64 {
         self.end_time - self.start_time
     }
-    
+
     /// Total samples.
     pub fn sample_count(&self) -> usize {
         self.samples.len()
     }
-    
+
     /// Get node by ID.
     pub fn get_node(&self, id: i32) -> Option<&ProfileNode> {
         self.nodes.iter().find(|n| n.id == id)
     }
-    
+
     /// Calculate self time for each node.
     pub fn calculate_self_times(&self) -> BTreeMap<i32, f64> {
         let mut self_times: BTreeMap<i32, f64> = BTreeMap::new();
-        
+
         for (&sample, &delta) in self.samples.iter().zip(self.time_deltas.iter()) {
             *self_times.entry(sample).or_insert(0.0) += delta as f64;
         }
-        
+
         self_times
     }
-    
+
     /// Calculate total time for each node (self + children).
     pub fn calculate_total_times(&self) -> BTreeMap<i32, f64> {
         let self_times = self.calculate_self_times();
         let mut total_times: BTreeMap<i32, f64> = self_times.clone();
-        
+
         // Propagate times up the tree
         for node in self.nodes.iter().rev() {
             let node_total = *total_times.get(&node.id).unwrap_or(&0.0);
@@ -91,7 +91,7 @@ impl Profile {
                 *total_times.entry(parent).or_insert(0.0) += node_total;
             }
         }
-        
+
         total_times
     }
 }
@@ -156,7 +156,7 @@ impl RuntimeCallFrame {
             column_number: column,
         }
     }
-    
+
     /// Root frame.
     pub fn root() -> Self {
         Self {
@@ -167,7 +167,7 @@ impl RuntimeCallFrame {
             column_number: 0,
         }
     }
-    
+
     /// Program frame.
     pub fn program() -> Self {
         Self {
@@ -178,7 +178,7 @@ impl RuntimeCallFrame {
             column_number: 0,
         }
     }
-    
+
     /// Idle frame.
     pub fn idle() -> Self {
         Self {
@@ -189,7 +189,7 @@ impl RuntimeCallFrame {
             column_number: 0,
         }
     }
-    
+
     /// GC frame.
     pub fn gc() -> Self {
         Self {
@@ -387,7 +387,7 @@ impl TraceEvent {
             args: BTreeMap::new(),
         }
     }
-    
+
     /// Create an end event.
     pub fn end(cat: &str, name: &str, ts: f64, tid: u32, pid: u32) -> Self {
         Self {
@@ -401,7 +401,7 @@ impl TraceEvent {
             args: BTreeMap::new(),
         }
     }
-    
+
     /// Create a complete event.
     pub fn complete(cat: &str, name: &str, ts: f64, dur: f64, tid: u32, pid: u32) -> Self {
         Self {
@@ -415,7 +415,7 @@ impl TraceEvent {
             args: BTreeMap::new(),
         }
     }
-    
+
     /// Create an instant event.
     pub fn instant(cat: &str, name: &str, ts: f64, tid: u32, pid: u32) -> Self {
         Self {
@@ -429,7 +429,7 @@ impl TraceEvent {
             args: BTreeMap::new(),
         }
     }
-    
+
     /// Add an argument.
     pub fn with_arg(mut self, name: &str, value: TraceEventArg) -> Self {
         self.args.insert(name.to_string(), value);
@@ -590,12 +590,12 @@ impl PerformanceTiming {
     pub fn dns_time(&self) -> f64 {
         self.domain_lookup_end - self.domain_lookup_start
     }
-    
+
     /// Calculate TCP connect time.
     pub fn connect_time(&self) -> f64 {
         self.connect_end - self.connect_start
     }
-    
+
     /// Calculate TLS time.
     pub fn tls_time(&self) -> f64 {
         if self.secure_connection_start > 0.0 {
@@ -604,22 +604,22 @@ impl PerformanceTiming {
             0.0
         }
     }
-    
+
     /// Calculate time to first byte.
     pub fn ttfb(&self) -> f64 {
         self.response_start - self.navigation_start
     }
-    
+
     /// Calculate response time.
     pub fn response_time(&self) -> f64 {
         self.response_end - self.response_start
     }
-    
+
     /// Calculate DOM processing time.
     pub fn dom_processing_time(&self) -> f64 {
         self.dom_complete - self.dom_loading
     }
-    
+
     /// Calculate total page load time.
     pub fn page_load_time(&self) -> f64 {
         self.load_event_end - self.navigation_start
@@ -750,30 +750,30 @@ impl Profiler {
             sampling_interval: 100, // 100 microseconds
         }
     }
-    
+
     /// Set sampling interval.
     pub fn set_sampling_interval(&mut self, interval: u64) {
         self.sampling_interval = interval;
     }
-    
+
     /// Start profiling.
     pub fn start(&mut self) -> ProfileId {
         let id = ProfileId(alloc::format!("profile-{}", self.next_profile_id));
         self.next_profile_id += 1;
-        
+
         let mut profile = Profile::new(id.clone());
-        
+
         // Add root node
         let root = ProfileNode::new(1, RuntimeCallFrame::root());
         profile.nodes.push(root);
-        
+
         self.profiles.insert(id.0.clone(), profile);
         self.current_profile = Some(id.clone());
         self.is_profiling = true;
-        
+
         id
     }
-    
+
     /// Stop profiling.
     pub fn stop(&mut self) -> Option<Profile> {
         if let Some(id) = self.current_profile.take() {
@@ -783,7 +783,7 @@ impl Profiler {
             None
         }
     }
-    
+
     /// Add a sample.
     pub fn add_sample(&mut self, node_id: i32, timestamp: f64) {
         if let Some(ref id) = self.current_profile {
@@ -791,19 +791,19 @@ impl Profiler {
                 if profile.samples.is_empty() {
                     profile.start_time = timestamp;
                 }
-                
+
                 let delta = if let Some(last) = profile.samples.last() {
-                    let last_time = profile.start_time + 
-                        profile.time_deltas.iter().sum::<i64>() as f64;
+                    let last_time =
+                        profile.start_time + profile.time_deltas.iter().sum::<i64>() as f64;
                     ((timestamp - last_time) * 1000.0) as i64
                 } else {
                     0
                 };
-                
+
                 profile.samples.push(node_id);
                 profile.time_deltas.push(delta);
                 profile.end_time = timestamp;
-                
+
                 // Increment hit count
                 if let Some(node) = profile.nodes.iter_mut().find(|n| n.id == node_id) {
                     node.hit_count += 1;
@@ -811,17 +811,17 @@ impl Profiler {
             }
         }
     }
-    
+
     /// Get profile by ID.
     pub fn get_profile(&self, id: &ProfileId) -> Option<&Profile> {
         self.profiles.get(&id.0)
     }
-    
+
     /// Start tracing.
     pub fn start_tracing(&mut self, categories: &[&str]) {
         self.trace_events.clear();
         self.is_tracing = true;
-        
+
         // Add metadata event for enabled categories
         let mut event = TraceEvent {
             cat: "__metadata".to_string(),
@@ -839,20 +839,20 @@ impl Profiler {
         );
         self.trace_events.push(event);
     }
-    
+
     /// Stop tracing.
     pub fn stop_tracing(&mut self) -> Vec<TraceEvent> {
         self.is_tracing = false;
         core::mem::take(&mut self.trace_events)
     }
-    
+
     /// Add trace event.
     pub fn add_trace_event(&mut self, event: TraceEvent) {
         if self.is_tracing {
             self.trace_events.push(event);
         }
     }
-    
+
     /// Take heap snapshot.
     pub fn take_heap_snapshot(&mut self, title: &str, timestamp: f64) -> String {
         let id = alloc::format!("snapshot-{}", self.heap_snapshots.len() + 1);
@@ -860,17 +860,17 @@ impl Profiler {
         self.heap_snapshots.push(snapshot);
         id
     }
-    
+
     /// Get heap snapshot.
     pub fn get_heap_snapshot(&self, id: &str) -> Option<&HeapSnapshot> {
         self.heap_snapshots.iter().find(|s| s.id == id)
     }
-    
+
     /// Collect garbage.
     pub fn collect_garbage(&self) {
         // Would trigger GC in the JS engine
     }
-    
+
     /// Get performance metrics.
     pub fn get_metrics(&self) -> PerformanceMetrics {
         // Would collect from browser engine
@@ -900,22 +900,22 @@ impl FlameGraphBuilder {
             values: Vec::new(),
         }
     }
-    
+
     /// Add a sample.
     pub fn add_sample(&mut self, stack: Vec<RuntimeCallFrame>, value: u64) {
         self.samples.push(stack);
         self.values.push(value);
     }
-    
+
     /// Build from profile.
     pub fn from_profile(profile: &Profile) -> Self {
         let mut builder = Self::new();
-        
+
         // Build stack for each sample
         for &sample_id in &profile.samples {
             let mut stack = Vec::new();
             let mut current_id = Some(sample_id);
-            
+
             while let Some(id) = current_id {
                 if let Some(node) = profile.get_node(id) {
                     stack.push(node.call_frame.clone());
@@ -924,20 +924,21 @@ impl FlameGraphBuilder {
                     break;
                 }
             }
-            
+
             stack.reverse();
             builder.add_sample(stack, 1);
         }
-        
+
         builder
     }
-    
+
     /// Generate folded stacks format.
     pub fn to_folded_stacks(&self) -> String {
         let mut lines = Vec::new();
-        
+
         for (stack, &value) in self.samples.iter().zip(self.values.iter()) {
-            let stack_str: Vec<String> = stack.iter()
+            let stack_str: Vec<String> = stack
+                .iter()
                 .map(|f| {
                     if f.url.is_empty() {
                         f.function_name.clone()
@@ -946,10 +947,10 @@ impl FlameGraphBuilder {
                     }
                 })
                 .collect();
-            
+
             lines.push(alloc::format!("{} {}", stack_str.join(";"), value));
         }
-        
+
         lines.join("\n")
     }
 }
@@ -963,35 +964,35 @@ impl Default for FlameGraphBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_profiler() {
         let mut profiler = Profiler::new();
         let id = profiler.start();
-        
+
         assert!(profiler.is_profiling);
-        
+
         let profile = profiler.stop();
         assert!(profile.is_some());
         assert!(!profiler.is_profiling);
     }
-    
+
     #[test]
     fn test_trace_event() {
         let event = TraceEvent::complete("v8", "ParseFunction", 1000.0, 500.0, 1, 1)
             .with_arg("url", TraceEventArg::String("script.js".to_string()));
-        
+
         assert_eq!(event.ph, TraceEventPhase::Complete);
         assert_eq!(event.dur, Some(500.0));
     }
-    
+
     #[test]
     fn test_performance_timing() {
         let mut timing = PerformanceTiming::default();
         timing.navigation_start = 0.0;
         timing.response_start = 100.0;
         timing.load_event_end = 500.0;
-        
+
         assert_eq!(timing.ttfb(), 100.0);
         assert_eq!(timing.page_load_time(), 500.0);
     }

@@ -67,11 +67,11 @@ impl FileExplorer {
         // Add current to history
         self.history_back.push(self.current_path.clone());
         self.history_forward.clear();
-        
+
         // Update path
         self.current_path = path.to_string();
         self.selected.clear();
-        
+
         // Load entries would happen here
         self.entries.clear();
     }
@@ -168,7 +168,8 @@ impl FileExplorer {
         if self.selected.is_empty() {
             return;
         }
-        let paths: Vec<String> = self.selected_entries()
+        let paths: Vec<String> = self
+            .selected_entries()
             .iter()
             .map(|e| e.path.clone())
             .collect();
@@ -180,7 +181,8 @@ impl FileExplorer {
         if self.selected.is_empty() {
             return;
         }
-        let paths: Vec<String> = self.selected_entries()
+        let paths: Vec<String> = self
+            .selected_entries()
             .iter()
             .map(|e| e.path.clone())
             .collect();
@@ -191,7 +193,7 @@ impl FileExplorer {
     pub fn paste(&mut self) -> Option<PasteOperation> {
         let clipboard = self.clipboard.take()?;
         let destination = self.current_path.clone();
-        
+
         match clipboard {
             ClipboardOperation::Cut(paths) => Some(PasteOperation {
                 action: PasteAction::Move,
@@ -491,14 +493,12 @@ impl Default for Sidebar {
                 },
             ],
             favorites: Vec::new(),
-            drives: alloc::vec![
-                SidebarItem {
-                    name: String::from("System"),
-                    path: String::from("/"),
-                    icon: String::from("hard-drive"),
-                    item_type: SidebarItemType::Drive,
-                },
-            ],
+            drives: alloc::vec![SidebarItem {
+                name: String::from("System"),
+                path: String::from("/"),
+                icon: String::from("hard-drive"),
+                item_type: SidebarItemType::Drive,
+            },],
             recent: Vec::new(),
         }
     }

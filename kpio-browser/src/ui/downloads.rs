@@ -6,9 +6,9 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 use spin::RwLock;
 
 /// Download ID.
@@ -110,7 +110,7 @@ impl Download {
             error: None,
         }
     }
-    
+
     /// Get progress (0.0 - 1.0).
     pub fn progress(&self) -> f64 {
         if self.total_bytes == 0 {
@@ -119,28 +119,34 @@ impl Download {
             (self.bytes_received as f64) / (self.total_bytes as f64)
         }
     }
-    
+
     /// Get progress as percentage.
     pub fn progress_percent(&self) -> u32 {
         (self.progress() * 100.0) as u32
     }
-    
+
     /// Is downloading.
     pub fn is_active(&self) -> bool {
-        matches!(self.state, DownloadState::InProgress | DownloadState::Pending)
+        matches!(
+            self.state,
+            DownloadState::InProgress | DownloadState::Pending
+        )
     }
-    
+
     /// Is finished (complete, failed, or cancelled).
     pub fn is_finished(&self) -> bool {
-        matches!(self.state, DownloadState::Complete | DownloadState::Failed | DownloadState::Cancelled)
+        matches!(
+            self.state,
+            DownloadState::Complete | DownloadState::Failed | DownloadState::Cancelled
+        )
     }
-    
+
     /// Get estimated time remaining (seconds).
     pub fn time_remaining(&self, speed_bytes_per_sec: u64) -> Option<u64> {
         if speed_bytes_per_sec == 0 || self.total_bytes == 0 {
             return None;
         }
-        
+
         let remaining = self.total_bytes.saturating_sub(self.bytes_received);
         Some(remaining / speed_bytes_per_sec)
     }
@@ -188,225 +194,229 @@ impl DownloadManager {
             observers: RwLock::new(Vec::new()),
         }
     }
-    
+
     /// Set download directory.
     pub fn set_download_dir(&self, path: &str) {
         *self.download_dir.write() = path.to_string();
     }
-    
+
     /// Get download directory.
     pub fn download_dir(&self) -> String {
         self.download_dir.read().clone()
     }
-    
+
     /// Set ask before download.
     pub fn set_ask_before_download(&self, ask: bool) {
         *self.ask_before_download.write() = ask;
     }
-    
+
     /// Start a download.
     pub fn start_download(&self, url: &str, filename: Option<&str>) -> DownloadId {
         let mut next_id = self.next_id.write();
         let id = *next_id;
         *next_id += 1;
         drop(next_id);
-        
-        let filename = filename.unwrap_or_else(|| {
-            url.rsplit('/').next().unwrap_or("download")
-        });
-        
+
+        let filename = filename.unwrap_or_else(|| url.rsplit('/').next().unwrap_or("download"));
+
         let download_dir = self.download_dir.read().clone();
         let save_path = alloc::format!("{}/{}", download_dir, filename);
-        
+
         let mut download = Download::new(id, url, filename, &save_path);
         download.state = DownloadState::InProgress;
         download.start_time = 0; // Would use current timestamp
-        
+
         let event = DownloadEvent::Created(download.clone());
         self.downloads.write().push(download);
         self.notify(&event);
-        
+
         id
     }
-    
+
     /// Update download progress.
     pub fn update_progress(&self, id: DownloadId, bytes_received: u64, total_bytes: u64) {
         let mut downloads = self.downloads.write();
-        
+
         if let Some(download) = downloads.iter_mut().find(|d| d.id == id) {
             download.bytes_received = bytes_received;
             if total_bytes > 0 {
                 download.total_bytes = total_bytes;
             }
-            
+
             let event = DownloadEvent::Updated(download.clone());
             drop(downloads);
             self.notify(&event);
         }
     }
-    
+
     /// Complete a download.
     pub fn complete(&self, id: DownloadId) {
         let mut downloads = self.downloads.write();
-        
+
         if let Some(download) = downloads.iter_mut().find(|d| d.id == id) {
             download.state = DownloadState::Complete;
             download.end_time = Some(0); // Would use current timestamp
             download.exists = true;
             download.bytes_received = download.total_bytes;
-            
+
             let event = DownloadEvent::Updated(download.clone());
             drop(downloads);
             self.notify(&event);
         }
     }
-    
+
     /// Fail a download.
     pub fn fail(&self, id: DownloadId, error: &str) {
         let mut downloads = self.downloads.write();
-        
+
         if let Some(download) = downloads.iter_mut().find(|d| d.id == id) {
             download.state = DownloadState::Failed;
             download.end_time = Some(0);
             download.error = Some(error.to_string());
-            
+
             let event = DownloadEvent::Updated(download.clone());
             drop(downloads);
             self.notify(&event);
         }
     }
-    
+
     /// Pause a download.
     pub fn pause(&self, id: DownloadId) -> bool {
         let mut downloads = self.downloads.write();
-        
+
         if let Some(download) = downloads.iter_mut().find(|d| d.id == id) {
             if download.state == DownloadState::InProgress && download.can_resume {
                 download.state = DownloadState::Paused;
-                
+
                 let event = DownloadEvent::Updated(download.clone());
                 drop(downloads);
                 self.notify(&event);
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Resume a download.
     pub fn resume(&self, id: DownloadId) -> bool {
         let mut downloads = self.downloads.write();
-        
+
         if let Some(download) = downloads.iter_mut().find(|d| d.id == id) {
             if download.state == DownloadState::Paused {
                 download.state = DownloadState::InProgress;
-                
+
                 let event = DownloadEvent::Updated(download.clone());
                 drop(downloads);
                 self.notify(&event);
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Cancel a download.
     pub fn cancel(&self, id: DownloadId) -> bool {
         let mut downloads = self.downloads.write();
-        
+
         if let Some(download) = downloads.iter_mut().find(|d: &&mut Download| d.id == id) {
             if download.is_active() {
                 download.state = DownloadState::Cancelled;
                 download.end_time = Some(0);
-                
+
                 let event = DownloadEvent::Updated(download.clone());
                 drop(downloads);
                 self.notify(&event);
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Retry a failed download.
     pub fn retry(&self, id: DownloadId) -> Option<DownloadId> {
         let downloads = self.downloads.read();
-        
+
         if let Some(download) = downloads.iter().find(|d| d.id == id) {
             if download.state == DownloadState::Failed {
                 let url = download.url.clone();
                 let filename = download.filename.clone();
                 drop(downloads);
-                
+
                 return Some(self.start_download(&url, Some(&filename)));
             }
         }
-        
+
         None
     }
-    
+
     /// Remove a download from the list.
     pub fn remove(&self, id: DownloadId) {
         self.downloads.write().retain(|d| d.id != id);
         self.notify(&DownloadEvent::Removed(id));
     }
-    
+
     /// Get download by ID.
     pub fn get(&self, id: DownloadId) -> Option<Download> {
         self.downloads.read().iter().find(|d| d.id == id).cloned()
     }
-    
+
     /// Get all downloads.
     pub fn all(&self) -> Vec<Download> {
         self.downloads.read().clone()
     }
-    
+
     /// Get active downloads.
     pub fn active(&self) -> Vec<Download> {
-        self.downloads.read().iter()
+        self.downloads
+            .read()
+            .iter()
             .filter(|d: &&Download| d.is_active())
             .cloned()
             .collect()
     }
-    
+
     /// Get active download count.
     pub fn active_count(&self) -> usize {
-        self.downloads.read().iter()
+        self.downloads
+            .read()
+            .iter()
             .filter(|d: &&Download| d.is_active())
             .count()
     }
-    
+
     /// Search downloads.
     pub fn search(&self, query: &str) -> Vec<Download> {
         let query = query.to_lowercase();
-        self.downloads.read().iter()
+        self.downloads
+            .read()
+            .iter()
             .filter(|d| {
-                d.filename.to_lowercase().contains(&query) ||
-                d.url.to_lowercase().contains(&query)
+                d.filename.to_lowercase().contains(&query) || d.url.to_lowercase().contains(&query)
             })
             .cloned()
             .collect()
     }
-    
+
     /// Clear completed downloads.
     pub fn clear_completed(&self) {
         let mut downloads = self.downloads.write();
-        let removed: Vec<DownloadId> = downloads.iter()
+        let removed: Vec<DownloadId> = downloads
+            .iter()
             .filter(|d| d.state == DownloadState::Complete)
             .map(|d| d.id)
             .collect();
-        
+
         downloads.retain(|d| d.state != DownloadState::Complete);
         drop(downloads);
-        
+
         for id in removed {
             self.notify(&DownloadEvent::Removed(id));
         }
     }
-    
+
     /// Add observer.
     pub fn observe<F>(&self, callback: F)
     where
@@ -414,31 +424,32 @@ impl DownloadManager {
     {
         self.observers.write().push(Box::new(callback));
     }
-    
+
     /// Notify observers.
     fn notify(&self, event: &DownloadEvent) {
         for observer in self.observers.read().iter() {
             observer(event);
         }
     }
-    
+
     /// Get suggested filename from URL.
     pub fn suggest_filename(url: &str) -> String {
-        url.rsplit('/').next()
+        url.rsplit('/')
+            .next()
             .unwrap_or("download")
-            .split('?').next()
+            .split('?')
+            .next()
             .unwrap_or("download")
             .to_string()
     }
-    
+
     /// Check if file type is safe.
     pub fn is_safe_file_type(filename: &str) -> bool {
         let dangerous_extensions = [
-            ".exe", ".msi", ".bat", ".cmd", ".com", ".scr", ".pif",
-            ".vbs", ".js", ".jse", ".wsf", ".wsh", ".ps1", ".psm1",
-            ".jar", ".app", ".deb", ".rpm", ".dmg",
+            ".exe", ".msi", ".bat", ".cmd", ".com", ".scr", ".pif", ".vbs", ".js", ".jse", ".wsf",
+            ".wsh", ".ps1", ".psm1", ".jar", ".app", ".deb", ".rpm", ".dmg",
         ];
-        
+
         let lower = filename.to_lowercase();
         !dangerous_extensions.iter().any(|ext| lower.ends_with(ext))
     }
@@ -455,7 +466,7 @@ pub fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
-    
+
     if bytes >= GB {
         alloc::format!("{:.2} GB", bytes as f64 / GB as f64)
     } else if bytes >= MB {
@@ -475,7 +486,12 @@ pub fn format_speed(bytes_per_sec: u64) -> String {
 /// Format time for display.
 pub fn format_time(seconds: u64) -> String {
     if seconds >= 3600 {
-        alloc::format!("{}:{:02}:{:02}", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+        alloc::format!(
+            "{}:{:02}:{:02}",
+            seconds / 3600,
+            (seconds % 3600) / 60,
+            seconds % 60
+        )
     } else if seconds >= 60 {
         alloc::format!("{}:{:02}", seconds / 60, seconds % 60)
     } else {
@@ -486,40 +502,45 @@ pub fn format_time(seconds: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_download_progress() {
-        let mut download = Download::new(1, "https://example.com/file.zip", "file.zip", "/tmp/file.zip");
+        let mut download = Download::new(
+            1,
+            "https://example.com/file.zip",
+            "file.zip",
+            "/tmp/file.zip",
+        );
         download.total_bytes = 1000;
         download.bytes_received = 500;
-        
+
         assert_eq!(download.progress(), 0.5);
         assert_eq!(download.progress_percent(), 50);
     }
-    
+
     #[test]
     fn test_download_manager() {
         let manager = DownloadManager::new();
-        
+
         let id = manager.start_download("https://example.com/file.zip", None);
-        
+
         let download = manager.get(id).unwrap();
         assert_eq!(download.state, DownloadState::InProgress);
-        
+
         manager.update_progress(id, 500, 1000);
         assert_eq!(manager.get(id).unwrap().progress_percent(), 50);
-        
+
         manager.complete(id);
         assert_eq!(manager.get(id).unwrap().state, DownloadState::Complete);
     }
-    
+
     #[test]
     fn test_format_bytes() {
         assert_eq!(format_bytes(500), "500 B");
         assert_eq!(format_bytes(1536), "1.50 KB");
         assert_eq!(format_bytes(1_500_000), "1.43 MB");
     }
-    
+
     #[test]
     fn test_safe_file_type() {
         assert!(DownloadManager::is_safe_file_type("document.pdf"));

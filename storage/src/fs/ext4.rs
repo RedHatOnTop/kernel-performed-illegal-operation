@@ -6,9 +6,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{DirEntry, FileMetadata, FileType, FilePermissions, OpenFlags, StorageError};
-use crate::vfs::{Filesystem, FsStats};
 use crate::driver::BlockDevice;
+use crate::vfs::{Filesystem, FsStats};
+use crate::{DirEntry, FileMetadata, FilePermissions, FileType, OpenFlags, StorageError};
 
 /// ext4 superblock magic number.
 pub const EXT4_SUPER_MAGIC: u16 = 0xEF53;

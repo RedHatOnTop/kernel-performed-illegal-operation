@@ -41,7 +41,12 @@ pub struct DirtyRect {
 impl DirtyRect {
     /// Create a new dirty rectangle
     pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Merge two rectangles into one bounding rectangle
@@ -137,7 +142,8 @@ impl FramebufferManager {
     /// Mark the entire screen as dirty
     pub fn mark_all_dirty(&mut self) {
         self.dirty_regions.clear();
-        self.dirty_regions.push(DirtyRect::new(0, 0, self.width, self.height));
+        self.dirty_regions
+            .push(DirtyRect::new(0, 0, self.width, self.height));
     }
 
     /// Swap buffers - copy back buffer to front buffer
@@ -185,7 +191,11 @@ impl FramebufferManager {
             let dst = unsafe { self.front_buffer.add(offset) };
 
             unsafe {
-                ptr::copy_nonoverlapping(src, dst, bytes_per_row.min(row_stride - x as usize * self.bpp));
+                ptr::copy_nonoverlapping(
+                    src,
+                    dst,
+                    bytes_per_row.min(row_stride - x as usize * self.bpp),
+                );
             }
         }
     }
@@ -197,7 +207,7 @@ impl FramebufferManager {
         for y in 0..self.height as usize {
             for x in 0..self.width as usize {
                 let offset = y * row_bytes + x * self.bpp;
-                self.back_buffer[offset] = b;     // B
+                self.back_buffer[offset] = b; // B
                 self.back_buffer[offset + 1] = g; // G
                 self.back_buffer[offset + 2] = r; // R
                 if self.bpp >= 4 {

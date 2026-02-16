@@ -266,9 +266,9 @@ pub fn icmp_now() -> u64 {
 pub fn send_echo_request(dst: Ipv4Addr, id: u16, seq: u16) -> Option<u64> {
     // Build ICMP echo request: type 8, code 0
     let mut payload = Vec::with_capacity(64);
-    payload.push(8);  // type = echo request
-    payload.push(0);  // code
-    payload.push(0);  // checksum placeholder
+    payload.push(8); // type = echo request
+    payload.push(0); // code
+    payload.push(0); // checksum placeholder
     payload.push(0);
     // identifier
     payload.push((id >> 8) as u8);
@@ -298,7 +298,9 @@ pub fn send_echo_request(dst: Ipv4Addr, id: u16, seq: u16) -> Option<u64> {
         // Wait briefly for ARP reply, then retry
         for _ in 0..50 {
             super::poll_rx();
-            for _ in 0..20_000 { core::hint::spin_loop(); }
+            for _ in 0..20_000 {
+                core::hint::spin_loop();
+            }
         }
         if let Some(frame) = send_packet(dst, PROTO_ICMP, &payload) {
             super::transmit_frame(&frame);

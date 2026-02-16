@@ -7,17 +7,17 @@
 #![no_std]
 extern crate alloc;
 
-pub mod browser;
-pub mod screenshot;
-pub mod performance;
-pub mod harness;
 pub mod assertions;
+pub mod browser;
 pub mod fixtures;
+pub mod harness;
 pub mod integration;
+pub mod performance;
+pub mod screenshot;
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 use core::fmt;
 
 /// Test result status

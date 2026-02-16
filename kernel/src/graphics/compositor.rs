@@ -3,11 +3,11 @@
 //! Composites multiple surfaces into a final framebuffer output.
 //! Supports damage tracking for efficient partial updates.
 
-use alloc::vec::Vec;
-use super::surface::{Surface, SurfaceId, PixelFormat};
-use super::damage::{DamageTracker, DamageRect};
-use super::blitter::{Blitter, BlitOp, BlendMode};
 use super::animation::AnimationEngine;
+use super::blitter::{BlendMode, BlitOp, Blitter};
+use super::damage::{DamageRect, DamageTracker};
+use super::surface::{PixelFormat, Surface, SurfaceId};
+use alloc::vec::Vec;
 
 /// Compositor configuration
 #[derive(Debug, Clone)]
@@ -105,7 +105,7 @@ impl Compositor {
     pub fn create_layer(&mut self, width: u32, height: u32, z_order: i32) -> SurfaceId {
         let mut surface = Surface::new(width, height, PixelFormat::BGRA8888);
         surface.z_order = z_order;
-        
+
         let id = self.next_layer_id;
         self.next_layer_id += 1;
 
@@ -118,7 +118,7 @@ impl Compositor {
 
         // Sort by z-order
         self.layers.sort_by_key(|l| l.surface.z_order);
-        
+
         self.damage.mark_full_damage();
         self.needs_compose = true;
 
@@ -184,10 +184,10 @@ impl Compositor {
                     layer.surface.width,
                     layer.surface.height,
                 ));
-                
+
                 layer.surface.x = x;
                 layer.surface.y = y;
-                
+
                 // Damage new position
                 self.damage.add_damage(DamageRect::new(
                     x,
@@ -203,7 +203,7 @@ impl Compositor {
     /// Set layer z-order
     pub fn set_layer_z_order(&mut self, id: SurfaceId, z_order: i32) {
         let mut damage_rect = None;
-        
+
         if let Some(layer) = self.layers.iter_mut().find(|l| l.id == id.0) {
             layer.surface.z_order = z_order;
             damage_rect = Some(DamageRect::new(
@@ -213,7 +213,7 @@ impl Compositor {
                 layer.surface.height,
             ));
         }
-        
+
         if let Some(rect) = damage_rect {
             self.layers.sort_by_key(|l| l.surface.z_order);
             self.damage.add_damage(rect);
@@ -298,13 +298,9 @@ impl Compositor {
             self.cursor_y = y;
 
             // Damage new position
-            self.damage.add_damage(DamageRect::new(
-                x,
-                y,
-                cursor.width,
-                cursor.height,
-            ));
-            
+            self.damage
+                .add_damage(DamageRect::new(x, y, cursor.width, cursor.height));
+
             self.needs_compose = true;
         } else {
             self.cursor_x = x;
@@ -329,7 +325,10 @@ impl Compositor {
         for layer in &mut self.layers {
             let id = layer.id;
 
-            if let Some(opacity) = self.animations.get_value(id, super::animation::AnimationProperty::Opacity) {
+            if let Some(opacity) = self
+                .animations
+                .get_value(id, super::animation::AnimationProperty::Opacity)
+            {
                 let new_opacity = (opacity * 255.0).clamp(0.0, 255.0) as u8;
                 if layer.opacity != new_opacity {
                     layer.opacity = new_opacity;
@@ -337,33 +336,47 @@ impl Compositor {
                 }
             }
 
-            if let Some(x) = self.animations.get_value(id, super::animation::AnimationProperty::X) {
+            if let Some(x) = self
+                .animations
+                .get_value(id, super::animation::AnimationProperty::X)
+            {
                 let new_x = x as i32;
                 if layer.surface.x != new_x {
                     self.damage.add_damage(DamageRect::new(
-                        layer.surface.x, layer.surface.y,
-                        layer.surface.width, layer.surface.height,
+                        layer.surface.x,
+                        layer.surface.y,
+                        layer.surface.width,
+                        layer.surface.height,
                     ));
                     layer.surface.x = new_x;
                     self.damage.add_damage(DamageRect::new(
-                        new_x, layer.surface.y,
-                        layer.surface.width, layer.surface.height,
+                        new_x,
+                        layer.surface.y,
+                        layer.surface.width,
+                        layer.surface.height,
                     ));
                     self.needs_compose = true;
                 }
             }
 
-            if let Some(y) = self.animations.get_value(id, super::animation::AnimationProperty::Y) {
+            if let Some(y) = self
+                .animations
+                .get_value(id, super::animation::AnimationProperty::Y)
+            {
                 let new_y = y as i32;
                 if layer.surface.y != new_y {
                     self.damage.add_damage(DamageRect::new(
-                        layer.surface.x, layer.surface.y,
-                        layer.surface.width, layer.surface.height,
+                        layer.surface.x,
+                        layer.surface.y,
+                        layer.surface.width,
+                        layer.surface.height,
                     ));
                     layer.surface.y = new_y;
                     self.damage.add_damage(DamageRect::new(
-                        layer.surface.x, new_y,
-                        layer.surface.width, layer.surface.height,
+                        layer.surface.x,
+                        new_y,
+                        layer.surface.width,
+                        layer.surface.height,
                     ));
                     self.needs_compose = true;
                 }
@@ -443,7 +456,8 @@ impl Compositor {
         for damage_rect in damage_rects {
             // Clear damaged region to background
             let [r, g, b, a] = self.config.background_color;
-            self.blitter.fill_rect(&mut self.target, &damage_rect, r, g, b, a);
+            self.blitter
+                .fill_rect(&mut self.target, &damage_rect, r, g, b, a);
 
             // Composite intersecting layers
             for layer in &self.layers {
@@ -487,12 +501,8 @@ impl Compositor {
 
             // Composite cursor if it intersects
             if let Some(cursor) = &self.cursor {
-                let cursor_rect = DamageRect::new(
-                    self.cursor_x,
-                    self.cursor_y,
-                    cursor.width,
-                    cursor.height,
-                );
+                let cursor_rect =
+                    DamageRect::new(self.cursor_x, self.cursor_y, cursor.width, cursor.height);
 
                 if let Some(intersection) = cursor_rect.intersection(&damage_rect) {
                     let src_x = (intersection.x - self.cursor_x).max(0) as u32;
@@ -567,7 +577,7 @@ impl Compositor {
 
             unsafe {
                 let dst_ptr = framebuffer.add(dst_offset);
-                
+
                 if src_bpp == dst_bpp {
                     // Same format, direct copy
                     core::ptr::copy_nonoverlapping(
@@ -580,7 +590,7 @@ impl Compositor {
                     for x in 0..self.config.width as usize {
                         let src_pixel = &src_row[x * src_bpp..];
                         let dst_pixel = dst_ptr.add(x * dst_bpp);
-                        
+
                         *dst_pixel = src_pixel[0];
                         *dst_pixel.add(1) = src_pixel[1];
                         *dst_pixel.add(2) = src_pixel[2];

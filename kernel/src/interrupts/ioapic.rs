@@ -28,9 +28,9 @@
 //! - Intel 82093AA I/O Advanced Programmable Interrupt Controller Datasheet
 //! - ACPI Specification, MADT (Multiple APIC Description Table)
 
+use alloc::vec::Vec;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicU64, Ordering};
-use alloc::vec::Vec;
 use spin::Mutex;
 
 /// Default I/O APIC base address.
@@ -134,7 +134,7 @@ impl RedirectionEntry {
             destination,
         }
     }
-    
+
     /// Convert to 64-bit register value.
     fn to_u64(&self) -> u64 {
         let mut value: u64 = self.vector as u64;
@@ -146,7 +146,7 @@ impl RedirectionEntry {
         value |= (self.destination as u64) << 56;
         value
     }
-    
+
     /// Create from 64-bit register value.
     fn from_u64(value: u64) -> Self {
         RedirectionEntry {
@@ -206,7 +206,7 @@ impl IoApic {
     pub unsafe fn new(id: u8, base_phys: u64, gsi_base: u32) -> Self {
         let offset = PHYS_MEM_OFFSET.load(Ordering::SeqCst);
         let base_virt = base_phys + offset;
-        
+
         let mut ioapic = IoApic {
             id,
             base_phys,
@@ -214,24 +214,27 @@ impl IoApic {
             gsi_base,
             max_entries: 0,
         };
-        
+
         // Read version register to get max redirection entries.
         let version = ioapic.read_internal(internal::IOAPICVER);
         ioapic.max_entries = ((version >> 16) & 0xFF) as u8 + 1;
-        
+
         crate::serial_println!(
             "[IOAPIC] ID={}, base={:#x}, GSI base={}, entries={}",
-            id, base_phys, gsi_base, ioapic.max_entries
+            id,
+            base_phys,
+            gsi_base,
+            ioapic.max_entries
         );
-        
+
         ioapic
     }
-    
+
     /// Create with default address (for systems without ACPI).
     pub unsafe fn new_default() -> Self {
         unsafe { Self::new(0, IOAPIC_BASE_DEFAULT, 0) }
     }
-    
+
     /// Read from IOREGSEL/IOWIN registers.
     fn read_internal(&self, reg: u8) -> u32 {
         unsafe {
@@ -241,7 +244,7 @@ impl IoApic {
             read_volatile(win)
         }
     }
-    
+
     /// Write to IOREGSEL/IOWIN registers.
     fn write_internal(&self, reg: u8, value: u32) {
         unsafe {
@@ -251,54 +254,54 @@ impl IoApic {
             write_volatile(win, value);
         }
     }
-    
+
     /// Get the I/O APIC ID.
     pub fn id(&self) -> u8 {
         self.id
     }
-    
+
     /// Get the GSI base.
     pub fn gsi_base(&self) -> u32 {
         self.gsi_base
     }
-    
+
     /// Get the number of redirection entries.
     pub fn max_entries(&self) -> u8 {
         self.max_entries
     }
-    
+
     /// Check if this I/O APIC handles a given GSI.
     pub fn handles_gsi(&self, gsi: u32) -> bool {
         gsi >= self.gsi_base && gsi < self.gsi_base + self.max_entries as u32
     }
-    
+
     /// Read a redirection table entry.
     pub fn read_entry(&self, index: u8) -> RedirectionEntry {
         assert!(index < self.max_entries, "Invalid IOREDTBL index");
-        
+
         let reg_low = internal::IOREDTBL_BASE + index * 2;
         let reg_high = reg_low + 1;
-        
+
         let low = self.read_internal(reg_low);
         let high = self.read_internal(reg_high);
-        
+
         RedirectionEntry::from_u64((high as u64) << 32 | low as u64)
     }
-    
+
     /// Write a redirection table entry.
     pub fn write_entry(&self, index: u8, entry: &RedirectionEntry) {
         assert!(index < self.max_entries, "Invalid IOREDTBL index");
-        
+
         let reg_low = internal::IOREDTBL_BASE + index * 2;
         let reg_high = reg_low + 1;
-        
+
         let value = entry.to_u64();
-        
+
         // Write high first, then low (to avoid spurious interrupts).
         self.write_internal(reg_high, (value >> 32) as u32);
         self.write_internal(reg_low, value as u32);
     }
-    
+
     /// Set up an IRQ redirection.
     ///
     /// # Arguments
@@ -310,21 +313,21 @@ impl IoApic {
         let entry = RedirectionEntry::new(vector, dest_apic_id);
         self.write_entry(irq, &entry);
     }
-    
+
     /// Mask (disable) an IRQ.
     pub fn mask_irq(&self, irq: u8) {
         let mut entry = self.read_entry(irq);
         entry.masked = true;
         self.write_entry(irq, &entry);
     }
-    
+
     /// Unmask (enable) an IRQ.
     pub fn unmask_irq(&self, irq: u8) {
         let mut entry = self.read_entry(irq);
         entry.masked = false;
         self.write_entry(irq, &entry);
     }
-    
+
     /// Mask all IRQs.
     pub fn mask_all(&self) {
         for i in 0..self.max_entries {
@@ -345,22 +348,24 @@ impl IoApicManager {
             ioapics: Vec::new(),
         }
     }
-    
+
     /// Add an I/O APIC.
     pub fn add(&mut self, ioapic: IoApic) {
         self.ioapics.push(ioapic);
     }
-    
+
     /// Find the I/O APIC that handles a given GSI.
     pub fn find_by_gsi(&self, gsi: u32) -> Option<&IoApic> {
         self.ioapics.iter().find(|ioapic| ioapic.handles_gsi(gsi))
     }
-    
+
     /// Find the I/O APIC that handles a given GSI (mutable).
     pub fn find_by_gsi_mut(&mut self, gsi: u32) -> Option<&mut IoApic> {
-        self.ioapics.iter_mut().find(|ioapic| ioapic.handles_gsi(gsi))
+        self.ioapics
+            .iter_mut()
+            .find(|ioapic| ioapic.handles_gsi(gsi))
     }
-    
+
     /// Set up a GSI redirection.
     pub fn set_gsi(&mut self, gsi: u32, vector: u8, dest_apic_id: u8) -> bool {
         if let Some(ioapic) = self.find_by_gsi_mut(gsi) {
@@ -371,7 +376,7 @@ impl IoApicManager {
             false
         }
     }
-    
+
     /// Mask a GSI.
     pub fn mask_gsi(&mut self, gsi: u32) -> bool {
         if let Some(ioapic) = self.find_by_gsi_mut(gsi) {
@@ -382,7 +387,7 @@ impl IoApicManager {
             false
         }
     }
-    
+
     /// Unmask a GSI.
     pub fn unmask_gsi(&mut self, gsi: u32) -> bool {
         if let Some(ioapic) = self.find_by_gsi_mut(gsi) {
@@ -412,13 +417,13 @@ pub fn set_physical_memory_offset(offset: u64) {
 /// Physical memory offset must be set first.
 pub unsafe fn init_default() {
     let ioapic = unsafe { IoApic::new_default() };
-    
+
     // Mask all interrupts initially.
     ioapic.mask_all();
-    
+
     let mut manager = IO_APIC_MANAGER.lock();
     manager.add(ioapic);
-    
+
     crate::serial_println!("[IOAPIC] Initialized with default settings");
 }
 
@@ -431,7 +436,7 @@ pub unsafe fn init_default() {
 pub unsafe fn add_from_acpi(id: u8, base_addr: u64, gsi_base: u32) {
     let ioapic = unsafe { IoApic::new(id, base_addr, gsi_base) };
     ioapic.mask_all();
-    
+
     let mut manager = IO_APIC_MANAGER.lock();
     manager.add(ioapic);
 }

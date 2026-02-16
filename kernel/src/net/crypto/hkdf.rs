@@ -3,8 +3,8 @@
 //! Also provides TLS 1.3–specific `HKDF-Expand-Label` and `Derive-Secret`
 //! as defined in RFC 8446 §7.1.
 
-use alloc::vec::Vec;
 use super::hmac::{hmac_sha256, hmac_sha384};
+use alloc::vec::Vec;
 
 // ── Generic HKDF (SHA-256) ──────────────────────────────────
 
@@ -73,12 +73,7 @@ pub fn hkdf_expand_384(prk: &[u8], info: &[u8], length: usize) -> Vec<u8> {
 ///     opaque context<0..255>;
 /// } HkdfLabel;
 /// ```
-pub fn hkdf_expand_label(
-    secret: &[u8],
-    label: &[u8],
-    context: &[u8],
-    length: usize,
-) -> Vec<u8> {
+pub fn hkdf_expand_label(secret: &[u8], label: &[u8], context: &[u8], length: usize) -> Vec<u8> {
     let mut hkdf_label = Vec::new();
     // uint16 length
     hkdf_label.push((length >> 8) as u8);
@@ -99,10 +94,6 @@ pub fn hkdf_expand_label(
 ///   HKDF-Expand-Label(Secret, Label, Hash(Messages), Hash.length)
 ///
 /// `transcript_hash` is the already-computed SHA-256 hash of the transcript.
-pub fn derive_secret(
-    secret: &[u8],
-    label: &[u8],
-    transcript_hash: &[u8],
-) -> Vec<u8> {
+pub fn derive_secret(secret: &[u8], label: &[u8], transcript_hash: &[u8]) -> Vec<u8> {
     hkdf_expand_label(secret, label, transcript_hash, 32)
 }

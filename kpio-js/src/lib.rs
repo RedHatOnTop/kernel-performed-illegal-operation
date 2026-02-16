@@ -32,23 +32,23 @@
 
 extern crate alloc;
 
-pub mod lexer;
-pub mod token;
 pub mod ast;
-pub mod parser;
-pub mod value;
-pub mod object;
-pub mod interpreter;
 pub mod builtin;
-pub mod gc;
 pub mod dom;
 pub mod error;
+pub mod gc;
+pub mod interpreter;
+pub mod lexer;
+pub mod object;
+pub mod parser;
+pub mod token;
+pub mod value;
 
 use alloc::string::String;
 
 pub use error::{JsError, JsResult};
-pub use value::Value;
 pub use interpreter::Engine;
+pub use value::Value;
 
 /// JavaScript engine version.
 pub const VERSION: &str = "0.1.0";

@@ -12,37 +12,122 @@ use core::sync::atomic::{AtomicBool, Ordering};
 #[repr(u8)]
 pub enum KeyCode {
     // Letters
-    A = 0, B, C, D, E, F, G, H, I, J, K, L, M,
-    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    
+    A = 0,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+
     // Numbers
-    Num0 = 30, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
-    
+    Num0 = 30,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
+
     // Function keys
-    F1 = 40, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    
+    F1 = 40,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+
     // Modifiers
-    LeftShift = 60, RightShift, LeftCtrl, RightCtrl,
-    LeftAlt, RightAlt, LeftMeta, RightMeta,
-    
+    LeftShift = 60,
+    RightShift,
+    LeftCtrl,
+    RightCtrl,
+    LeftAlt,
+    RightAlt,
+    LeftMeta,
+    RightMeta,
+
     // Special keys
-    Space = 70, Enter, Tab, Backspace, Escape,
-    Insert, Delete, Home, End, PageUp, PageDown,
-    Up, Down, Left, Right,
-    CapsLock, NumLock, ScrollLock,
-    PrintScreen, Pause,
-    
+    Space = 70,
+    Enter,
+    Tab,
+    Backspace,
+    Escape,
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Up,
+    Down,
+    Left,
+    Right,
+    CapsLock,
+    NumLock,
+    ScrollLock,
+    PrintScreen,
+    Pause,
+
     // Punctuation
-    Minus = 100, Equals, LeftBracket, RightBracket,
-    Backslash, Semicolon, Quote, Grave,
-    Comma, Period, Slash,
-    
+    Minus = 100,
+    Equals,
+    LeftBracket,
+    RightBracket,
+    Backslash,
+    Semicolon,
+    Quote,
+    Grave,
+    Comma,
+    Period,
+    Slash,
+
     // Keypad
-    KpNum0 = 120, KpNum1, KpNum2, KpNum3, KpNum4,
-    KpNum5, KpNum6, KpNum7, KpNum8, KpNum9,
-    KpPlus, KpMinus, KpMultiply, KpDivide,
-    KpEnter, KpDecimal,
-    
+    KpNum0 = 120,
+    KpNum1,
+    KpNum2,
+    KpNum3,
+    KpNum4,
+    KpNum5,
+    KpNum6,
+    KpNum7,
+    KpNum8,
+    KpNum9,
+    KpPlus,
+    KpMinus,
+    KpMultiply,
+    KpDivide,
+    KpEnter,
+    KpDecimal,
+
     // Unknown
     Unknown = 255,
 }
@@ -148,7 +233,7 @@ pub enum InputEvent {
         /// Character produced (if any)
         character: Option<char>,
     },
-    
+
     /// Mouse move event
     MouseMove {
         /// X position
@@ -160,7 +245,7 @@ pub enum InputEvent {
         /// Delta Y since last event
         dy: i32,
     },
-    
+
     /// Mouse button event
     MouseButton {
         /// Button
@@ -174,7 +259,7 @@ pub enum InputEvent {
         /// Active modifiers
         modifiers: Modifiers,
     },
-    
+
     /// Mouse wheel event
     MouseWheel {
         /// Horizontal scroll delta
@@ -186,7 +271,7 @@ pub enum InputEvent {
         /// Y position
         y: i32,
     },
-    
+
     /// Touch event
     Touch {
         /// Touch ID (for multi-touch)
@@ -200,7 +285,7 @@ pub enum InputEvent {
         /// Pressure (0.0-1.0)
         pressure: f32,
     },
-    
+
     /// Gamepad button event
     GamepadButton {
         /// Gamepad ID
@@ -210,7 +295,7 @@ pub enum InputEvent {
         /// State
         state: ButtonState,
     },
-    
+
     /// Gamepad axis event
     GamepadAxis {
         /// Gamepad ID
@@ -220,7 +305,7 @@ pub enum InputEvent {
         /// Value (-1.0 to 1.0)
         value: f32,
     },
-    
+
     /// Focus event
     Focus {
         /// Whether focused
@@ -302,14 +387,18 @@ impl InputBridge {
     /// Set focused window
     pub fn set_focus(&self, window_id: u32) {
         let old = self.focused_window.swap(window_id, Ordering::SeqCst);
-        
+
         if old != window_id {
             // Queue focus events
             if old != 0 {
-                self.events.lock().push_back(InputEvent::Focus { focused: false });
+                self.events
+                    .lock()
+                    .push_back(InputEvent::Focus { focused: false });
             }
             if window_id != 0 {
-                self.events.lock().push_back(InputEvent::Focus { focused: true });
+                self.events
+                    .lock()
+                    .push_back(InputEvent::Focus { focused: true });
             }
         }
     }
@@ -394,12 +483,9 @@ impl InputBridge {
 
         let (x, y) = self.mouse_position();
 
-        self.events.lock().push_back(InputEvent::MouseWheel {
-            dx,
-            dy,
-            x,
-            y,
-        });
+        self.events
+            .lock()
+            .push_back(InputEvent::MouseWheel { dx, dy, x, y });
     }
 
     /// Inject a touch event
@@ -436,7 +522,7 @@ impl InputBridge {
     /// Convert key code to character
     fn key_to_char(&self, code: KeyCode, modifiers: &Modifiers) -> Option<char> {
         let shift = modifiers.shift ^ modifiers.caps_lock;
-        
+
         match code {
             KeyCode::A => Some(if shift { 'A' } else { 'a' }),
             KeyCode::B => Some(if shift { 'B' } else { 'b' }),
@@ -464,7 +550,7 @@ impl InputBridge {
             KeyCode::X => Some(if shift { 'X' } else { 'x' }),
             KeyCode::Y => Some(if shift { 'Y' } else { 'y' }),
             KeyCode::Z => Some(if shift { 'Z' } else { 'z' }),
-            
+
             KeyCode::Num0 => Some(if modifiers.shift { ')' } else { '0' }),
             KeyCode::Num1 => Some(if modifiers.shift { '!' } else { '1' }),
             KeyCode::Num2 => Some(if modifiers.shift { '@' } else { '2' }),
@@ -475,11 +561,11 @@ impl InputBridge {
             KeyCode::Num7 => Some(if modifiers.shift { '&' } else { '7' }),
             KeyCode::Num8 => Some(if modifiers.shift { '*' } else { '8' }),
             KeyCode::Num9 => Some(if modifiers.shift { '(' } else { '9' }),
-            
+
             KeyCode::Space => Some(' '),
             KeyCode::Enter => Some('\n'),
             KeyCode::Tab => Some('\t'),
-            
+
             KeyCode::Minus => Some(if modifiers.shift { '_' } else { '-' }),
             KeyCode::Equals => Some(if modifiers.shift { '+' } else { '=' }),
             KeyCode::LeftBracket => Some(if modifiers.shift { '{' } else { '[' }),
@@ -491,7 +577,7 @@ impl InputBridge {
             KeyCode::Comma => Some(if modifiers.shift { '<' } else { ',' }),
             KeyCode::Period => Some(if modifiers.shift { '>' } else { '.' }),
             KeyCode::Slash => Some(if modifiers.shift { '?' } else { '/' }),
-            
+
             _ => None,
         }
     }
@@ -520,7 +606,13 @@ mod tests {
         let input = InputBridge::new();
         input.inject_key(KeyCode::A, KeyState::Pressed);
         let events = input.poll_events();
-        assert!(events.iter().any(|e| matches!(e, InputEvent::Key { code: KeyCode::A, .. })));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            InputEvent::Key {
+                code: KeyCode::A,
+                ..
+            }
+        )));
     }
 
     #[test]
@@ -528,17 +620,19 @@ mod tests {
         let input = InputBridge::new();
         input.inject_mouse_move(100, 200);
         let events = input.poll_events();
-        assert!(events.iter().any(|e| matches!(e, InputEvent::MouseMove { x: 100, y: 200, .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, InputEvent::MouseMove { x: 100, y: 200, .. })));
     }
 
     #[test]
     fn test_modifiers() {
         let input = InputBridge::new();
-        
+
         // Press shift
         input.inject_key(KeyCode::LeftShift, KeyState::Pressed);
         assert!(input.modifiers().shift);
-        
+
         // Release shift
         input.inject_key(KeyCode::LeftShift, KeyState::Released);
         assert!(!input.modifiers().shift);

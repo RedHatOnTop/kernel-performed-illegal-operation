@@ -250,10 +250,7 @@ pub struct DnsResolver {
 impl DnsResolver {
     /// Create a new DNS resolver with the given configuration.
     pub fn new(config: ResolverConfig) -> Self {
-        DnsResolver {
-            config,
-            next_id: 1,
-        }
+        DnsResolver { config, next_id: 1 }
     }
 
     /// Create a resolver with default configuration.
@@ -300,7 +297,8 @@ impl DnsResolver {
         let mut offset = DnsHeader::SIZE;
 
         // Copy name
-        buffer[offset..offset + question.name_len].copy_from_slice(&question.name[..question.name_len]);
+        buffer[offset..offset + question.name_len]
+            .copy_from_slice(&question.name[..question.name_len]);
         offset += question.name_len;
 
         // Copy type and class
@@ -342,7 +340,9 @@ impl DnsResolver {
         // Check response code
         let rcode = header.response_code();
         if rcode != ResponseCode::NoError {
-            return Err(NetworkError::DnsError(alloc::string::String::from("Bad response code")));
+            return Err(NetworkError::DnsError(alloc::string::String::from(
+                "Bad response code",
+            )));
         }
 
         Ok(DnsResponse {

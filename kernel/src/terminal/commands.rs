@@ -2499,18 +2499,26 @@ fn cmd_ping(args: &[String]) -> CmdResult {
                     count = arg_strs[i + 1].parse().unwrap_or(4);
                     i += 2;
                 } else {
-                    return CmdResult::err(String::from("ping: option requires an argument -- 'c'"));
+                    return CmdResult::err(String::from(
+                        "ping: option requires an argument -- 'c'",
+                    ));
                 }
             }
             s if !s.starts_with('-') => {
                 target_host = s;
                 i += 1;
             }
-            _ => { i += 1; }
+            _ => {
+                i += 1;
+            }
         }
     }
-    if count == 0 { count = 4; }
-    if count > 20 { count = 20; } // safety limit in kernel context
+    if count == 0 {
+        count = 4;
+    }
+    if count > 20 {
+        count = 20;
+    } // safety limit in kernel context
 
     // Resolve hostname via DNS
     let ip = match crate::net::dns::resolve(target_host) {
@@ -2527,7 +2535,10 @@ fn cmd_ping(args: &[String]) -> CmdResult {
     };
 
     let mut output = Vec::new();
-    output.push(format!("PING {} ({}) 56(84) bytes of data.", target_host, ip));
+    output.push(format!(
+        "PING {} ({}) 56(84) bytes of data.",
+        target_host, ip
+    ));
 
     let ping_id: u16 = 0x4B50; // "KP" for KPIO
     let mut received: u16 = 0;
@@ -2540,7 +2551,10 @@ fn cmd_ping(args: &[String]) -> CmdResult {
         let tx_tick = match crate::net::ipv4::send_echo_request(ip, ping_id, seq) {
             Some(t) => t,
             None => {
-                output.push(format!("From {} icmp_seq={} Destination Host Unreachable", ip, seq));
+                output.push(format!(
+                    "From {} icmp_seq={} Destination Host Unreachable",
+                    ip, seq
+                ));
                 continue;
             }
         };
@@ -2565,8 +2579,12 @@ fn cmd_ping(args: &[String]) -> CmdResult {
 
                 received += 1;
                 rtt_sum += rtt_us;
-                if rtt_us < rtt_min { rtt_min = rtt_us; }
-                if rtt_us > rtt_max { rtt_max = rtt_us; }
+                if rtt_us < rtt_min {
+                    rtt_min = rtt_us;
+                }
+                if rtt_us > rtt_max {
+                    rtt_max = rtt_us;
+                }
                 got_reply = true;
                 break;
             }
@@ -2600,9 +2618,12 @@ fn cmd_ping(args: &[String]) -> CmdResult {
         let avg = rtt_sum / received as u64;
         output.push(format!(
             "rtt min/avg/max = {}.{}/{}.{}/{}.{} ms",
-            rtt_min / 1000, (rtt_min % 1000) / 100,
-            avg / 1000, (avg % 1000) / 100,
-            rtt_max / 1000, (rtt_max % 1000) / 100,
+            rtt_min / 1000,
+            (rtt_min % 1000) / 100,
+            avg / 1000,
+            (avg % 1000) / 100,
+            rtt_max / 1000,
+            (rtt_max % 1000) / 100,
         ));
     }
 
@@ -2614,7 +2635,11 @@ fn cmd_ifconfig(_args: &[String]) -> CmdResult {
     let mut output = Vec::new();
     for iface in &ifaces {
         let flags = if iface.name == "lo" {
-            if iface.up { "UP,LOOPBACK,RUNNING" } else { "LOOPBACK" }
+            if iface.up {
+                "UP,LOOPBACK,RUNNING"
+            } else {
+                "LOOPBACK"
+            }
         } else if iface.up {
             "UP,BROADCAST,RUNNING,MULTICAST"
         } else {
@@ -2632,8 +2657,7 @@ fn cmd_ifconfig(_args: &[String]) -> CmdResult {
         if iface.name != "lo" {
             output.push(format!(
                 "        ether {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                iface.mac[0], iface.mac[1], iface.mac[2],
-                iface.mac[3], iface.mac[4], iface.mac[5]
+                iface.mac[0], iface.mac[1], iface.mac[2], iface.mac[3], iface.mac[4], iface.mac[5]
             ));
         }
         output.push(format!(
@@ -2733,14 +2757,20 @@ fn cmd_curl(args: &[String]) -> CmdResult {
     let response = crate::net::http::get(url);
 
     if verbose {
-        output.push(format!("< HTTP/1.1 {} {}", response.status, response.status_text));
+        output.push(format!(
+            "< HTTP/1.1 {} {}",
+            response.status, response.status_text
+        ));
         output.push(format!("< Content-Type: {}", response.content_type));
         output.push(format!("< Content-Length: {}", response.body.len()));
         output.push(String::new());
     }
 
     if head_only {
-        output.push(format!("HTTP/1.1 {} {}", response.status, response.status_text));
+        output.push(format!(
+            "HTTP/1.1 {} {}",
+            response.status, response.status_text
+        ));
         output.push(format!("Content-Type: {}", response.content_type));
         output.push(format!("Content-Length: {}", response.body.len()));
     } else {
@@ -2782,14 +2812,18 @@ fn cmd_wget(args: &[String]) -> CmdResult {
                     output_file = Some(args[i + 1].as_str());
                     i += 2;
                 } else {
-                    return CmdResult::err(String::from("wget: option requires an argument -- 'O'"));
+                    return CmdResult::err(String::from(
+                        "wget: option requires an argument -- 'O'",
+                    ));
                 }
             }
             s if !s.starts_with('-') => {
                 url = Some(s);
                 i += 1;
             }
-            _ => { i += 1; }
+            _ => {
+                i += 1;
+            }
         }
     }
 
@@ -2803,15 +2837,26 @@ fn cmd_wget(args: &[String]) -> CmdResult {
 
     // Parse URL to get default filename
     let default_name = url.rsplit('/').next().unwrap_or("index.html");
-    let default_name = if default_name.is_empty() { "index.html" } else { default_name };
+    let default_name = if default_name.is_empty() {
+        "index.html"
+    } else {
+        default_name
+    };
     let save_as = output_file.unwrap_or(default_name);
 
     output.push(format!("Resolving host..."));
 
     let response = crate::net::http::get(url);
 
-    output.push(format!("HTTP response: {} {}", response.status, response.status_text));
-    output.push(format!("Length: {} [{}]", response.body.len(), response.content_type));
+    output.push(format!(
+        "HTTP response: {} {}",
+        response.status, response.status_text
+    ));
+    output.push(format!(
+        "Length: {} [{}]",
+        response.body.len(),
+        response.content_type
+    ));
     output.push(format!("Saving to: '{}'", save_as));
     output.push(String::new());
 
@@ -2846,13 +2891,26 @@ fn cmd_wget(args: &[String]) -> CmdResult {
         });
 
         if saved {
-            output.push(format!("'{}' saved [{} bytes]", save_as, response.body.len()));
+            output.push(format!(
+                "'{}' saved [{} bytes]",
+                save_as,
+                response.body.len()
+            ));
         } else {
-            output.push(format!("wget: cannot save '{}': file system error", save_as));
+            output.push(format!(
+                "wget: cannot save '{}': file system error",
+                save_as
+            ));
         }
     } else {
-        output.push(format!("wget: server returned error {} {}", response.status, response.status_text));
-        return CmdResult { output, success: false };
+        output.push(format!(
+            "wget: server returned error {} {}",
+            response.status, response.status_text
+        ));
+        return CmdResult {
+            output,
+            success: false,
+        };
     }
 
     CmdResult::ok(output)
@@ -2873,7 +2931,10 @@ fn cmd_dhcp(_args: &[String]) -> CmdResult {
         }
         Err(e) => {
             output.push(format!("DHCP failed: {}", e));
-            return CmdResult { output, success: false };
+            return CmdResult {
+                output,
+                success: false,
+            };
         }
     }
 

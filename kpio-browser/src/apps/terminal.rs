@@ -2,9 +2,9 @@
 //!
 //! Shell and command execution terminal.
 
+use alloc::collections::VecDeque;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::VecDeque;
 
 /// Terminal emulator
 #[derive(Debug, Clone)]
@@ -71,11 +71,13 @@ impl Terminal {
 
     /// Get prompt string
     pub fn prompt(&self) -> String {
-        let home = self.env.iter()
+        let home = self
+            .env
+            .iter()
             .find(|e| e.key == "HOME")
             .map(|e| e.value.as_str())
             .unwrap_or("/home");
-        
+
         let display_path = if self.cwd.starts_with(home) {
             alloc::format!("~{}", &self.cwd[home.len()..])
         } else {
@@ -201,7 +203,7 @@ impl Terminal {
     /// Submit command
     pub fn submit(&mut self) -> Option<String> {
         let cmd = self.input.trim().to_string();
-        
+
         if cmd.is_empty() {
             // Empty line
             self.buffer.write_line(&alloc::format!("{}", self.prompt()));
@@ -217,7 +219,8 @@ impl Terminal {
         }
 
         // Echo command to buffer
-        self.buffer.write_line(&alloc::format!("{}{}", self.prompt(), cmd));
+        self.buffer
+            .write_line(&alloc::format!("{}{}", self.prompt(), cmd));
 
         // Clear input
         self.input.clear();
@@ -240,9 +243,7 @@ impl Terminal {
                 self.cd(path);
                 None
             }
-            "pwd" => {
-                Some(self.cwd.clone())
-            }
+            "pwd" => Some(self.cwd.clone()),
             "echo" => {
                 let output = parts[1..].join(" ");
                 Some(output)
@@ -251,9 +252,7 @@ impl Terminal {
                 self.buffer.clear();
                 None
             }
-            "exit" => {
-                Some(String::from("exit"))
-            }
+            "exit" => Some(String::from("exit")),
             "export" => {
                 if let Some(arg) = parts.get(1) {
                     if let Some((key, value)) = arg.split_once('=') {
@@ -263,23 +262,26 @@ impl Terminal {
                 None
             }
             "env" => {
-                let output = self.env.iter()
+                let output = self
+                    .env
+                    .iter()
                     .map(|e| alloc::format!("{}={}", e.key, e.value))
                     .collect::<Vec<_>>()
                     .join("\n");
                 Some(output)
             }
             "history" => {
-                let output = self.history.iter()
+                let output = self
+                    .history
+                    .iter()
                     .enumerate()
                     .map(|(i, cmd)| alloc::format!("{:4}  {}", i + 1, cmd))
                     .collect::<Vec<_>>()
                     .join("\n");
                 Some(output)
             }
-            "help" => {
-                Some(String::from(
-                    "Built-in commands:\n\
+            "help" => Some(String::from(
+                "Built-in commands:\n\
                      cd [path]    - Change directory\n\
                      pwd          - Print current directory\n\
                      echo [text]  - Print text\n\
@@ -288,9 +290,8 @@ impl Terminal {
                      env          - List environment variables\n\
                      history      - Command history\n\
                      help         - Help\n\
-                     exit         - Exit terminal"
-                ))
-            }
+                     exit         - Exit terminal",
+            )),
             _ => None, // Not a builtin
         }
     }
@@ -298,7 +299,8 @@ impl Terminal {
     /// Change directory
     pub fn cd(&mut self, path: &str) {
         let new_path = if path == "~" || path == "$HOME" {
-            self.env.iter()
+            self.env
+                .iter()
                 .find(|e| e.key == "HOME")
                 .map(|e| e.value.clone())
                 .unwrap_or_else(|| String::from("/home"))
@@ -332,7 +334,8 @@ impl Terminal {
 
     /// Get environment variable
     pub fn get_env(&self, key: &str) -> Option<&str> {
-        self.env.iter()
+        self.env
+            .iter()
             .find(|e| e.key == key)
             .map(|e| e.value.as_str())
     }
@@ -381,7 +384,7 @@ impl Default for Terminal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShellType {
     #[default]
-    Ksh,  // KPIO Shell
+    Ksh, // KPIO Shell
     Bash,
     Zsh,
     Fish,
@@ -436,7 +439,7 @@ impl TerminalBuffer {
         if self.lines.is_empty() {
             self.lines.push_back(TerminalLine::new());
         }
-        
+
         if let Some(line) = self.lines.back_mut() {
             line.text.push_str(text);
         }
@@ -478,7 +481,10 @@ impl TerminalBuffer {
 
     /// Get visible lines
     pub fn visible_lines(&self) -> impl Iterator<Item = &TerminalLine> {
-        let start = self.lines.len().saturating_sub(self.rows + self.scroll_offset);
+        let start = self
+            .lines
+            .len()
+            .saturating_sub(self.rows + self.scroll_offset);
         let end = self.lines.len().saturating_sub(self.scroll_offset);
         self.lines.range(start..end)
     }

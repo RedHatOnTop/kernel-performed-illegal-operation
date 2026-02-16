@@ -6,7 +6,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::{DisplayMode, AppIcon, IconPurpose, PwaError};
+use super::{AppIcon, DisplayMode, IconPurpose, PwaError};
 
 /// Web App Manifest
 #[derive(Debug, Clone)]
@@ -174,7 +174,8 @@ impl WebAppManifest {
 
     /// Get display name
     pub fn display_name(&self) -> &str {
-        self.short_name.as_deref()
+        self.short_name
+            .as_deref()
             .or(self.name.as_deref())
             .unwrap_or("Web App")
     }
@@ -197,7 +198,8 @@ impl WebAppManifest {
         }
 
         // Find closest larger icon
-        self.icons.iter()
+        self.icons
+            .iter()
             .filter(|icon| {
                 icon.sizes.split_whitespace().any(|s| {
                     if let Some((w, _h)) = s.split_once('x') {
@@ -453,14 +455,14 @@ fn extract_string_field(json: &str, field: &str) -> Option<String> {
     let pattern = alloc::format!("\"{}\"", field);
     let pos = json.find(&pattern)?;
     let rest = &json[pos + pattern.len()..];
-    
+
     // Skip whitespace and colon
     let rest = rest.trim_start();
     if !rest.starts_with(':') {
         return None;
     }
     let rest = rest[1..].trim_start();
-    
+
     // Extract string value
     if !rest.starts_with('"') {
         return None;
@@ -498,12 +500,12 @@ fn resolve_url(base: &str, relative: &str) -> String {
 /// Parse color string to u32 (ARGB)
 fn parse_color(s: &str) -> Option<u32> {
     let s = s.trim();
-    
+
     // Handle #RGB or #RRGGBB
     if s.starts_with('#') {
         let hex = &s[1..];
         let val = u32::from_str_radix(hex, 16).ok()?;
-        
+
         if hex.len() == 3 {
             // #RGB -> #RRGGBB
             let r = ((val >> 8) & 0xF) * 0x11;

@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
-use crate::{TestMetadata, TestType, ExpectedResult};
+use crate::{ExpectedResult, TestMetadata, TestType};
 
 /// WPT manifest
 pub struct Manifest {
@@ -56,18 +56,18 @@ impl Manifest {
     pub fn parse(json: &str) -> Result<Self, String> {
         // Simplified JSON parsing
         // In real implementation, use a proper JSON parser
-        
+
         // Look for version
         let version = 8; // Default WPT manifest version
-        
+
         // Look for url_base
         let url_base = String::from("/");
-        
+
         let tests = HashMap::new();
-        
+
         // Would parse actual JSON here
         let _ = json;
-        
+
         Ok(Self {
             version,
             url_base,
@@ -101,7 +101,9 @@ impl Manifest {
         };
 
         // Extract timeout from metadata
-        let timeout = test.script_metadata.iter()
+        let timeout = test
+            .script_metadata
+            .iter()
             .find(|m| m.key == "timeout")
             .and_then(|m| m.value.parse().ok())
             .unwrap_or(10);
@@ -164,7 +166,7 @@ impl ExpectationsFile {
 
         for line in content.lines() {
             let line = line.trim();
-            
+
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
@@ -174,9 +176,9 @@ impl ExpectationsFile {
                 if let (Some(test), Some(exp)) = (current_test.take(), current_expectation.take()) {
                     expectations.insert(test, exp);
                 }
-                
+
                 // Start new test
-                let path = &line[1..line.len()-1];
+                let path = &line[1..line.len() - 1];
                 current_test = Some(String::from(path));
                 current_expectation = Some(TestExpectation {
                     expected: ExpectedResult::Pass,
@@ -189,7 +191,7 @@ impl ExpectationsFile {
                 if let Some((key, value)) = line.split_once(':') {
                     let key = key.trim();
                     let value = value.trim();
-                    
+
                     match key {
                         "expected" => {
                             exp.expected = parse_expected_result(value);
@@ -203,7 +205,7 @@ impl ExpectationsFile {
                         _ => {
                             // Subtest expectation
                             if key.starts_with('[') && key.ends_with(']') {
-                                let subtest_name = &key[1..key.len()-1];
+                                let subtest_name = &key[1..key.len() - 1];
                                 exp.subtests.insert(
                                     String::from(subtest_name),
                                     parse_expected_result(value),
@@ -230,14 +232,16 @@ impl ExpectationsFile {
 
     /// Check if test is disabled
     pub fn is_disabled(&self, path: &str) -> bool {
-        self.expectations.get(path)
+        self.expectations
+            .get(path)
             .map(|e| e.disabled.is_some())
             .unwrap_or(false)
     }
 
     /// Get expected result
     pub fn expected_result(&self, path: &str) -> ExpectedResult {
-        self.expectations.get(path)
+        self.expectations
+            .get(path)
             .map(|e| e.expected.clone())
             .unwrap_or(ExpectedResult::Pass)
     }
@@ -311,7 +315,7 @@ impl TestPath {
     pub fn normalize(path: &str) -> String {
         let mut result = String::new();
         let mut last_was_slash = false;
-        
+
         for c in path.chars() {
             if c == '/' {
                 if !last_was_slash {
@@ -323,12 +327,12 @@ impl TestPath {
                 last_was_slash = false;
             }
         }
-        
+
         // Ensure leading slash
         if !result.starts_with('/') {
             result.insert(0, '/');
         }
-        
+
         result
     }
 }

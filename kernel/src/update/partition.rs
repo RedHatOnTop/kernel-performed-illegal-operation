@@ -2,8 +2,8 @@
 //!
 //! Manages dual boot partitions for reliable updates.
 
-use alloc::string::String;
 use super::UpdateError;
+use alloc::string::String;
 
 /// Partition slot
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +84,9 @@ impl PartitionInfo {
     /// Check if bootable
     pub fn is_bootable(&self) -> bool {
         match self.status {
-            PartitionStatus::Active | PartitionStatus::Successful | PartitionStatus::Pending => true,
+            PartitionStatus::Active | PartitionStatus::Successful | PartitionStatus::Pending => {
+                true
+            }
             PartitionStatus::Unbootable => false,
         }
     }
@@ -119,7 +121,7 @@ impl PartitionManager {
     pub fn init(&mut self, slot_a_size: u64, slot_b_size: u64) {
         let mut info_a = PartitionInfo::new(PartitionSlot::A, slot_a_size);
         info_a.status = PartitionStatus::Active;
-        
+
         let info_b = PartitionInfo::new(PartitionSlot::B, slot_b_size);
 
         self.slots[0] = Some(info_a);
@@ -179,8 +181,9 @@ impl PartitionManager {
 
     /// Commit pending partition (make it active)
     pub fn commit_pending(&mut self) -> Result<(), UpdateError> {
-        let pending = self.pending.ok_or_else(|| 
-            UpdateError::PartitionError("No pending partition".into()))?;
+        let pending = self
+            .pending
+            .ok_or_else(|| UpdateError::PartitionError("No pending partition".into()))?;
 
         // Mark old active as successful (fallback)
         if let Some(info) = self.get_partition_mut(self.active) {
@@ -206,7 +209,9 @@ impl PartitionManager {
             info.verified = true;
             Ok(())
         } else {
-            Err(UpdateError::PartitionError("Active partition not found".into()))
+            Err(UpdateError::PartitionError(
+                "Active partition not found".into(),
+            ))
         }
     }
 
@@ -214,11 +219,11 @@ impl PartitionManager {
     pub fn handle_boot_failure(&mut self) -> bool {
         if let Some(info) = self.get_partition_mut(self.active) {
             info.boot_attempts += 1;
-            
+
             if info.boot_attempts >= info.max_attempts {
                 // Mark as unbootable
                 info.status = PartitionStatus::Unbootable;
-                
+
                 // Try to rollback
                 if let Ok(()) = self.rollback() {
                     return true;
@@ -231,17 +236,17 @@ impl PartitionManager {
     /// Rollback to previous version
     pub fn rollback(&mut self) -> Result<(), UpdateError> {
         let other = self.active.other();
-        
+
         // Check if other slot is bootable
         if let Some(info) = self.get_partition(other) {
             if !info.is_bootable() {
                 return Err(UpdateError::PartitionError(
-                    "No bootable fallback partition".into()
+                    "No bootable fallback partition".into(),
                 ));
             }
         } else {
             return Err(UpdateError::PartitionError(
-                "Fallback partition not found".into()
+                "Fallback partition not found".into(),
             ));
         }
 

@@ -26,16 +26,26 @@ impl FileMode {
     pub const FILE_755: FileMode = FileMode(0o100755);
     pub const LINK_777: FileMode = FileMode(0o120777);
 
-    pub fn is_dir(self) -> bool { self.0 & 0o170000 == 0o040000 }
-    pub fn is_file(self) -> bool { self.0 & 0o170000 == 0o100000 }
-    pub fn is_symlink(self) -> bool { self.0 & 0o170000 == 0o120000 }
+    pub fn is_dir(self) -> bool {
+        self.0 & 0o170000 == 0o040000
+    }
+    pub fn is_file(self) -> bool {
+        self.0 & 0o170000 == 0o100000
+    }
+    pub fn is_symlink(self) -> bool {
+        self.0 & 0o170000 == 0o120000
+    }
 
     /// Pretty-print like `drwxr-xr-x`
     pub fn display(&self) -> String {
         let mut s = String::with_capacity(10);
-        if self.is_dir() { s.push('d'); }
-        else if self.is_symlink() { s.push('l'); }
-        else { s.push('-'); }
+        if self.is_dir() {
+            s.push('d');
+        } else if self.is_symlink() {
+            s.push('l');
+        } else {
+            s.push('-');
+        }
         let perms = self.0 & 0o777;
         for shift in [6u16, 3, 0] {
             let bits = (perms >> shift) & 7;
@@ -111,7 +121,9 @@ where
     F: FnOnce(&mut MemFs) -> R,
 {
     let mut guard = FS.lock();
-    let fs = guard.as_mut().expect("MemFs not initialised — call terminal::fs::init()");
+    let fs = guard
+        .as_mut()
+        .expect("MemFs not initialised — call terminal::fs::init()");
     f(fs)
 }
 
@@ -124,21 +136,25 @@ impl MemFs {
         };
         // Create root inode
         let root_ino = fs.alloc_ino();
-        fs.inodes.insert(root_ino, Inode {
-            ino: root_ino,
-            mode: FileMode::DIR_755,
-            uid: 0, gid: 0,
-            size: 0,
-            created: Timestamp::default(),
-            modified: Timestamp::default(),
-            nlink: 2,
-            content: InodeContent::Directory({
-                let mut m = BTreeMap::new();
-                m.insert(String::from("."), root_ino);
-                m.insert(String::from(".."), root_ino);
-                m
-            }),
-        });
+        fs.inodes.insert(
+            root_ino,
+            Inode {
+                ino: root_ino,
+                mode: FileMode::DIR_755,
+                uid: 0,
+                gid: 0,
+                size: 0,
+                created: Timestamp::default(),
+                modified: Timestamp::default(),
+                nlink: 2,
+                content: InodeContent::Directory({
+                    let mut m = BTreeMap::new();
+                    m.insert(String::from("."), root_ino);
+                    m.insert(String::from(".."), root_ino);
+                    m
+                }),
+            },
+        );
         fs
     }
 
@@ -150,16 +166,26 @@ impl MemFs {
 
     // ── Navigation ────────────────────────────────────────────
 
-    pub fn root_ino(&self) -> Ino { 1 }
+    pub fn root_ino(&self) -> Ino {
+        1
+    }
 
     /// Resolve an absolute path to its inode. Returns `None` if not found.
     pub fn resolve(&self, path: &str) -> Option<Ino> {
-        let path = if path.is_empty() || path == "/" { "/" } else { path };
+        let path = if path.is_empty() || path == "/" {
+            "/"
+        } else {
+            path
+        };
         let mut ino = self.root_ino();
-        if path == "/" { return Some(ino); }
+        if path == "/" {
+            return Some(ino);
+        }
 
         for component in path.trim_start_matches('/').split('/') {
-            if component.is_empty() { continue; }
+            if component.is_empty() {
+                continue;
+            }
             ino = self.lookup(ino, component)?;
         }
         Some(ino)
@@ -190,12 +216,13 @@ impl MemFs {
     pub fn readdir(&self, ino: Ino) -> Option<Vec<(String, Ino)>> {
         let dir = self.inodes.get(&ino)?;
         match &dir.content {
-            InodeContent::Directory(entries) => {
-                Some(entries.iter()
+            InodeContent::Directory(entries) => Some(
+                entries
+                    .iter()
                     .filter(|(n, _)| n.as_str() != "." && n.as_str() != "..")
                     .map(|(n, i)| (n.clone(), *i))
-                    .collect())
-            }
+                    .collect(),
+            ),
             _ => None,
         }
     }
@@ -221,7 +248,9 @@ impl MemFs {
             let parent_node = self.inodes.get(&parent).ok_or(FsError::NotFound)?;
             match &parent_node.content {
                 InodeContent::Directory(e) => {
-                    if e.contains_key(name) { return Err(FsError::AlreadyExists); }
+                    if e.contains_key(name) {
+                        return Err(FsError::AlreadyExists);
+                    }
                 }
                 _ => return Err(FsError::NotADirectory),
             }
@@ -231,7 +260,9 @@ impl MemFs {
         let child = Inode {
             ino: child_ino,
             mode: FileMode::DIR_755,
-            uid: 0, gid: 0, size: 0,
+            uid: 0,
+            gid: 0,
+            size: 0,
             created: Timestamp::default(),
             modified: Timestamp::default(),
             nlink: 2,
@@ -284,7 +315,8 @@ impl MemFs {
         let child = Inode {
             ino: child_ino,
             mode: FileMode::FILE_644,
-            uid: 0, gid: 0,
+            uid: 0,
+            gid: 0,
             size: data.len() as u64,
             created: Timestamp::default(),
             modified: Timestamp::default(),
@@ -342,7 +374,9 @@ impl MemFs {
 
     /// Remove an entry from a directory.
     pub fn remove(&mut self, parent: Ino, name: &str) -> Result<(), FsError> {
-        if name == "." || name == ".." { return Err(FsError::InvalidName); }
+        if name == "." || name == ".." {
+            return Err(FsError::InvalidName);
+        }
 
         let child_ino = {
             let parent_node = self.inodes.get(&parent).ok_or(FsError::NotFound)?;
@@ -355,7 +389,9 @@ impl MemFs {
         // If directory, check it's empty
         if let Some(child) = self.inodes.get(&child_ino) {
             if let InodeContent::Directory(e) = &child.content {
-                if e.len() > 2 { return Err(FsError::DirectoryNotEmpty); }
+                if e.len() > 2 {
+                    return Err(FsError::DirectoryNotEmpty);
+                }
             }
         }
 
@@ -370,7 +406,9 @@ impl MemFs {
         let should_remove = if let Some(child) = self.inodes.get_mut(&child_ino) {
             child.nlink = child.nlink.saturating_sub(1);
             child.nlink == 0
-        } else { false };
+        } else {
+            false
+        };
 
         if should_remove {
             self.inodes.remove(&child_ino);
@@ -380,8 +418,13 @@ impl MemFs {
     }
 
     /// Rename / move entry.
-    pub fn rename(&mut self, src_parent: Ino, src_name: &str,
-                  dst_parent: Ino, dst_name: &str) -> Result<(), FsError> {
+    pub fn rename(
+        &mut self,
+        src_parent: Ino,
+        src_name: &str,
+        dst_parent: Ino,
+        dst_name: &str,
+    ) -> Result<(), FsError> {
         let ino = {
             let p = self.inodes.get(&src_parent).ok_or(FsError::NotFound)?;
             match &p.content {
@@ -392,7 +435,9 @@ impl MemFs {
 
         // Remove from source
         if let Some(p) = self.inodes.get_mut(&src_parent) {
-            if let InodeContent::Directory(ref mut e) = p.content { e.remove(src_name); }
+            if let InodeContent::Directory(ref mut e) = p.content {
+                e.remove(src_name);
+            }
         }
 
         // Remove existing destination if any
@@ -416,7 +461,12 @@ impl MemFs {
     }
 
     /// Copy a file (not directories).
-    pub fn copy_file(&mut self, src_ino: Ino, dst_parent: Ino, dst_name: &str) -> Result<Ino, FsError> {
+    pub fn copy_file(
+        &mut self,
+        src_ino: Ino,
+        dst_parent: Ino,
+        dst_name: &str,
+    ) -> Result<Ino, FsError> {
         let data = self.read_file(src_ino)?;
         self.create_file(dst_parent, dst_name, &data)
     }
@@ -429,12 +479,11 @@ impl MemFs {
         };
         match &node.content {
             InodeContent::File(data) => data.len() as u64,
-            InodeContent::Directory(entries) => {
-                entries.iter()
-                    .filter(|(n, _)| n.as_str() != "." && n.as_str() != "..")
-                    .map(|(_, &child)| self.tree_size(child))
-                    .sum()
-            }
+            InodeContent::Directory(entries) => entries
+                .iter()
+                .filter(|(n, _)| n.as_str() != "." && n.as_str() != "..")
+                .map(|(_, &child)| self.tree_size(child))
+                .sum(),
             _ => 0,
         }
     }
@@ -447,12 +496,11 @@ impl MemFs {
         };
         match &node.content {
             InodeContent::File(_) => 1,
-            InodeContent::Directory(entries) => {
-                entries.iter()
-                    .filter(|(n, _)| n.as_str() != "." && n.as_str() != "..")
-                    .map(|(_, &child)| self.tree_count(child))
-                    .sum()
-            }
+            InodeContent::Directory(entries) => entries
+                .iter()
+                .filter(|(n, _)| n.as_str() != "." && n.as_str() != "..")
+                .map(|(_, &child)| self.tree_count(child))
+                .sum(),
             _ => 1,
         }
     }
@@ -485,7 +533,10 @@ impl MemFs {
                      Cached:                0 kB\n\
                      SwapTotal:             0 kB\n\
                      SwapFree:              0 kB\n",
-                    total_kb, free_kb, avail_kb, used_kb,
+                    total_kb,
+                    free_kb,
+                    avail_kb,
+                    used_kb,
                 )
             }
             ProcFileKind::Uptime => {
@@ -494,18 +545,14 @@ impl MemFs {
                 let centisecs = ticks % 100;
                 alloc::format!("{}.{:02} 0.00\n", secs, centisecs)
             }
-            ProcFileKind::Version => {
-                String::from("KPIO version 1.0.0 (root@kpio) (rustc 1.82-nightly) #1 SMP PREEMPT_DYNAMIC\n")
-            }
+            ProcFileKind::Version => String::from(
+                "KPIO version 1.0.0 (root@kpio) (rustc 1.82-nightly) #1 SMP PREEMPT_DYNAMIC\n",
+            ),
             ProcFileKind::Mounts => {
                 String::from("ramfs / ramfs rw,relatime 0 0\nproc /proc proc rw,nosuid,nodev 0 0\n")
             }
-            ProcFileKind::Cmdline => {
-                String::from("BOOT_IMAGE=/boot/kpio root=/dev/ram0\n")
-            }
-            ProcFileKind::Loadavg => {
-                String::from("0.00 0.00 0.00 1/32 42\n")
-            }
+            ProcFileKind::Cmdline => String::from("BOOT_IMAGE=/boot/kpio root=/dev/ram0\n"),
+            ProcFileKind::Loadavg => String::from("0.00 0.00 0.00 1/32 42\n"),
         }
     }
 
@@ -525,50 +572,79 @@ impl MemFs {
 
         // Top-level directories
         let home = self.mkdir(root, "home").unwrap();
-        let etc  = self.mkdir(root, "etc").unwrap();
-        let usr  = self.mkdir(root, "usr").unwrap();
-        let var  = self.mkdir(root, "var").unwrap();
+        let etc = self.mkdir(root, "etc").unwrap();
+        let usr = self.mkdir(root, "usr").unwrap();
+        let var = self.mkdir(root, "var").unwrap();
         let _tmp = self.mkdir(root, "tmp").unwrap();
         let _bin = self.mkdir(root, "bin").unwrap();
-        let dev  = self.mkdir(root, "dev").unwrap();
+        let dev = self.mkdir(root, "dev").unwrap();
         let proc_dir = self.mkdir(root, "proc").unwrap();
         let _sbin = self.mkdir(root, "sbin").unwrap();
-        let _opt  = self.mkdir(root, "opt").unwrap();
+        let _opt = self.mkdir(root, "opt").unwrap();
         let boot = self.mkdir(root, "boot").unwrap();
 
         // /home/root
         let home_root = self.mkdir(home, "root").unwrap();
         let docs = self.mkdir(home_root, "Documents").unwrap();
-        let _dl   = self.mkdir(home_root, "Downloads").unwrap();
+        let _dl = self.mkdir(home_root, "Downloads").unwrap();
         let _pics = self.mkdir(home_root, "Pictures").unwrap();
         let _music = self.mkdir(home_root, "Music").unwrap();
         let _vids = self.mkdir(home_root, "Videos").unwrap();
-        let dsk  = self.mkdir(home_root, "Desktop").unwrap();
+        let dsk = self.mkdir(home_root, "Desktop").unwrap();
 
         // Sample files
-        self.create_file(docs, "readme.txt",
-            b"Welcome to KPIO OS!\nThis is a sample text file.\n").unwrap();
-        self.create_file(docs, "notes.txt",
-            b"TODO:\n- Implement more syscalls\n- Add network drivers\n- Build browser engine\n").unwrap();
-        self.create_file(dsk, "hello.sh",
-            b"#!/bin/sh\necho \"Hello from KPIO!\"\n").unwrap();
+        self.create_file(
+            docs,
+            "readme.txt",
+            b"Welcome to KPIO OS!\nThis is a sample text file.\n",
+        )
+        .unwrap();
+        self.create_file(
+            docs,
+            "notes.txt",
+            b"TODO:\n- Implement more syscalls\n- Add network drivers\n- Build browser engine\n",
+        )
+        .unwrap();
+        self.create_file(dsk, "hello.sh", b"#!/bin/sh\necho \"Hello from KPIO!\"\n")
+            .unwrap();
         self.create_file(home_root, ".bashrc",
             b"# KPIO Shell Configuration\nexport PS1='\\u@\\h:\\w$ '\nalias ll='ls -la'\nalias la='ls -a'\n").unwrap();
-        self.create_file(home_root, ".profile",
-            b"# KPIO Profile\nexport PATH=/usr/bin:/bin:/sbin\nexport LANG=en_US.UTF-8\n").unwrap();
+        self.create_file(
+            home_root,
+            ".profile",
+            b"# KPIO Profile\nexport PATH=/usr/bin:/bin:/sbin\nexport LANG=en_US.UTF-8\n",
+        )
+        .unwrap();
 
         // /etc files
         self.create_file(etc, "passwd",
             b"root:x:0:0:root:/home/root:/bin/sh\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n").unwrap();
         self.create_file(etc, "hostname", b"kpio\n").unwrap();
-        self.create_file(etc, "hosts",
-            b"127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\tkpio\n").unwrap();
-        self.create_file(etc, "os-release",
-            b"NAME=\"KPIO OS\"\nVERSION=\"1.0.0\"\nID=kpio\nPRETTY_NAME=\"KPIO OS 1.0.0\"\n").unwrap();
-        self.create_file(etc, "fstab",
-            b"# /etc/fstab: static file system information\nramfs\t/\tramfs\tdefaults\t0 0\n").unwrap();
+        self.create_file(
+            etc,
+            "hosts",
+            b"127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\tkpio\n",
+        )
+        .unwrap();
+        self.create_file(
+            etc,
+            "os-release",
+            b"NAME=\"KPIO OS\"\nVERSION=\"1.0.0\"\nID=kpio\nPRETTY_NAME=\"KPIO OS 1.0.0\"\n",
+        )
+        .unwrap();
+        self.create_file(
+            etc,
+            "fstab",
+            b"# /etc/fstab: static file system information\nramfs\t/\tramfs\tdefaults\t0 0\n",
+        )
+        .unwrap();
         let etc_conf = self.mkdir(etc, "config").unwrap();
-        self.create_file(etc_conf, "kernel.conf", b"# Kernel configuration\nloglevel=3\n").unwrap();
+        self.create_file(
+            etc_conf,
+            "kernel.conf",
+            b"# Kernel configuration\nloglevel=3\n",
+        )
+        .unwrap();
 
         // /usr hierarchy
         let _usr_bin = self.mkdir(usr, "bin").unwrap();
@@ -602,7 +678,8 @@ impl MemFs {
         self.create_file(dev, "tty0", b"").unwrap();
 
         // /boot
-        self.create_file(boot, "kpio-kernel", b"[binary: KPIO kernel image]\n").unwrap();
+        self.create_file(boot, "kpio-kernel", b"[binary: KPIO kernel image]\n")
+            .unwrap();
     }
 
     fn create_proc_file(&mut self, parent: Ino, name: &str, kind: ProcFileKind) {
@@ -610,7 +687,9 @@ impl MemFs {
         let node = Inode {
             ino,
             mode: FileMode(0o100444), // r--r--r--
-            uid: 0, gid: 0, size: 0,
+            uid: 0,
+            gid: 0,
+            size: 0,
             created: Timestamp::default(),
             modified: Timestamp::default(),
             nlink: 1,
@@ -628,11 +707,19 @@ impl MemFs {
     /// Resolve an absolute path, returning (parent_ino, basename)
     pub fn resolve_parent(&self, path: &str) -> Option<(Ino, String)> {
         let path = path.trim_end_matches('/');
-        if path.is_empty() || path == "/" { return None; }
+        if path.is_empty() || path == "/" {
+            return None;
+        }
         let last_slash = path.rfind('/')?;
-        let parent_path = if last_slash == 0 { "/" } else { &path[..last_slash] };
+        let parent_path = if last_slash == 0 {
+            "/"
+        } else {
+            &path[..last_slash]
+        };
         let name = &path[last_slash + 1..];
-        if name.is_empty() { return None; }
+        if name.is_empty() {
+            return None;
+        }
         let parent_ino = self.resolve(parent_path)?;
         Some((parent_ino, String::from(name)))
     }

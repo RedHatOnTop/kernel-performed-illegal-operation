@@ -8,56 +8,56 @@ use alloc::vec::Vec;
 use core::ptr;
 
 use super::{
-    MacAddress, NetworkDevice, NetworkError, NetworkCapabilities, NetworkStats,
-    LinkStatus, LinkSpeed, LinkDuplex, NETWORK_MANAGER,
+    LinkDuplex, LinkSpeed, LinkStatus, MacAddress, NetworkCapabilities, NetworkDevice,
+    NetworkError, NetworkStats, NETWORK_MANAGER,
 };
 
 /// E1000 register offsets
 #[allow(dead_code)]
 mod regs {
-    pub const CTRL: u32 = 0x0000;       // Device Control
-    pub const STATUS: u32 = 0x0008;     // Device Status
-    pub const EECD: u32 = 0x0010;       // EEPROM/Flash Control
-    pub const EERD: u32 = 0x0014;       // EEPROM Read
-    pub const CTRL_EXT: u32 = 0x0018;   // Extended Device Control
-    pub const MDIC: u32 = 0x0020;       // MDI Control
-    pub const ICR: u32 = 0x00C0;        // Interrupt Cause Read
-    pub const ICS: u32 = 0x00C8;        // Interrupt Cause Set
-    pub const IMS: u32 = 0x00D0;        // Interrupt Mask Set
-    pub const IMC: u32 = 0x00D8;        // Interrupt Mask Clear
-    pub const RCTL: u32 = 0x0100;       // Receive Control
-    pub const TCTL: u32 = 0x0400;       // Transmit Control
-    pub const RDBAL: u32 = 0x2800;      // RX Descriptor Base Low
-    pub const RDBAH: u32 = 0x2804;      // RX Descriptor Base High
-    pub const RDLEN: u32 = 0x2808;      // RX Descriptor Length
-    pub const RDH: u32 = 0x2810;        // RX Descriptor Head
-    pub const RDT: u32 = 0x2818;        // RX Descriptor Tail
-    pub const TDBAL: u32 = 0x3800;      // TX Descriptor Base Low
-    pub const TDBAH: u32 = 0x3804;      // TX Descriptor Base High
-    pub const TDLEN: u32 = 0x3808;      // TX Descriptor Length
-    pub const TDH: u32 = 0x3810;        // TX Descriptor Head
-    pub const TDT: u32 = 0x3818;        // TX Descriptor Tail
-    pub const RAL0: u32 = 0x5400;       // Receive Address Low
-    pub const RAH0: u32 = 0x5404;       // Receive Address High
-    pub const MTA: u32 = 0x5200;        // Multicast Table Array
+    pub const CTRL: u32 = 0x0000; // Device Control
+    pub const STATUS: u32 = 0x0008; // Device Status
+    pub const EECD: u32 = 0x0010; // EEPROM/Flash Control
+    pub const EERD: u32 = 0x0014; // EEPROM Read
+    pub const CTRL_EXT: u32 = 0x0018; // Extended Device Control
+    pub const MDIC: u32 = 0x0020; // MDI Control
+    pub const ICR: u32 = 0x00C0; // Interrupt Cause Read
+    pub const ICS: u32 = 0x00C8; // Interrupt Cause Set
+    pub const IMS: u32 = 0x00D0; // Interrupt Mask Set
+    pub const IMC: u32 = 0x00D8; // Interrupt Mask Clear
+    pub const RCTL: u32 = 0x0100; // Receive Control
+    pub const TCTL: u32 = 0x0400; // Transmit Control
+    pub const RDBAL: u32 = 0x2800; // RX Descriptor Base Low
+    pub const RDBAH: u32 = 0x2804; // RX Descriptor Base High
+    pub const RDLEN: u32 = 0x2808; // RX Descriptor Length
+    pub const RDH: u32 = 0x2810; // RX Descriptor Head
+    pub const RDT: u32 = 0x2818; // RX Descriptor Tail
+    pub const TDBAL: u32 = 0x3800; // TX Descriptor Base Low
+    pub const TDBAH: u32 = 0x3804; // TX Descriptor Base High
+    pub const TDLEN: u32 = 0x3808; // TX Descriptor Length
+    pub const TDH: u32 = 0x3810; // TX Descriptor Head
+    pub const TDT: u32 = 0x3818; // TX Descriptor Tail
+    pub const RAL0: u32 = 0x5400; // Receive Address Low
+    pub const RAH0: u32 = 0x5404; // Receive Address High
+    pub const MTA: u32 = 0x5200; // Multicast Table Array
 }
 
 /// Control register bits
 #[allow(dead_code)]
 mod ctrl {
-    pub const SLU: u32 = 1 << 6;        // Set Link Up
-    pub const FRCSPD: u32 = 1 << 11;    // Force Speed
-    pub const FRCDPLX: u32 = 1 << 12;   // Force Duplex
-    pub const RST: u32 = 1 << 26;       // Device Reset
-    pub const VME: u32 = 1 << 30;       // VLAN Mode Enable
-    pub const PHY_RST: u32 = 1 << 31;   // PHY Reset
+    pub const SLU: u32 = 1 << 6; // Set Link Up
+    pub const FRCSPD: u32 = 1 << 11; // Force Speed
+    pub const FRCDPLX: u32 = 1 << 12; // Force Duplex
+    pub const RST: u32 = 1 << 26; // Device Reset
+    pub const VME: u32 = 1 << 30; // VLAN Mode Enable
+    pub const PHY_RST: u32 = 1 << 31; // PHY Reset
 }
 
 /// Status register bits
 #[allow(dead_code)]
 mod status {
-    pub const LU: u32 = 1 << 1;         // Link Up
-    pub const FD: u32 = 1 << 0;         // Full Duplex
+    pub const LU: u32 = 1 << 1; // Link Up
+    pub const FD: u32 = 1 << 0; // Full Duplex
     pub const SPEED_MASK: u32 = 0b11 << 6;
     pub const SPEED_10: u32 = 0b00 << 6;
     pub const SPEED_100: u32 = 0b01 << 6;
@@ -67,27 +67,27 @@ mod status {
 /// Receive control register bits
 #[allow(dead_code)]
 mod rctl {
-    pub const EN: u32 = 1 << 1;         // Receiver Enable
-    pub const SBP: u32 = 1 << 2;        // Store Bad Packets
-    pub const UPE: u32 = 1 << 3;        // Unicast Promiscuous Enable
-    pub const MPE: u32 = 1 << 4;        // Multicast Promiscuous Enable
-    pub const LPE: u32 = 1 << 5;        // Long Packet Enable
-    pub const BAM: u32 = 1 << 15;       // Broadcast Accept Mode
+    pub const EN: u32 = 1 << 1; // Receiver Enable
+    pub const SBP: u32 = 1 << 2; // Store Bad Packets
+    pub const UPE: u32 = 1 << 3; // Unicast Promiscuous Enable
+    pub const MPE: u32 = 1 << 4; // Multicast Promiscuous Enable
+    pub const LPE: u32 = 1 << 5; // Long Packet Enable
+    pub const BAM: u32 = 1 << 15; // Broadcast Accept Mode
     pub const BSIZE_256: u32 = 0b11 << 16;
     pub const BSIZE_512: u32 = 0b10 << 16;
     pub const BSIZE_1024: u32 = 0b01 << 16;
     pub const BSIZE_2048: u32 = 0b00 << 16;
     pub const BSIZE_4096: u32 = (0b11 << 16) | (1 << 25);
-    pub const SECRC: u32 = 1 << 26;     // Strip Ethernet CRC
+    pub const SECRC: u32 = 1 << 26; // Strip Ethernet CRC
 }
 
 /// Transmit control register bits
 #[allow(dead_code)]
 mod tctl {
-    pub const EN: u32 = 1 << 1;         // Transmit Enable
-    pub const PSP: u32 = 1 << 3;        // Pad Short Packets
-    pub const CT_SHIFT: u32 = 4;        // Collision Threshold
-    pub const COLD_SHIFT: u32 = 12;     // Collision Distance
+    pub const EN: u32 = 1 << 1; // Transmit Enable
+    pub const PSP: u32 = 1 << 3; // Pad Short Packets
+    pub const CT_SHIFT: u32 = 4; // Collision Threshold
+    pub const COLD_SHIFT: u32 = 12; // Collision Distance
     pub const COLD_FD: u32 = 0x40 << 12; // Full Duplex value
     pub const COLD_HD: u32 = 0x200 << 12; // Half Duplex value
 }
@@ -236,9 +236,7 @@ impl E1000Device {
 
     /// Read register
     fn read_reg(&self, reg: u32) -> u32 {
-        unsafe {
-            ptr::read_volatile((self.mmio_base + reg as usize) as *const u32)
-        }
+        unsafe { ptr::read_volatile((self.mmio_base + reg as usize) as *const u32) }
     }
 
     /// Write register
@@ -323,7 +321,10 @@ impl E1000Device {
         self.write_reg(regs::RDBAH, (desc_addr >> 32) as u32);
 
         // Set descriptor length
-        self.write_reg(regs::RDLEN, (RX_DESC_COUNT * core::mem::size_of::<RxDescriptor>()) as u32);
+        self.write_reg(
+            regs::RDLEN,
+            (RX_DESC_COUNT * core::mem::size_of::<RxDescriptor>()) as u32,
+        );
 
         // Set head and tail
         self.write_reg(regs::RDH, 0);
@@ -351,7 +352,10 @@ impl E1000Device {
         self.write_reg(regs::TDBAH, (desc_addr >> 32) as u32);
 
         // Set descriptor length
-        self.write_reg(regs::TDLEN, (TX_DESC_COUNT * core::mem::size_of::<TxDescriptor>()) as u32);
+        self.write_reg(
+            regs::TDLEN,
+            (TX_DESC_COUNT * core::mem::size_of::<TxDescriptor>()) as u32,
+        );
 
         // Set head and tail
         self.write_reg(regs::TDH, 0);
@@ -527,7 +531,7 @@ impl NetworkDevice for E1000Device {
 
         // Copy length from packed struct safely
         let length = self.rx_desc[self.rx_cur].length as usize;
-        
+
         if buffer.len() < length {
             return Err(NetworkError::InvalidSize);
         }

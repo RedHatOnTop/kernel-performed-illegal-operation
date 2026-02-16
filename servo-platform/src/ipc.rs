@@ -32,61 +32,61 @@ impl ServiceChannel {
     /// Connect to a named kernel service
     pub fn connect(service_name: &str) -> Result<Self> {
         let id = ChannelId(NEXT_CHANNEL_ID.fetch_add(1, Ordering::Relaxed));
-        
+
         // In real implementation:
         // 1. Send connect request via syscall
         // 2. Kernel looks up service by name
         // 3. Creates channel pair and returns our endpoint
-        
+
         log::debug!("[KPIO IPC] Connecting to service: {}", service_name);
-        
+
         Ok(ServiceChannel {
             id,
             connected: AtomicBool::new(true),
         })
     }
-    
+
     /// Send a message
     pub fn send(&self, data: &[u8]) -> Result<()> {
         if !self.connected.load(Ordering::Acquire) {
             return Err(PlatformError::Ipc(IpcError::NotConnected));
         }
-        
+
         // In real implementation: syscall to send message
         Ok(())
     }
-    
+
     /// Receive a message (blocking)
     pub fn recv(&self, buf: &mut [u8]) -> Result<usize> {
         if !self.connected.load(Ordering::Acquire) {
             return Err(PlatformError::Ipc(IpcError::NotConnected));
         }
-        
+
         // In real implementation: syscall to receive message
         Ok(0)
     }
-    
+
     /// Try to receive a message (non-blocking)
     pub fn try_recv(&self, buf: &mut [u8]) -> Result<Option<usize>> {
         if !self.connected.load(Ordering::Acquire) {
             return Err(PlatformError::Ipc(IpcError::NotConnected));
         }
-        
+
         // In real implementation: non-blocking syscall
         Ok(None)
     }
-    
+
     /// Close the channel
     pub fn close(&self) {
         self.connected.store(false, Ordering::Release);
         // In real implementation: syscall to close channel
     }
-    
+
     /// Check if connected
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Acquire)
     }
-    
+
     /// Get channel ID
     pub fn id(&self) -> ChannelId {
         self.id
@@ -110,19 +110,16 @@ impl<T> Channel<T> {
     pub fn new() -> Self {
         let buffer = Arc::new(Mutex::new(VecDeque::new()));
         let closed = Arc::new(AtomicBool::new(false));
-        
+
         Channel {
             sender: ChannelSender {
                 buffer: buffer.clone(),
                 closed: closed.clone(),
             },
-            receiver: ChannelReceiver {
-                buffer,
-                closed,
-            },
+            receiver: ChannelReceiver { buffer, closed },
         }
     }
-    
+
     /// Split into sender and receiver
     pub fn split(self) -> (ChannelSender<T>, ChannelReceiver<T>) {
         (self.sender, self.receiver)
@@ -147,11 +144,11 @@ impl<T> ChannelSender<T> {
         if self.closed.load(Ordering::Acquire) {
             return Err(PlatformError::Ipc(IpcError::NotConnected));
         }
-        
+
         self.buffer.lock().push_back(value);
         Ok(())
     }
-    
+
     /// Close the sender
     pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
@@ -180,28 +177,28 @@ impl<T> ChannelReceiver<T> {
             if let Some(value) = self.buffer.lock().pop_front() {
                 return Ok(value);
             }
-            
+
             if self.closed.load(Ordering::Acquire) {
                 return Err(PlatformError::Ipc(IpcError::NotConnected));
             }
-            
+
             crate::thread::yield_now();
         }
     }
-    
+
     /// Try to receive a value (non-blocking)
     pub fn try_recv(&self) -> Result<Option<T>> {
         if let Some(value) = self.buffer.lock().pop_front() {
             return Ok(Some(value));
         }
-        
+
         if self.closed.load(Ordering::Acquire) {
             return Err(PlatformError::Ipc(IpcError::NotConnected));
         }
-        
+
         Ok(None)
     }
-    
+
     /// Check if channel is empty
     pub fn is_empty(&self) -> bool {
         self.buffer.lock().is_empty()
@@ -224,47 +221,47 @@ impl SharedMemory {
     /// Create a new shared memory region
     pub fn create(size: usize) -> Result<Self> {
         let id = NEXT_SHM_ID.fetch_add(1, Ordering::Relaxed);
-        
+
         // In real implementation: syscall to allocate shared memory
-        
+
         Ok(SharedMemory {
             id,
             ptr: core::ptr::null_mut(),
             size,
         })
     }
-    
+
     /// Open an existing shared memory region by ID
     pub fn open(id: u64) -> Result<Self> {
         // In real implementation: syscall to map shared memory
-        
+
         Ok(SharedMemory {
             id,
             ptr: core::ptr::null_mut(),
             size: 0,
         })
     }
-    
+
     /// Get the shared memory ID
     pub fn id(&self) -> u64 {
         self.id
     }
-    
+
     /// Get the size of the shared memory
     pub fn size(&self) -> usize {
         self.size
     }
-    
+
     /// Get a pointer to the shared memory
     pub fn as_ptr(&self) -> *const u8 {
         self.ptr
     }
-    
+
     /// Get a mutable pointer to the shared memory
     pub fn as_mut_ptr(&self) -> *mut u8 {
         self.ptr
     }
-    
+
     /// Get a slice view of the shared memory
     pub fn as_slice(&self) -> &[u8] {
         if self.ptr.is_null() {
@@ -273,7 +270,7 @@ impl SharedMemory {
             unsafe { core::slice::from_raw_parts(self.ptr, self.size) }
         }
     }
-    
+
     /// Get a mutable slice view of the shared memory
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         if self.ptr.is_null() {
@@ -303,14 +300,14 @@ impl MessageQueue {
     /// Create a new message queue
     pub fn create(max_messages: usize, max_message_size: usize) -> Result<Self> {
         let id = NEXT_MQ_ID.fetch_add(1, Ordering::Relaxed);
-        
+
         Ok(MessageQueue {
             id,
             max_messages,
             max_message_size,
         })
     }
-    
+
     /// Open an existing message queue
     pub fn open(id: u64) -> Result<Self> {
         Ok(MessageQueue {
@@ -319,30 +316,30 @@ impl MessageQueue {
             max_message_size: 0,
         })
     }
-    
+
     /// Send a message
     pub fn send(&self, data: &[u8], priority: u32) -> Result<()> {
         if data.len() > self.max_message_size {
             return Err(PlatformError::Ipc(IpcError::MessageTooLarge));
         }
-        
+
         // In real implementation: syscall to send message
         Ok(())
     }
-    
+
     /// Receive a message (blocking)
     pub fn recv(&self, buf: &mut [u8]) -> Result<(usize, u32)> {
         // In real implementation: syscall to receive message
         // Returns (message_size, priority)
         Ok((0, 0))
     }
-    
+
     /// Try to receive a message (non-blocking)
     pub fn try_recv(&self, buf: &mut [u8]) -> Result<Option<(usize, u32)>> {
         // In real implementation: non-blocking syscall
         Ok(None)
     }
-    
+
     /// Get queue ID
     pub fn id(&self) -> u64 {
         self.id
@@ -359,28 +356,28 @@ impl RpcClient {
     /// Create a new RPC client connected to a service
     pub fn new(service_name: &str) -> Result<Self> {
         let channel = ServiceChannel::connect(service_name)?;
-        
+
         Ok(RpcClient {
             channel,
             request_id: AtomicU64::new(1),
         })
     }
-    
+
     /// Make an RPC call
     pub fn call(&self, method: &str, params: &[u8]) -> Result<Vec<u8>> {
         let _request_id = self.request_id.fetch_add(1, Ordering::Relaxed);
-        
+
         // In real implementation:
         // 1. Serialize request with method name, id, and params
         // 2. Send via channel
         // 3. Wait for response with matching id
         // 4. Return result
-        
+
         self.channel.send(params)?;
-        
+
         let mut buf = [0u8; 4096];
         let len = self.channel.recv(&mut buf)?;
-        
+
         Ok(buf[..len].to_vec())
     }
 }

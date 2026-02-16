@@ -164,18 +164,16 @@ impl Imports {
 
     /// Add a host function import.
     pub fn add_function(&mut self, module: &str, name: &str, func: HostFn) {
-        self.functions
-            .insert((module.into(), name.into()), func);
+        self.functions.insert((module.into(), name.into()), func);
     }
 
     /// Add a memory import.
     pub fn add_memory(&mut self, module: &str, name: &str, memory: LinearMemory) {
-        self.memories
-            .insert((module.into(), name.into()), memory);
+        self.memories.insert((module.into(), name.into()), memory);
     }
 
     /// Convert to executor-compatible host function list.
-    fn to_exec_host_functions(&self) -> Vec<ExecHostFunction> {
+    pub fn to_exec_host_functions(&self) -> Vec<ExecHostFunction> {
         self.functions
             .iter()
             .map(|((module, name), func)| ExecHostFunction {

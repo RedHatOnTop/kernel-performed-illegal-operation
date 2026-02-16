@@ -49,20 +49,16 @@ impl NumberFormatter {
     /// Create for locale
     pub fn for_locale(locale: &str) -> Self {
         match locale {
-            "de-DE" | "de" | "fr-FR" | "fr" | "es-ES" | "es" | "it-IT" | "it" => {
-                Self {
-                    decimal_separator: ',',
-                    thousands_separator: '.',
-                    grouping_size: 3,
-                }
-            }
-            "fr-CA" => {
-                Self {
-                    decimal_separator: ',',
-                    thousands_separator: ' ',
-                    grouping_size: 3,
-                }
-            }
+            "de-DE" | "de" | "fr-FR" | "fr" | "es-ES" | "es" | "it-IT" | "it" => Self {
+                decimal_separator: ',',
+                thousands_separator: '.',
+                grouping_size: 3,
+            },
+            "fr-CA" => Self {
+                decimal_separator: ',',
+                thousands_separator: ' ',
+                grouping_size: 3,
+            },
             "hi-IN" | "en-IN" => {
                 Self {
                     decimal_separator: '.',
@@ -79,11 +75,11 @@ impl NumberFormatter {
         let negative = value < 0;
         let abs_value = value.abs() as u64;
         let mut result = self.format_uint(abs_value);
-        
+
         if negative {
             result.insert(0, '-');
         }
-        
+
         result
     }
 
@@ -91,7 +87,7 @@ impl NumberFormatter {
     pub fn format_uint(&self, value: u64) -> String {
         let s = alloc::format!("{}", value);
         let chars: Vec<char> = s.chars().collect();
-        
+
         if chars.len() <= self.grouping_size {
             return s;
         }
@@ -119,13 +115,13 @@ impl NumberFormatter {
         let frac_part = (rounded % multiplier as i64).abs() as u64;
 
         let int_str = self.format_int(int_part);
-        
+
         if precision == 0 {
             return int_str;
         }
 
         let frac_str = alloc::format!("{:0>width$}", frac_part, width = precision);
-        
+
         alloc::format!("{}{}{}", int_str, self.decimal_separator, frac_str)
     }
 
@@ -136,11 +132,12 @@ impl NumberFormatter {
 
     /// Parse number from string
     pub fn parse(&self, s: &str) -> Option<f64> {
-        let cleaned: String = s.chars()
+        let cleaned: String = s
+            .chars()
             .filter(|&c| c != self.thousands_separator)
             .map(|c| if c == self.decimal_separator { '.' } else { c })
             .collect();
-        
+
         cleaned.parse().ok()
     }
 }
@@ -194,9 +191,9 @@ impl CurrencyFormatter {
     /// Format currency
     pub fn format(&self, value: f64) -> String {
         let num_str = self.number.format_float(value, self.decimals);
-        
+
         let space = if self.space { " " } else { "" };
-        
+
         if self.symbol_before {
             alloc::format!("{}{}{}", self.symbol, space, num_str)
         } else {
@@ -284,23 +281,27 @@ impl DateFormatter {
     pub fn format_date(&self, year: i32, month: u8, day: u8) -> String {
         let loc = self.locale.as_str();
         match self.date_format {
-            DateFormat::Short => {
-                match loc {
-                    "ko" | "ko-KR" | "ja" | "ja-JP" | "zh-CN" | "zh" => {
-                        alloc::format!("{:04}-{:02}-{:02}", year, month, day)
-                    }
-                    "de" | "de-DE" | "fr" | "fr-FR" => {
-                        alloc::format!("{:02}.{:02}.{:04}", day, month, year)
-                    }
-                    _ => alloc::format!("{:04}-{:02}-{:02}", year, month, day),
+            DateFormat::Short => match loc {
+                "ko" | "ko-KR" | "ja" | "ja-JP" | "zh-CN" | "zh" => {
+                    alloc::format!("{:04}-{:02}-{:02}", year, month, day)
                 }
-            }
+                "de" | "de-DE" | "fr" | "fr-FR" => {
+                    alloc::format!("{:02}.{:02}.{:04}", day, month, year)
+                }
+                _ => alloc::format!("{:04}-{:02}-{:02}", year, month, day),
+            },
             DateFormat::Medium => {
                 let month_name = self.month_abbrev(month);
                 match loc {
-                    "ko" | "ko-KR" => alloc::format!("{}\u{b144} {}\u{c6d4} {}\u{c77c}", year, month, day),
-                    "ja" | "ja-JP" => alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day),
-                    "zh-CN" | "zh" => alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day),
+                    "ko" | "ko-KR" => {
+                        alloc::format!("{}\u{b144} {}\u{c6d4} {}\u{c77c}", year, month, day)
+                    }
+                    "ja" | "ja-JP" => {
+                        alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day)
+                    }
+                    "zh-CN" | "zh" => {
+                        alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day)
+                    }
                     "de" | "de-DE" => alloc::format!("{:02}. {} {}", day, month_name, year),
                     _ => alloc::format!("{} {}, {}", month_name, day, year),
                 }
@@ -308,9 +309,15 @@ impl DateFormatter {
             DateFormat::Long => {
                 let month_name = self.month_name(month);
                 match loc {
-                    "ko" | "ko-KR" => alloc::format!("{}\u{b144} {}\u{c6d4} {}\u{c77c}", year, month, day),
-                    "ja" | "ja-JP" => alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day),
-                    "zh-CN" | "zh" => alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day),
+                    "ko" | "ko-KR" => {
+                        alloc::format!("{}\u{b144} {}\u{c6d4} {}\u{c77c}", year, month, day)
+                    }
+                    "ja" | "ja-JP" => {
+                        alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day)
+                    }
+                    "zh-CN" | "zh" => {
+                        alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5}", year, month, day)
+                    }
                     "de" | "de-DE" => alloc::format!("{:02}. {} {}", day, month_name, year),
                     _ => alloc::format!("{} {}, {}", month_name, day, year),
                 }
@@ -320,11 +327,33 @@ impl DateFormatter {
                 let dow = day_of_week(year, month, day);
                 let day_name = self.day_name(dow);
                 match loc {
-                    "ko" | "ko-KR" => alloc::format!("{}\u{b144} {}\u{c6d4} {}\u{c77c} {}", year, month, day, day_name),
-                    "ja" | "ja-JP" => alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5} {}", year, month, day, day_name),
-                    "zh-CN" | "zh" => alloc::format!("{}\u{5e74}{}\u{6708}{}\u{65e5} {}", year, month, day, day_name),
-                    "de" | "de-DE" => alloc::format!("{}, {:02}. {} {}", day_name, day, month_name, year),
-                    "es" | "es-ES" => alloc::format!("{}, {} de {} de {}", day_name, day, month_name, year),
+                    "ko" | "ko-KR" => alloc::format!(
+                        "{}\u{b144} {}\u{c6d4} {}\u{c77c} {}",
+                        year,
+                        month,
+                        day,
+                        day_name
+                    ),
+                    "ja" | "ja-JP" => alloc::format!(
+                        "{}\u{5e74}{}\u{6708}{}\u{65e5} {}",
+                        year,
+                        month,
+                        day,
+                        day_name
+                    ),
+                    "zh-CN" | "zh" => alloc::format!(
+                        "{}\u{5e74}{}\u{6708}{}\u{65e5} {}",
+                        year,
+                        month,
+                        day,
+                        day_name
+                    ),
+                    "de" | "de-DE" => {
+                        alloc::format!("{}, {:02}. {} {}", day_name, day, month_name, year)
+                    }
+                    "es" | "es-ES" => {
+                        alloc::format!("{}, {} de {} de {}", day_name, day, month_name, year)
+                    }
                     _ => alloc::format!("{}, {} {}, {}", day_name, month_name, day, year),
                 }
             }
@@ -344,7 +373,7 @@ impl DateFormatter {
     pub fn format_relative(&self, seconds_ago: i64) -> String {
         let abs_seconds = seconds_ago.abs();
         let future = seconds_ago < 0;
-        
+
         let (value, unit_idx) = if abs_seconds < 60 {
             (abs_seconds, 0) // second
         } else if abs_seconds < 3600 {
@@ -408,12 +437,48 @@ impl DateFormatter {
             }
             "de" | "de-DE" => {
                 let unit = match unit_idx {
-                    0 => if value == 1 { "Sekunde" } else { "Sekunden" },
-                    1 => if value == 1 { "Minute" } else { "Minuten" },
-                    2 => if value == 1 { "Stunde" } else { "Stunden" },
-                    3 => if value == 1 { "Tag" } else { "Tagen" },
-                    4 => if value == 1 { "Monat" } else { "Monaten" },
-                    _ => if value == 1 { "Jahr" } else { "Jahren" },
+                    0 => {
+                        if value == 1 {
+                            "Sekunde"
+                        } else {
+                            "Sekunden"
+                        }
+                    }
+                    1 => {
+                        if value == 1 {
+                            "Minute"
+                        } else {
+                            "Minuten"
+                        }
+                    }
+                    2 => {
+                        if value == 1 {
+                            "Stunde"
+                        } else {
+                            "Stunden"
+                        }
+                    }
+                    3 => {
+                        if value == 1 {
+                            "Tag"
+                        } else {
+                            "Tagen"
+                        }
+                    }
+                    4 => {
+                        if value == 1 {
+                            "Monat"
+                        } else {
+                            "Monaten"
+                        }
+                    }
+                    _ => {
+                        if value == 1 {
+                            "Jahr"
+                        } else {
+                            "Jahren"
+                        }
+                    }
                 };
                 if future {
                     alloc::format!("in {} {}", value, unit)
@@ -423,12 +488,48 @@ impl DateFormatter {
             }
             "es" | "es-ES" => {
                 let unit = match unit_idx {
-                    0 => if value == 1 { "segundo" } else { "segundos" },
-                    1 => if value == 1 { "minuto" } else { "minutos" },
-                    2 => if value == 1 { "hora" } else { "horas" },
-                    3 => if value == 1 { "d\u{ed}a" } else { "d\u{ed}as" },
-                    4 => if value == 1 { "mes" } else { "meses" },
-                    _ => if value == 1 { "a\u{f1}o" } else { "a\u{f1}os" },
+                    0 => {
+                        if value == 1 {
+                            "segundo"
+                        } else {
+                            "segundos"
+                        }
+                    }
+                    1 => {
+                        if value == 1 {
+                            "minuto"
+                        } else {
+                            "minutos"
+                        }
+                    }
+                    2 => {
+                        if value == 1 {
+                            "hora"
+                        } else {
+                            "horas"
+                        }
+                    }
+                    3 => {
+                        if value == 1 {
+                            "d\u{ed}a"
+                        } else {
+                            "d\u{ed}as"
+                        }
+                    }
+                    4 => {
+                        if value == 1 {
+                            "mes"
+                        } else {
+                            "meses"
+                        }
+                    }
+                    _ => {
+                        if value == 1 {
+                            "a\u{f1}o"
+                        } else {
+                            "a\u{f1}os"
+                        }
+                    }
                 };
                 if future {
                     alloc::format!("en {} {}", value, unit)
@@ -438,12 +539,42 @@ impl DateFormatter {
             }
             "fr" | "fr-FR" => {
                 let unit = match unit_idx {
-                    0 => if value == 1 { "seconde" } else { "secondes" },
-                    1 => if value == 1 { "minute" } else { "minutes" },
-                    2 => if value == 1 { "heure" } else { "heures" },
-                    3 => if value == 1 { "jour" } else { "jours" },
+                    0 => {
+                        if value == 1 {
+                            "seconde"
+                        } else {
+                            "secondes"
+                        }
+                    }
+                    1 => {
+                        if value == 1 {
+                            "minute"
+                        } else {
+                            "minutes"
+                        }
+                    }
+                    2 => {
+                        if value == 1 {
+                            "heure"
+                        } else {
+                            "heures"
+                        }
+                    }
+                    3 => {
+                        if value == 1 {
+                            "jour"
+                        } else {
+                            "jours"
+                        }
+                    }
                     4 => "mois",
-                    _ => if value == 1 { "an" } else { "ans" },
+                    _ => {
+                        if value == 1 {
+                            "an"
+                        } else {
+                            "ans"
+                        }
+                    }
                 };
                 if future {
                     alloc::format!("dans {} {}", value, unit)
@@ -475,27 +606,63 @@ impl DateFormatter {
         let loc = self.locale.as_str();
         match loc {
             "de" | "de-DE" => match month {
-                1 => "Jan", 2 => "Feb", 3 => "M\u{e4}r", 4 => "Apr",
-                5 => "Mai", 6 => "Jun", 7 => "Jul", 8 => "Aug",
-                9 => "Sep", 10 => "Okt", 11 => "Nov", 12 => "Dez",
+                1 => "Jan",
+                2 => "Feb",
+                3 => "M\u{e4}r",
+                4 => "Apr",
+                5 => "Mai",
+                6 => "Jun",
+                7 => "Jul",
+                8 => "Aug",
+                9 => "Sep",
+                10 => "Okt",
+                11 => "Nov",
+                12 => "Dez",
                 _ => "???",
             },
             "es" | "es-ES" => match month {
-                1 => "ene", 2 => "feb", 3 => "mar", 4 => "abr",
-                5 => "may", 6 => "jun", 7 => "jul", 8 => "ago",
-                9 => "sep", 10 => "oct", 11 => "nov", 12 => "dic",
+                1 => "ene",
+                2 => "feb",
+                3 => "mar",
+                4 => "abr",
+                5 => "may",
+                6 => "jun",
+                7 => "jul",
+                8 => "ago",
+                9 => "sep",
+                10 => "oct",
+                11 => "nov",
+                12 => "dic",
                 _ => "???",
             },
             "fr" | "fr-FR" => match month {
-                1 => "janv", 2 => "f\u{e9}vr", 3 => "mars", 4 => "avr",
-                5 => "mai", 6 => "juin", 7 => "juil", 8 => "ao\u{fb}t",
-                9 => "sept", 10 => "oct", 11 => "nov", 12 => "d\u{e9}c",
+                1 => "janv",
+                2 => "f\u{e9}vr",
+                3 => "mars",
+                4 => "avr",
+                5 => "mai",
+                6 => "juin",
+                7 => "juil",
+                8 => "ao\u{fb}t",
+                9 => "sept",
+                10 => "oct",
+                11 => "nov",
+                12 => "d\u{e9}c",
                 _ => "???",
             },
             _ => match month {
-                1 => "Jan", 2 => "Feb", 3 => "Mar", 4 => "Apr",
-                5 => "May", 6 => "Jun", 7 => "Jul", 8 => "Aug",
-                9 => "Sep", 10 => "Oct", 11 => "Nov", 12 => "Dec",
+                1 => "Jan",
+                2 => "Feb",
+                3 => "Mar",
+                4 => "Apr",
+                5 => "May",
+                6 => "Jun",
+                7 => "Jul",
+                8 => "Aug",
+                9 => "Sep",
+                10 => "Oct",
+                11 => "Nov",
+                12 => "Dec",
                 _ => "???",
             },
         }
@@ -506,27 +673,63 @@ impl DateFormatter {
         let loc = self.locale.as_str();
         match loc {
             "de" | "de-DE" => match month {
-                1 => "Januar", 2 => "Februar", 3 => "M\u{e4}rz", 4 => "April",
-                5 => "Mai", 6 => "Juni", 7 => "Juli", 8 => "August",
-                9 => "September", 10 => "Oktober", 11 => "November", 12 => "Dezember",
+                1 => "Januar",
+                2 => "Februar",
+                3 => "M\u{e4}rz",
+                4 => "April",
+                5 => "Mai",
+                6 => "Juni",
+                7 => "Juli",
+                8 => "August",
+                9 => "September",
+                10 => "Oktober",
+                11 => "November",
+                12 => "Dezember",
                 _ => "Unbekannt",
             },
             "es" | "es-ES" => match month {
-                1 => "enero", 2 => "febrero", 3 => "marzo", 4 => "abril",
-                5 => "mayo", 6 => "junio", 7 => "julio", 8 => "agosto",
-                9 => "septiembre", 10 => "octubre", 11 => "noviembre", 12 => "diciembre",
+                1 => "enero",
+                2 => "febrero",
+                3 => "marzo",
+                4 => "abril",
+                5 => "mayo",
+                6 => "junio",
+                7 => "julio",
+                8 => "agosto",
+                9 => "septiembre",
+                10 => "octubre",
+                11 => "noviembre",
+                12 => "diciembre",
                 _ => "desconocido",
             },
             "fr" | "fr-FR" => match month {
-                1 => "janvier", 2 => "f\u{e9}vrier", 3 => "mars", 4 => "avril",
-                5 => "mai", 6 => "juin", 7 => "juillet", 8 => "ao\u{fb}t",
-                9 => "septembre", 10 => "octobre", 11 => "novembre", 12 => "d\u{e9}cembre",
+                1 => "janvier",
+                2 => "f\u{e9}vrier",
+                3 => "mars",
+                4 => "avril",
+                5 => "mai",
+                6 => "juin",
+                7 => "juillet",
+                8 => "ao\u{fb}t",
+                9 => "septembre",
+                10 => "octobre",
+                11 => "novembre",
+                12 => "d\u{e9}cembre",
                 _ => "inconnu",
             },
             _ => match month {
-                1 => "January", 2 => "February", 3 => "March", 4 => "April",
-                5 => "May", 6 => "June", 7 => "July", 8 => "August",
-                9 => "September", 10 => "October", 11 => "November", 12 => "December",
+                1 => "January",
+                2 => "February",
+                3 => "March",
+                4 => "April",
+                5 => "May",
+                6 => "June",
+                7 => "July",
+                8 => "August",
+                9 => "September",
+                10 => "October",
+                11 => "November",
+                12 => "December",
                 _ => "Unknown",
             },
         }
@@ -568,23 +771,43 @@ impl DateFormatter {
                 _ => "",
             },
             "de" | "de-DE" => match dow {
-                0 => "Sonntag", 1 => "Montag", 2 => "Dienstag", 3 => "Mittwoch",
-                4 => "Donnerstag", 5 => "Freitag", 6 => "Samstag",
+                0 => "Sonntag",
+                1 => "Montag",
+                2 => "Dienstag",
+                3 => "Mittwoch",
+                4 => "Donnerstag",
+                5 => "Freitag",
+                6 => "Samstag",
                 _ => "",
             },
             "es" | "es-ES" => match dow {
-                0 => "domingo", 1 => "lunes", 2 => "martes", 3 => "mi\u{e9}rcoles",
-                4 => "jueves", 5 => "viernes", 6 => "s\u{e1}bado",
+                0 => "domingo",
+                1 => "lunes",
+                2 => "martes",
+                3 => "mi\u{e9}rcoles",
+                4 => "jueves",
+                5 => "viernes",
+                6 => "s\u{e1}bado",
                 _ => "",
             },
             "fr" | "fr-FR" => match dow {
-                0 => "dimanche", 1 => "lundi", 2 => "mardi", 3 => "mercredi",
-                4 => "jeudi", 5 => "vendredi", 6 => "samedi",
+                0 => "dimanche",
+                1 => "lundi",
+                2 => "mardi",
+                3 => "mercredi",
+                4 => "jeudi",
+                5 => "vendredi",
+                6 => "samedi",
                 _ => "",
             },
             _ => match dow {
-                0 => "Sunday", 1 => "Monday", 2 => "Tuesday", 3 => "Wednesday",
-                4 => "Thursday", 5 => "Friday", 6 => "Saturday",
+                0 => "Sunday",
+                1 => "Monday",
+                2 => "Tuesday",
+                3 => "Wednesday",
+                4 => "Thursday",
+                5 => "Friday",
+                6 => "Saturday",
                 _ => "",
             },
         }

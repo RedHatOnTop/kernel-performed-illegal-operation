@@ -27,7 +27,7 @@ impl VirtioNet {
     pub fn new(base_addr: u64) -> Result<Self, NetworkError> {
         // Initialize VirtIO device
         let mac = Self::read_mac(base_addr)?;
-        
+
         Ok(VirtioNet {
             mac,
             mtu: 1500,
@@ -36,7 +36,7 @@ impl VirtioNet {
             rx_queue: VirtQueue::new(256)?,
         })
     }
-    
+
     /// Read MAC address from device.
     fn read_mac(_base_addr: u64) -> Result<MacAddr, NetworkError> {
         // Placeholder - would read from VirtIO config
@@ -48,29 +48,29 @@ impl NetworkDevice for VirtioNet {
     fn mac_address(&self) -> MacAddr {
         self.mac
     }
-    
+
     fn mtu(&self) -> u16 {
         self.mtu
     }
-    
+
     fn link_up(&self) -> bool {
         self.link_up
     }
-    
+
     fn transmit(&mut self, packet: &[u8]) -> Result<(), NetworkError> {
         self.tx_queue.enqueue(packet)?;
         self.tx_queue.notify();
         Ok(())
     }
-    
+
     fn receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetworkError> {
         self.rx_queue.dequeue(buffer)
     }
-    
+
     fn can_receive(&self) -> bool {
         self.rx_queue.has_data()
     }
-    
+
     fn link_speed(&self) -> u32 {
         1000 // 1 Gbps
     }
@@ -95,7 +95,7 @@ impl VirtQueue {
         for _ in 0..size {
             descriptors.push(VirtDescriptor::default());
         }
-        
+
         Ok(VirtQueue {
             size,
             descriptors,
@@ -103,24 +103,24 @@ impl VirtQueue {
             used_head: 0,
         })
     }
-    
+
     /// Enqueue data to transmit.
     fn enqueue(&mut self, _data: &[u8]) -> Result<(), NetworkError> {
         // Placeholder implementation
         Ok(())
     }
-    
+
     /// Dequeue received data.
     fn dequeue(&mut self, _buffer: &mut [u8]) -> Result<usize, NetworkError> {
         // Placeholder implementation
         Err(NetworkError::WouldBlock)
     }
-    
+
     /// Check if there's data to read.
     fn has_data(&self) -> bool {
         false // Placeholder
     }
-    
+
     /// Notify the device.
     fn notify(&self) {
         // Write to queue notify register

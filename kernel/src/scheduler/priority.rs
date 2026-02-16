@@ -26,7 +26,7 @@ impl Priority {
     pub fn level(self) -> usize {
         self as usize
     }
-    
+
     /// Create a priority from a numeric level.
     pub fn from_level(level: usize) -> Self {
         match level {
@@ -39,7 +39,7 @@ impl Priority {
             _ => Priority::Realtime,
         }
     }
-    
+
     /// Get the next higher priority.
     pub fn higher(self) -> Self {
         match self {
@@ -52,7 +52,7 @@ impl Priority {
             Priority::Realtime => Priority::Realtime,
         }
     }
-    
+
     /// Get the next lower priority.
     pub fn lower(self) -> Self {
         match self {

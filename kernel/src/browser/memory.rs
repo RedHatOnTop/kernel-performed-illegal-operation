@@ -6,8 +6,8 @@
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use spin::{Mutex, RwLock};
-use core::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 
 /// Tab process identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -17,7 +17,7 @@ impl TabId {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
-    
+
     pub fn as_u64(self) -> u64 {
         self.0
     }
@@ -83,10 +83,15 @@ pub struct TabMemoryStats {
 impl TabMemoryStats {
     /// Get total memory usage.
     pub fn total(&self) -> u64 {
-        self.wasm_memory + self.dom_memory + self.style_memory +
-        self.layout_memory + self.js_heap + self.image_cache + self.other
+        self.wasm_memory
+            + self.dom_memory
+            + self.style_memory
+            + self.layout_memory
+            + self.js_heap
+            + self.image_cache
+            + self.other
     }
-    
+
     /// Get compression ratio.
     pub fn compression_ratio(&self) -> Option<f32> {
         self.compressed_size.map(|c| c as f32 / self.total() as f32)
@@ -145,30 +150,26 @@ impl TabProcess {
             capabilities: 0,
         }
     }
-    
+
     /// Check if tab can be suspended.
     pub fn can_suspend(&self) -> bool {
-        !self.pinned && 
-        self.state == TabState::Background &&
-        self.children.is_empty()
+        !self.pinned && self.state == TabState::Background && self.children.is_empty()
     }
-    
+
     /// Check if tab can be compressed.
     pub fn can_compress(&self) -> bool {
-        self.state == TabState::Suspended &&
-        self.compressed_state.is_none()
+        self.state == TabState::Suspended && self.compressed_state.is_none()
     }
-    
+
     /// Check if tab can be killed for memory.
     pub fn can_kill(&self) -> bool {
-        !self.pinned &&
-        (self.state == TabState::Compressed || self.state == TabState::Suspended)
+        !self.pinned && (self.state == TabState::Compressed || self.state == TabState::Suspended)
     }
-    
+
     /// Get effective priority (considering state).
     pub fn effective_priority(&self) -> u32 {
         let mut priority = self.priority;
-        
+
         match self.state {
             TabState::Active => priority += 100,
             TabState::Loading => priority += 80,
@@ -177,11 +178,11 @@ impl TabProcess {
             TabState::Compressed => priority -= 40,
             _ => {}
         }
-        
+
         if self.pinned {
             priority += 50;
         }
-        
+
         priority
     }
 }
@@ -220,58 +221,58 @@ impl TabManager {
             max_tabs: 100,
         }
     }
-    
+
     /// Create a new tab.
     pub fn create_tab(&self, url: &str, parent: Option<TabId>) -> TabId {
         let id = TabId(self.next_id.fetch_add(1, Ordering::SeqCst));
         let process_id = id.0; // In real impl, allocate WASM process
-        
+
         let mut tab = TabProcess::new(id, process_id, url);
         tab.parent = parent;
-        
+
         let mut tabs = self.tabs.write();
-        
+
         // Add to parent's children
         if let Some(parent_id) = parent {
             if let Some(parent_tab) = tabs.get_mut(&parent_id) {
                 parent_tab.children.push(id);
             }
         }
-        
+
         tabs.insert(id, tab);
-        
+
         // Check if we need to free memory
         drop(tabs);
         self.check_memory_pressure();
-        
+
         id
     }
-    
+
     /// Close a tab.
     pub fn close_tab(&self, id: TabId) -> bool {
         let mut tabs = self.tabs.write();
-        
+
         if let Some(mut tab) = tabs.remove(&id) {
             tab.state = TabState::Closing;
-            
+
             // Update memory tracking
             let freed = tab.memory.total();
             self.current_memory.fetch_sub(freed, Ordering::SeqCst);
-            
+
             // Remove from parent's children
             if let Some(parent_id) = tab.parent {
                 if let Some(parent) = tabs.get_mut(&parent_id) {
                     parent.children.retain(|&c| c != id);
                 }
             }
-            
+
             // Close child tabs
             for child_id in tab.children.clone() {
                 drop(tabs);
                 self.close_tab(child_id);
                 tabs = self.tabs.write();
             }
-            
+
             // Update foreground if needed
             {
                 let mut fg = self.foreground_tab.lock();
@@ -279,17 +280,17 @@ impl TabManager {
                     *fg = None;
                 }
             }
-            
+
             true
         } else {
             false
         }
     }
-    
+
     /// Set foreground tab.
     pub fn set_foreground(&self, id: TabId) {
         let mut tabs = self.tabs.write();
-        
+
         // Background previous foreground tab
         {
             let fg = self.foreground_tab.lock();
@@ -301,7 +302,7 @@ impl TabManager {
                 }
             }
         }
-        
+
         // Activate new tab
         if let Some(tab) = tabs.get_mut(&id) {
             // Restore if compressed
@@ -312,48 +313,50 @@ impl TabManager {
             } else if tab.state == TabState::Suspended {
                 // Resume
             }
-            
+
             tab.state = TabState::Active;
             tab.last_active = 0; // Update timestamp
-            
+
             *self.foreground_tab.lock() = Some(id);
         }
     }
-    
+
     /// Get foreground tab.
     pub fn get_foreground(&self) -> Option<TabId> {
         *self.foreground_tab.lock()
     }
-    
+
     /// Update tab memory stats.
     pub fn update_memory(&self, id: TabId, stats: TabMemoryStats) {
         let mut tabs = self.tabs.write();
-        
+
         if let Some(tab) = tabs.get_mut(&id) {
             let old_total = tab.memory.total();
             let new_total = stats.total();
-            
+
             tab.memory = stats;
-            
+
             // Update global tracking
             if new_total > old_total {
-                self.current_memory.fetch_add(new_total - old_total, Ordering::SeqCst);
+                self.current_memory
+                    .fetch_add(new_total - old_total, Ordering::SeqCst);
             } else {
-                self.current_memory.fetch_sub(old_total - new_total, Ordering::SeqCst);
+                self.current_memory
+                    .fetch_sub(old_total - new_total, Ordering::SeqCst);
             }
         }
-        
+
         drop(tabs);
         self.check_memory_pressure();
     }
-    
+
     /// Check and handle memory pressure.
     pub fn check_memory_pressure(&self) {
         let current = self.current_memory.load(Ordering::SeqCst);
         let budget = self.memory_budget.load(Ordering::SeqCst);
-        
+
         let ratio = current as f32 / budget as f32;
-        
+
         let pressure = if ratio < 0.7 {
             MemoryPressure::None
         } else if ratio < 0.85 {
@@ -363,15 +366,15 @@ impl TabManager {
         } else {
             MemoryPressure::Emergency
         };
-        
+
         let old_pressure = *self.pressure_level.lock();
         *self.pressure_level.lock() = pressure;
-        
+
         if pressure > old_pressure {
             self.handle_memory_pressure(pressure);
         }
     }
-    
+
     /// Handle memory pressure.
     fn handle_memory_pressure(&self, level: MemoryPressure) {
         match level {
@@ -394,11 +397,11 @@ impl TabManager {
             }
         }
     }
-    
+
     /// Clear tab caches.
     fn clear_caches(&self) {
         let mut tabs = self.tabs.write();
-        
+
         for (_, tab) in tabs.iter_mut() {
             if tab.state == TabState::Background {
                 // Clear image cache
@@ -407,19 +410,20 @@ impl TabManager {
             }
         }
     }
-    
+
     /// Suspend background tabs.
     fn suspend_background_tabs(&self) {
         let mut tabs = self.tabs.write();
-        
+
         // Sort by priority (lowest first)
-        let mut background: Vec<_> = tabs.iter()
+        let mut background: Vec<_> = tabs
+            .iter()
             .filter(|(_, t)| t.can_suspend())
             .map(|(id, t)| (*id, t.effective_priority()))
             .collect();
-        
+
         background.sort_by_key(|(_, p)| *p);
-        
+
         // Suspend lowest priority tabs
         for (id, _) in background.iter().take(3) {
             if let Some(tab) = tabs.get_mut(id) {
@@ -428,59 +432,60 @@ impl TabManager {
             }
         }
     }
-    
+
     /// Compress suspended tabs.
     fn compress_suspended_tabs(&self) {
         let mut tabs = self.tabs.write();
-        
+
         for (_, tab) in tabs.iter_mut() {
             if tab.can_compress() {
                 tab.state = TabState::Compressing;
-                
+
                 // In real impl, serialize and compress WASM memory
                 // For now, simulate compression
                 let uncompressed_size = tab.memory.total();
                 let compressed_size = uncompressed_size / 3; // ~33% compression
-                
+
                 tab.compressed_state = Some(Vec::with_capacity(compressed_size as usize));
                 tab.memory.compressed_size = Some(compressed_size);
-                
+
                 // Free original memory
                 let freed = uncompressed_size - compressed_size;
                 self.current_memory.fetch_sub(freed, Ordering::SeqCst);
-                
+
                 tab.state = TabState::Compressed;
             }
         }
     }
-    
+
     /// Kill low priority tabs.
     fn kill_low_priority_tabs(&self) {
         let tabs = self.tabs.read();
-        
+
         // Find killable tabs sorted by priority
-        let mut killable: Vec<_> = tabs.iter()
+        let mut killable: Vec<_> = tabs
+            .iter()
             .filter(|(_, t)| t.can_kill())
             .map(|(id, t)| (*id, t.effective_priority()))
             .collect();
-        
+
         killable.sort_by_key(|(_, p)| *p);
-        
+
         drop(tabs);
-        
+
         // Kill lowest priority tabs until memory is okay
         for (id, _) in killable {
             self.close_tab(id);
-            
+
             let current = self.current_memory.load(Ordering::SeqCst);
             let budget = self.memory_budget.load(Ordering::SeqCst);
-            
+
             if current < budget * 8 / 10 {
                 break;
             }
         }
     }
-    
+
     /// Get tab info.
     pub fn get_tab(&self, id: TabId) -> Option<TabInfo> {
         let tabs = self.tabs.read();
@@ -494,34 +499,36 @@ impl TabManager {
             priority: t.priority,
         })
     }
-    
+
     /// List all tabs.
     pub fn list_tabs(&self) -> Vec<TabInfo> {
         let tabs = self.tabs.read();
-        tabs.values().map(|t| TabInfo {
-            id: t.id,
-            state: t.state,
-            title: t.title.clone(),
-            url: t.url.clone(),
-            memory: t.memory.total(),
-            pinned: t.pinned,
-            priority: t.priority,
-        }).collect()
+        tabs.values()
+            .map(|t| TabInfo {
+                id: t.id,
+                state: t.state,
+                title: t.title.clone(),
+                url: t.url.clone(),
+                memory: t.memory.total(),
+                pinned: t.pinned,
+                priority: t.priority,
+            })
+            .collect()
     }
-    
+
     /// Get memory statistics.
     pub fn memory_stats(&self) -> MemoryStats {
         let tabs = self.tabs.read();
-        
+
         let mut total = 0u64;
         let mut active = 0u64;
         let mut suspended = 0u64;
         let mut compressed = 0u64;
-        
+
         for tab in tabs.values() {
             let mem = tab.memory.total();
             total += mem;
-            
+
             match tab.state {
                 TabState::Active | TabState::Loading => active += mem,
                 TabState::Suspended => suspended += mem,
@@ -529,7 +536,7 @@ impl TabManager {
                 _ => {}
             }
         }
-        
+
         MemoryStats {
             total,
             active,
@@ -539,7 +546,7 @@ impl TabManager {
             pressure: *self.pressure_level.lock(),
         }
     }
-    
+
     /// Pin/unpin a tab.
     pub fn set_pinned(&self, id: TabId, pinned: bool) {
         let mut tabs = self.tabs.write();

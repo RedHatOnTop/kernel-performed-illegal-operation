@@ -32,7 +32,7 @@ impl SymbolTable {
     pub fn load(&mut self, _kernel_base: u64) {
         // Would parse ELF symbol table or .debug_info
         // For now, add some placeholder kernel symbols
-        
+
         self.add_symbol(Symbol {
             name: "_start".to_string(),
             address: 0xFFFF_8000_0000_0000,
@@ -62,7 +62,7 @@ impl SymbolTable {
         let idx = self.symbols.len();
         self.name_map.insert(symbol.name.clone(), idx);
         self.symbols.push(symbol);
-        
+
         // Keep sorted by address
         self.symbols.sort_by_key(|s| s.address);
     }
@@ -70,7 +70,8 @@ impl SymbolTable {
     /// Find symbol by address
     pub fn find(&self, address: u64) -> Option<(&Symbol, u64)> {
         // Binary search for containing symbol
-        let idx = self.symbols
+        let idx = self
+            .symbols
             .binary_search_by(|s| {
                 if address < s.address {
                     core::cmp::Ordering::Greater

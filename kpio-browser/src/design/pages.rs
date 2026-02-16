@@ -6,11 +6,11 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use super::{
-    tokens::{Color, spacing, radius},
-    theme::Theme,
-    components::{Button, ButtonVariant, Size, Input, Card, Toggle},
-    layout::{Flex, Grid, JustifyContent, AlignItems, EdgeInsets},
+    components::{Button, ButtonVariant, Card, Input, Size, Toggle},
     icons::Icon,
+    layout::{AlignItems, EdgeInsets, Flex, Grid, JustifyContent},
+    theme::Theme,
+    tokens::{radius, spacing, Color},
 };
 
 /// New tab page
@@ -102,7 +102,8 @@ impl QuickLink {
 
     /// Get initials for fallback icon
     pub fn initials(&self) -> String {
-        self.title.chars()
+        self.title
+            .chars()
             .next()
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_default()
@@ -297,7 +298,11 @@ impl SettingsItem {
     }
 
     /// Create select item
-    pub fn select(label: impl Into<String>, value: impl Into<String>, options: Vec<String>) -> Self {
+    pub fn select(
+        label: impl Into<String>,
+        value: impl Into<String>,
+        options: Vec<String>,
+    ) -> Self {
         Self {
             item_type: SettingsItemType::Select,
             label: label.into(),

@@ -3,8 +3,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::selector::SelectorList;
 use crate::properties::DeclarationBlock;
+use crate::selector::SelectorList;
 
 /// A CSS stylesheet containing rules.
 #[derive(Debug, Clone, Default)]

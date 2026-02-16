@@ -123,11 +123,11 @@ Updates occur atomically by replacing the entire root image, ensuring:
 +================================================================+
 |                      RUNTIME LAYER                              |
 +================================================================+
-|                  +-------------------+                          |
-|                  |     Wasmtime      |                          |
-|                  | (WASM Execution)  |                          |
-|                  +---------+---------+                          |
-|                            |                                    |
+|               +---------------------------+                      |
+|               |     KPIO Runtime          |                      |
+|               | (interpreter + JIT WIP)   |                      |
+|               +-------------+-------------+                      |
+|                             |                                    |
 +================================================================+
 |                        KERNEL (Ring 0)                          |
 +================================================================+
@@ -168,9 +168,9 @@ The runtime bridges kernel services and user-space applications:
 
 | Component | Purpose |
 |-----------|---------|
-| Wasmtime Integration | Embedded WASM execution engine |
-| WASI Implementation | File I/O, networking, clocks, random |
-| GPU Extensions | Custom syscalls for graphics buffer submission |
+| KPIO Runtime (`runtime/`) | Embedded WASM execution engine (parser/module/instance/interpreter + tiered JIT scaffold) |
+| WASI Preview 1 | File I/O, clocks, random, args/env via `wasi_snapshot_preview1` |
+| Host Extensions | `kpio`/`kpio_gpu`/`kpio_net` namespaces (부분 구현) |
 
 See [WebAssembly Runtime Document](wasm-runtime.md) for detailed specifications.
 
@@ -398,12 +398,11 @@ enum Capability {
 
 | Optimization | Implementation |
 |--------------|----------------|
-| Ahead-of-Time Compilation | Wasmtime Cranelift backend |
-| SIMD Support | WASM SIMD proposal (128-bit) |
-| Tail Calls | WASM tail-call proposal |
-| Threads | WASM threads proposal (SharedArrayBuffer) |
+| Tiered execution | Interpreter 기본 + JIT 프레임워크 확장 중 |
+| SIMD/bulk/reference types | 런타임 설정 플래그로 기능 제어 |
+| Fuel/limits | 실행 연료 및 자원 제한(DoS 완화) |
 
-Expected overhead vs native: **5-15%** for compute-bound workloads.
+성능 수치는 인터프리터 중심 현재 구현에서 JIT 완성도에 따라 크게 변동될 수 있어, 벤치마크 기반으로 지속 갱신합니다.
 
 ### 6.2 Graphics Performance
 

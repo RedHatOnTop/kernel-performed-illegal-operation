@@ -4,29 +4,29 @@
 //! and verifies certificate chains.
 
 #![allow(dead_code)]
+use super::crypto::p256::p256_ecdsa_verify;
+use super::crypto::rsa::rsa_pkcs1_verify;
+use super::crypto::sha::{sha256, sha384, sha512};
 use alloc::string::String;
 use alloc::vec::Vec;
-use super::crypto::sha::{sha256, sha384, sha512};
-use super::crypto::rsa::rsa_pkcs1_verify;
-use super::crypto::p256::p256_ecdsa_verify;
 
 // ── ASN.1 DER parser ────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Asn1Tag {
-    Boolean,          // 0x01
-    Integer,          // 0x02
-    BitString,        // 0x03
-    OctetString,      // 0x04
-    Null,             // 0x05
-    Oid,              // 0x06
-    Utf8String,       // 0x0C
-    Sequence,         // 0x30
-    Set,              // 0x31
-    PrintableString,  // 0x13
-    Ia5String,        // 0x16
-    UtcTime,          // 0x17
-    GeneralizedTime,  // 0x18
+    Boolean,             // 0x01
+    Integer,             // 0x02
+    BitString,           // 0x03
+    OctetString,         // 0x04
+    Null,                // 0x05
+    Oid,                 // 0x06
+    Utf8String,          // 0x0C
+    Sequence,            // 0x30
+    Set,                 // 0x31
+    PrintableString,     // 0x13
+    Ia5String,           // 0x16
+    UtcTime,             // 0x17
+    GeneralizedTime,     // 0x18
     ContextSpecific(u8), // 0xA0..0xAF
     Other(u8),
 }
@@ -61,14 +61,18 @@ fn parse_tag(b: u8) -> Asn1Tag {
 /// Parse one ASN.1 DER element from `data[offset..]`.
 /// Returns (element, bytes consumed).
 fn asn1_parse<'a>(data: &'a [u8], offset: usize) -> Option<(Asn1Element<'a>, usize)> {
-    if offset >= data.len() { return None; }
+    if offset >= data.len() {
+        return None;
+    }
 
     let tag = parse_tag(data[offset]);
     let (length, hdr_extra) = parse_length(data, offset + 1)?;
     let header_len = 1 + hdr_extra;
     let start = offset + header_len;
     let end = start + length;
-    if end > data.len() { return None; }
+    if end > data.len() {
+        return None;
+    }
 
     Some((
         Asn1Element {
@@ -81,14 +85,20 @@ fn asn1_parse<'a>(data: &'a [u8], offset: usize) -> Option<(Asn1Element<'a>, usi
 }
 
 fn parse_length(data: &[u8], offset: usize) -> Option<(usize, usize)> {
-    if offset >= data.len() { return None; }
+    if offset >= data.len() {
+        return None;
+    }
     let first = data[offset];
     if first < 0x80 {
         Some((first as usize, 1))
     } else {
         let num_bytes = (first & 0x7F) as usize;
-        if num_bytes == 0 || num_bytes > 4 { return None; }
-        if offset + 1 + num_bytes > data.len() { return None; }
+        if num_bytes == 0 || num_bytes > 4 {
+            return None;
+        }
+        if offset + 1 + num_bytes > data.len() {
+            return None;
+        }
         let mut len = 0usize;
         for i in 0..num_bytes {
             len = (len << 8) | data[offset + 1 + i] as usize;
@@ -114,7 +124,9 @@ fn asn1_children<'a>(data: &'a [u8]) -> Vec<Asn1Element<'a>> {
 
 /// Decode an OID from DER bytes to dotted-string form.
 fn decode_oid(data: &[u8]) -> String {
-    if data.is_empty() { return String::new(); }
+    if data.is_empty() {
+        return String::new();
+    }
     let mut parts = Vec::new();
     parts.push(alloc::format!("{}", data[0] / 40));
     parts.push(alloc::format!("{}", data[0] % 40));
@@ -129,7 +141,9 @@ fn decode_oid(data: &[u8]) -> String {
     }
     let mut result = String::new();
     for (i, p) in parts.iter().enumerate() {
-        if i > 0 { result.push('.'); }
+        if i > 0 {
+            result.push('.');
+        }
         result.push_str(p);
     }
     result
@@ -183,10 +197,14 @@ const OID_BASIC_CONSTRAINTS: &str = "2.5.29.19";
 pub fn parse_certificate(der: &[u8]) -> Option<X509Certificate> {
     // Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }
     let (cert_seq, _) = asn1_parse(der, 0)?;
-    if cert_seq.tag != Asn1Tag::Sequence { return None; }
+    if cert_seq.tag != Asn1Tag::Sequence {
+        return None;
+    }
 
     let children = asn1_children(cert_seq.data);
-    if children.len() < 3 { return None; }
+    if children.len() < 3 {
+        return None;
+    }
 
     // TBS Certificate (raw bytes including tag+length for signature verification)
     let tbs_elem = &children[0];
@@ -198,7 +216,9 @@ pub fn parse_certificate(der: &[u8]) -> Option<X509Certificate> {
 
     // Parse TBS Certificate
     let tbs_children = asn1_children(tbs_elem.data);
-    if tbs_children.len() < 6 { return None; }
+    if tbs_children.len() < 6 {
+        return None;
+    }
 
     let mut idx = 0;
 
@@ -226,7 +246,8 @@ pub fn parse_certificate(der: &[u8]) -> Option<X509Certificate> {
     idx += 1;
 
     // subjectPublicKeyInfo
-    let (pubkey_algo, pubkey_data, rsa_mod, rsa_exp) = parse_subject_pubkey_info(&tbs_children[idx])?;
+    let (pubkey_algo, pubkey_data, rsa_mod, rsa_exp) =
+        parse_subject_pubkey_info(&tbs_children[idx])?;
     idx += 1;
 
     // Parse extensions (if present)
@@ -305,7 +326,9 @@ fn parse_dn_cn(elem: &Asn1Element) -> String {
 
 fn parse_subject_pubkey_info(elem: &Asn1Element) -> Option<(String, Vec<u8>, Vec<u8>, Vec<u8>)> {
     let children = asn1_children(elem.data);
-    if children.len() < 2 { return None; }
+    if children.len() < 2 {
+        return None;
+    }
 
     // AlgorithmIdentifier
     let algo_children = asn1_children(children[0].data);
@@ -358,7 +381,9 @@ fn integer_bytes(data: &[u8]) -> Vec<u8> {
 
 fn parse_extension(ext: &Asn1Element, san_dns: &mut Vec<String>, is_ca: &mut bool) {
     let children = asn1_children(ext.data);
-    if children.is_empty() || children[0].tag != Asn1Tag::Oid { return; }
+    if children.is_empty() || children[0].tag != Asn1Tag::Oid {
+        return;
+    }
     let oid = decode_oid(children[0].data);
 
     // Find the value (last child, possibly wrapped in OCTET STRING)
@@ -410,18 +435,14 @@ pub fn verify_certificate_signature(cert: &X509Certificate, issuer: &X509Certifi
     };
 
     match issuer.pubkey_algo.as_str() {
-        OID_RSA_ENCRYPTION => {
-            rsa_pkcs1_verify(
-                &issuer.rsa_modulus,
-                &issuer.rsa_exponent,
-                &cert.signature,
-                &hash,
-                algo,
-            )
-        }
-        OID_EC_PUBLIC_KEY => {
-            p256_ecdsa_verify(&hash, &cert.signature, &issuer.pubkey_data)
-        }
+        OID_RSA_ENCRYPTION => rsa_pkcs1_verify(
+            &issuer.rsa_modulus,
+            &issuer.rsa_exponent,
+            &cert.signature,
+            &hash,
+            algo,
+        ),
+        OID_EC_PUBLIC_KEY => p256_ecdsa_verify(&hash, &cert.signature, &issuer.pubkey_data),
         _ => false,
     }
 }
@@ -443,7 +464,9 @@ fn matches_hostname(pattern: &str, hostname: &str) -> bool {
     let pattern = pattern.to_ascii_lowercase();
     let hostname = hostname.to_ascii_lowercase();
 
-    if pattern == hostname { return true; }
+    if pattern == hostname {
+        return true;
+    }
 
     // Wildcard matching: *.example.com matches foo.example.com
     if pattern.starts_with("*.") {

@@ -3,10 +3,10 @@
 //! This module implements the handlers for each system call.
 
 use super::{SyscallContext, SyscallError, SyscallNumber, SyscallResult};
+use crate::ipc::{self, ChannelId, IpcError, Message};
+use crate::process::ProcessId;
 use crate::scheduler;
 use crate::serial;
-use crate::process::ProcessId;
-use crate::ipc::{self, ChannelId, Message, IpcError};
 
 /// Handle a system call.
 pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
@@ -22,7 +22,7 @@ pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::Fork => handle_fork(ctx),
         SyscallNumber::Exec => handle_exec(ctx),
         SyscallNumber::Wait => handle_wait(ctx),
-        
+
         // IPC
         SyscallNumber::ChannelCreate => handle_channel_create(ctx),
         SyscallNumber::ChannelSend => handle_channel_send(ctx),
@@ -31,7 +31,7 @@ pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::ShmCreate => handle_shm_create(ctx),
         SyscallNumber::ShmMap => handle_shm_map(ctx),
         SyscallNumber::ShmUnmap => handle_shm_unmap(ctx),
-        
+
         // Process Info & Control
         SyscallNumber::ProcessInfo => handle_process_info(ctx),
         SyscallNumber::Yield => handle_yield(ctx),
@@ -40,7 +40,7 @@ pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::GetPid => handle_getpid(ctx),
         SyscallNumber::GetPpid => handle_getppid(ctx),
         SyscallNumber::Brk => handle_brk(ctx),
-        
+
         // Sockets
         SyscallNumber::SocketCreate => handle_socket_create(ctx),
         SyscallNumber::SocketBind => handle_socket_bind(ctx),
@@ -49,26 +49,26 @@ pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::SocketConnect => handle_socket_connect(ctx),
         SyscallNumber::SocketSend => handle_socket_send(ctx),
         SyscallNumber::SocketRecv => handle_socket_recv(ctx),
-        
+
         // GPU
         SyscallNumber::GpuAlloc => handle_gpu_alloc(ctx),
         SyscallNumber::GpuSubmit => handle_gpu_submit(ctx),
         SyscallNumber::GpuPresent => handle_gpu_present(ctx),
         SyscallNumber::GpuSetPriority => handle_gpu_set_priority(ctx),
         SyscallNumber::GpuWait => handle_gpu_wait(ctx),
-        
+
         // Threading
         SyscallNumber::ThreadCreate => handle_thread_create(ctx),
         SyscallNumber::ThreadExit => handle_thread_exit(ctx),
         SyscallNumber::ThreadJoin => handle_thread_join(ctx),
         SyscallNumber::FutexWait => handle_futex_wait(ctx),
         SyscallNumber::FutexWake => handle_futex_wake(ctx),
-        
+
         // Epoll
         SyscallNumber::EpollCreate => handle_epoll_create(ctx),
         SyscallNumber::EpollCtl => handle_epoll_ctl(ctx),
         SyscallNumber::EpollWait => handle_epoll_wait(ctx),
-        
+
         // KPIO Extensions
         SyscallNumber::DebugPrint => handle_debug_print(ctx),
         SyscallNumber::TabRegister => handle_tab_register(ctx),
@@ -76,7 +76,7 @@ pub fn handle(syscall: SyscallNumber, ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::TabGetMemory => handle_tab_get_memory(ctx),
         SyscallNumber::WasmCacheGet => handle_wasm_cache_get(ctx),
         SyscallNumber::WasmCachePut => handle_wasm_cache_put(ctx),
-        
+
         // App Management
         SyscallNumber::AppInstall => handle_app_install(ctx),
         SyscallNumber::AppLaunch => handle_app_launch(ctx),
@@ -99,12 +99,12 @@ fn handle_write(ctx: &SyscallContext) -> SyscallResult {
     let fd = ctx.arg1;
     let buf_ptr = ctx.arg2 as *const u8;
     let len = ctx.arg3 as usize;
-    
+
     // Validate buffer pointer (simplified - should check page tables)
     if buf_ptr.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // Special case: stdout (fd 1) and stderr (fd 2) go to serial
     if fd == 1 || fd == 2 {
         let slice = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
@@ -117,7 +117,7 @@ fn handle_write(ctx: &SyscallContext) -> SyscallResult {
         }
         return Ok(len as u64);
     }
-    
+
     // Other fds: route through VFS
     let slice = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
     match crate::vfs::fd::write(fd as i32, slice) {
@@ -131,11 +131,11 @@ fn handle_read(ctx: &SyscallContext) -> SyscallResult {
     let fd = ctx.arg1;
     let buf_ptr = ctx.arg2 as *mut u8;
     let len = ctx.arg3 as usize;
-    
+
     if buf_ptr.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // Special case: stdin (fd 0) reads from serial
     if fd == 0 {
         let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len) };
@@ -150,7 +150,7 @@ fn handle_read(ctx: &SyscallContext) -> SyscallResult {
         }
         return Ok(count as u64);
     }
-    
+
     // Other fds: route through VFS
     match crate::vfs::fd::read(fd as i32, len) {
         Ok(data) => {
@@ -197,7 +197,7 @@ fn handle_mmap(ctx: &SyscallContext) -> SyscallResult {
     let _len = ctx.arg2 as usize;
     let _prot = ctx.arg3 as u32;
     let _flags = ctx.arg4 as u32;
-    
+
     // TODO: Implement memory mapping
     Err(SyscallError::OutOfMemory)
 }
@@ -224,15 +224,15 @@ fn handle_channel_send(ctx: &SyscallContext) -> SyscallResult {
     let channel_id = ChannelId(ctx.arg1);
     let buf_ptr = ctx.arg2 as *const u8;
     let len = ctx.arg3 as usize;
-    
+
     if buf_ptr.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // Copy data from userspace
     let data = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
     let message = Message::with_data(data.to_vec());
-    
+
     match ipc::send(channel_id, message) {
         Ok(()) => Ok(len as u64),
         Err(IpcError::QueueFull) => Err(SyscallError::WouldBlock),
@@ -248,11 +248,11 @@ fn handle_channel_recv(ctx: &SyscallContext) -> SyscallResult {
     let channel_id = ChannelId(ctx.arg1);
     let buf_ptr = ctx.arg2 as *mut u8;
     let len = ctx.arg3 as usize;
-    
+
     if buf_ptr.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     match ipc::receive(channel_id) {
         Ok(message) => {
             let data = message.data();
@@ -290,7 +290,11 @@ fn handle_yield(_ctx: &SyscallContext) -> SyscallResult {
 fn handle_sleep(ctx: &SyscallContext) -> SyscallResult {
     let milliseconds = ctx.arg1;
     // APIC timer runs at ~100 Hz, so 1 tick ≈ 10 ms
-    let ticks = if milliseconds < 10 { 1 } else { milliseconds / 10 };
+    let ticks = if milliseconds < 10 {
+        1
+    } else {
+        milliseconds / 10
+    };
     scheduler::sleep_ticks(ticks);
     Ok(0)
 }
@@ -417,16 +421,16 @@ fn handle_gpu_present(_ctx: &SyscallContext) -> SyscallResult {
 fn handle_debug_print(ctx: &SyscallContext) -> SyscallResult {
     let buf_ptr = ctx.arg1 as *const u8;
     let len = ctx.arg2 as usize;
-    
+
     if buf_ptr.is_null() {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     let slice = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
     if let Ok(s) = core::str::from_utf8(slice) {
         serial::write_str(s);
     }
-    
+
     Ok(len as u64)
 }
 
@@ -449,7 +453,7 @@ fn handle_exec(ctx: &SyscallContext) -> SyscallResult {
     let _path_len = ctx.arg2 as usize;
     let _argv_ptr = ctx.arg3 as *const *const u8;
     let _envp_ptr = ctx.arg4 as *const *const u8;
-    
+
     // TODO: Implement exec
     // 1. Load ELF from path
     // 2. Replace current address space
@@ -463,7 +467,7 @@ fn handle_wait(ctx: &SyscallContext) -> SyscallResult {
     let pid = ctx.arg1 as i64;
     let _status_ptr = ctx.arg2 as *mut i32;
     let _options = ctx.arg3 as u32;
-    
+
     // pid == -1: wait for any child
     // pid > 0: wait for specific child
     let target_pid = if pid > 0 {
@@ -471,7 +475,7 @@ fn handle_wait(ctx: &SyscallContext) -> SyscallResult {
     } else {
         None
     };
-    
+
     // TODO: Block until child exits
     // For now, check if any zombie children exist
     let _ = target_pid;
@@ -493,7 +497,7 @@ fn handle_getppid(_ctx: &SyscallContext) -> SyscallResult {
 /// Set program break (heap allocation).
 fn handle_brk(ctx: &SyscallContext) -> SyscallResult {
     let new_brk = ctx.arg1;
-    
+
     // TODO: Extend heap in process memory map
     // For now, just return the requested address
     if new_brk == 0 {
@@ -512,14 +516,14 @@ fn handle_brk(ctx: &SyscallContext) -> SyscallResult {
 fn handle_shm_create(ctx: &SyscallContext) -> SyscallResult {
     let size = ctx.arg1 as usize;
     let flags = ctx.arg2 as u32;
-    
+
     if size == 0 || size > 1024 * 1024 * 1024 {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // Get current process ID
     let pid = scheduler::current_task_id().0;
-    
+
     match ipc::shm::create("anonymous", size, pid, flags) {
         Ok(id) => Ok(id.0),
         Err(ipc::shm::ShmError::OutOfMemory) => Err(SyscallError::OutOfMemory),
@@ -534,9 +538,9 @@ fn handle_shm_map(ctx: &SyscallContext) -> SyscallResult {
     let shm_id = ipc::ShmId(ctx.arg1);
     let addr_hint = ctx.arg2;
     let prot = ctx.arg3 as u32;
-    
+
     let pid = scheduler::current_task_id().0;
-    
+
     match ipc::shm::map(shm_id, pid, addr_hint, prot) {
         Ok(addr) => Ok(addr),
         Err(ipc::shm::ShmError::NotFound) => Err(SyscallError::NotFound),
@@ -550,9 +554,9 @@ fn handle_shm_map(ctx: &SyscallContext) -> SyscallResult {
 fn handle_shm_unmap(ctx: &SyscallContext) -> SyscallResult {
     let shm_id = ipc::ShmId(ctx.arg1);
     let _size = ctx.arg2 as usize;
-    
+
     let pid = scheduler::current_task_id().0;
-    
+
     match ipc::shm::unmap(shm_id, pid) {
         Ok(()) => Ok(0),
         Err(ipc::shm::ShmError::NotFound) => Err(SyscallError::NotFound),
@@ -571,11 +575,11 @@ fn handle_thread_create(ctx: &SyscallContext) -> SyscallResult {
     let stack_ptr = ctx.arg2;
     let arg = ctx.arg3;
     let _flags = ctx.arg4 as u32;
-    
+
     if entry_point == 0 || stack_ptr == 0 {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // TODO: Create new thread in current process
     // 1. Allocate kernel stack
     // 2. Set up thread context
@@ -588,7 +592,7 @@ fn handle_thread_create(ctx: &SyscallContext) -> SyscallResult {
 /// Exit current thread.
 fn handle_thread_exit(ctx: &SyscallContext) -> SyscallResult {
     let exit_code = ctx.arg1 as i32;
-    
+
     // TODO: Mark thread as exited
     // If last thread, exit process
     scheduler::exit_current(exit_code);
@@ -599,7 +603,7 @@ fn handle_thread_exit(ctx: &SyscallContext) -> SyscallResult {
 fn handle_thread_join(ctx: &SyscallContext) -> SyscallResult {
     let _thread_id = ctx.arg1;
     let _retval_ptr = ctx.arg2 as *mut u64;
-    
+
     // TODO: Block until thread exits
     Err(SyscallError::WouldBlock)
 }
@@ -609,19 +613,19 @@ fn handle_futex_wait(ctx: &SyscallContext) -> SyscallResult {
     let futex_addr = ctx.arg1;
     let expected_val = ctx.arg2 as u32;
     let _timeout_ns = ctx.arg3;
-    
+
     if futex_addr == 0 || futex_addr % 4 != 0 {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // Read current value
     let current = unsafe { *(futex_addr as *const u32) };
-    
+
     if current != expected_val {
         // Value already changed, return immediately
         return Err(SyscallError::WouldBlock);
     }
-    
+
     // TODO: Add to futex wait queue and block
     Err(SyscallError::WouldBlock)
 }
@@ -630,11 +634,11 @@ fn handle_futex_wait(ctx: &SyscallContext) -> SyscallResult {
 fn handle_futex_wake(ctx: &SyscallContext) -> SyscallResult {
     let futex_addr = ctx.arg1;
     let num_wake = ctx.arg2 as u32;
-    
+
     if futex_addr == 0 || futex_addr % 4 != 0 {
         return Err(SyscallError::InvalidArgument);
     }
-    
+
     // TODO: Wake up to num_wake threads from wait queue
     let _ = num_wake;
     Ok(0) // Return number of threads woken
@@ -656,7 +660,7 @@ fn handle_epoll_ctl(ctx: &SyscallContext) -> SyscallResult {
     let _op = ctx.arg2 as u32; // EPOLL_CTL_ADD, MOD, DEL
     let _fd = ctx.arg3;
     let _event_ptr = ctx.arg4 as *const u8;
-    
+
     // TODO: Modify epoll interest list
     Err(SyscallError::NotFound)
 }
@@ -667,7 +671,7 @@ fn handle_epoll_wait(ctx: &SyscallContext) -> SyscallResult {
     let _events_ptr = ctx.arg2 as *mut u8;
     let _max_events = ctx.arg3 as i32;
     let _timeout_ms = ctx.arg4 as i32;
-    
+
     // TODO: Block until events are ready
     Err(SyscallError::WouldBlock)
 }
@@ -679,7 +683,7 @@ fn handle_epoll_wait(ctx: &SyscallContext) -> SyscallResult {
 /// Set GPU scheduling priority.
 fn handle_gpu_set_priority(ctx: &SyscallContext) -> SyscallResult {
     let _priority = ctx.arg1 as u32;
-    
+
     // TODO: Update process GPU priority
     Ok(0)
 }
@@ -688,7 +692,7 @@ fn handle_gpu_set_priority(ctx: &SyscallContext) -> SyscallResult {
 fn handle_gpu_wait(ctx: &SyscallContext) -> SyscallResult {
     let _fence_id = ctx.arg1;
     let _timeout_ns = ctx.arg2;
-    
+
     // TODO: Block until GPU completes
     Err(SyscallError::WouldBlock)
 }
@@ -700,7 +704,7 @@ fn handle_gpu_wait(ctx: &SyscallContext) -> SyscallResult {
 /// Register a browser tab.
 fn handle_tab_register(ctx: &SyscallContext) -> SyscallResult {
     let _tab_type = ctx.arg1 as u32; // 0=renderer, 1=network, etc.
-    
+
     // TODO: Register tab process with browser coordinator
     // Return tab ID
     Ok(0)
@@ -710,7 +714,7 @@ fn handle_tab_register(ctx: &SyscallContext) -> SyscallResult {
 fn handle_tab_set_state(ctx: &SyscallContext) -> SyscallResult {
     let _tab_id = ctx.arg1;
     let _state = ctx.arg2 as u32; // 0=loading, 1=ready, 2=crashed
-    
+
     // TODO: Update tab state in coordinator
     Ok(0)
 }
@@ -718,7 +722,7 @@ fn handle_tab_set_state(ctx: &SyscallContext) -> SyscallResult {
 /// Get tab memory usage.
 fn handle_tab_get_memory(ctx: &SyscallContext) -> SyscallResult {
     let _tab_id = ctx.arg1;
-    
+
     // TODO: Return memory usage for tab
     // Query process memory from process manager
     Ok(0)
@@ -730,7 +734,7 @@ fn handle_wasm_cache_get(ctx: &SyscallContext) -> SyscallResult {
     let _hash_len = ctx.arg2 as usize;
     let _out_ptr = ctx.arg3 as *mut u8;
     let _out_len = ctx.arg4 as usize;
-    
+
     // TODO: Look up compiled WASM in cache
     Err(SyscallError::NotFound)
 }
@@ -741,7 +745,7 @@ fn handle_wasm_cache_put(ctx: &SyscallContext) -> SyscallResult {
     let _hash_len = ctx.arg2 as usize;
     let _data_ptr = ctx.arg3 as *const u8;
     let _data_len = ctx.arg4 as usize;
-    
+
     // TODO: Store compiled WASM in cache
     Ok(0)
 }
@@ -761,9 +765,9 @@ fn handle_wasm_cache_put(ctx: &SyscallContext) -> SyscallResult {
 ///
 /// Returns: app_id (u64) on success.
 fn handle_app_install(ctx: &SyscallContext) -> SyscallResult {
-    use alloc::string::String;
     use crate::app::registry::{KernelAppType, APP_REGISTRY};
     use crate::vfs::sandbox;
+    use alloc::string::String;
 
     let app_type_raw = ctx.arg1;
     let name_ptr = ctx.arg2 as *const u8;
@@ -781,12 +785,11 @@ fn handle_app_install(ctx: &SyscallContext) -> SyscallResult {
 
     // Read strings from caller memory
     let name_slice = unsafe { core::slice::from_raw_parts(name_ptr, name_len) };
-    let name = core::str::from_utf8(name_slice)
-        .map_err(|_| SyscallError::InvalidArgument)?;
+    let name = core::str::from_utf8(name_slice).map_err(|_| SyscallError::InvalidArgument)?;
 
     let entry_slice = unsafe { core::slice::from_raw_parts(entry_ptr, entry_len) };
-    let entry_point = core::str::from_utf8(entry_slice)
-        .map_err(|_| SyscallError::InvalidArgument)?;
+    let entry_point =
+        core::str::from_utf8(entry_slice).map_err(|_| SyscallError::InvalidArgument)?;
 
     // Determine app type
     let app_type = match app_type_raw {
@@ -794,14 +797,21 @@ fn handle_app_install(ctx: &SyscallContext) -> SyscallResult {
             scope: String::from("/"),
             offline_capable: false,
         },
-        1 => KernelAppType::WasmApp { wasi_version: String::from("1") },
+        1 => KernelAppType::WasmApp {
+            wasi_version: String::from("1"),
+        },
         2 => KernelAppType::NativeApp,
         _ => return Err(SyscallError::InvalidArgument),
     };
 
     // Register in kernel
     let mut registry = APP_REGISTRY.lock();
-    match registry.register(app_type, String::from(name), String::from(entry_point), None) {
+    match registry.register(
+        app_type,
+        String::from(name),
+        String::from(entry_point),
+        None,
+    ) {
         Ok(app_id) => {
             // Create app sandbox directory
             sandbox::create_app_directory(app_id);
@@ -820,8 +830,8 @@ fn handle_app_install(ctx: &SyscallContext) -> SyscallResult {
 ///
 /// Returns: instance_id (u64) on success.
 fn handle_app_launch(ctx: &SyscallContext) -> SyscallResult {
-    use crate::app::registry::{KernelAppId, APP_REGISTRY};
     use crate::app::lifecycle::APP_LIFECYCLE;
+    use crate::app::registry::{KernelAppId, APP_REGISTRY};
 
     let app_id = KernelAppId(ctx.arg1);
 
@@ -882,8 +892,7 @@ fn handle_app_get_info(ctx: &SyscallContext) -> SyscallResult {
     }
 
     let registry = APP_REGISTRY.lock();
-    let descriptor = registry.get(app_id)
-        .ok_or(SyscallError::NotFound)?;
+    let descriptor = registry.get(app_id).ok_or(SyscallError::NotFound)?;
 
     // Serialize descriptor name + entry_point as simple text
     let info = alloc::format!(
@@ -942,8 +951,8 @@ fn handle_app_list(ctx: &SyscallContext) -> SyscallResult {
 ///
 /// Returns: 0 on success.
 fn handle_app_uninstall(ctx: &SyscallContext) -> SyscallResult {
-    use crate::app::registry::{KernelAppId, APP_REGISTRY};
     use crate::app::lifecycle::APP_LIFECYCLE;
+    use crate::app::registry::{KernelAppId, APP_REGISTRY};
     use crate::vfs::sandbox;
 
     let app_id = KernelAppId(ctx.arg1);

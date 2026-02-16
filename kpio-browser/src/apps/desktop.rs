@@ -112,13 +112,13 @@ impl Desktop {
     pub fn cascade_windows(&mut self) {
         let mut x = 50i32;
         let mut y = 50i32;
-        
+
         for window in &mut self.windows {
             window.x = x;
             window.y = y;
             x += 30;
             y += 30;
-            
+
             if x > self.work_area.width as i32 - 200 {
                 x = 50;
             }
@@ -135,7 +135,7 @@ impl Desktop {
         }
 
         let count = self.windows.len() as u32;
-        
+
         match direction {
             TileDirection::Horizontal => {
                 let width = self.work_area.width / count;
@@ -167,7 +167,7 @@ impl Desktop {
                 let rows = (count + cols - 1) / cols;
                 let width = self.work_area.width / cols;
                 let height = self.work_area.height / rows;
-                
+
                 for (i, window) in self.windows.iter_mut().enumerate() {
                     let col = i as u32 % cols;
                     let row = i as u32 / cols;
@@ -204,7 +204,11 @@ pub enum WallpaperType {
     /// Solid color
     SolidColor(Color),
     /// Gradient
-    Gradient { start: Color, end: Color, angle: f32 },
+    Gradient {
+        start: Color,
+        end: Color,
+        angle: f32,
+    },
     /// Image path
     Image(String),
     /// Slideshow directory
@@ -388,8 +392,10 @@ impl DesktopWindow {
 
     /// Check if point is inside window
     pub fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.x && x < self.x + self.width as i32 &&
-        y >= self.y && y < self.y + self.height as i32
+        x >= self.x
+            && x < self.x + self.width as i32
+            && y >= self.y
+            && y < self.y + self.height as i32
     }
 }
 

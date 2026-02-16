@@ -10,20 +10,23 @@
 extern crate alloc;
 
 pub mod atom;
-pub mod namespace;
 pub mod local_name;
+pub mod namespace;
 pub mod prefix;
 pub mod qualname;
 
 pub use atom::Atom;
-pub use namespace::Namespace;
 pub use local_name::LocalName;
+pub use namespace::Namespace;
 pub use prefix::Prefix;
 pub use qualname::QualName;
 
 /// Prelude for common imports
 pub mod prelude {
-    pub use crate::{Atom, Namespace, LocalName, Prefix, QualName};
-    pub use crate::namespace::{ns, HTML_NAMESPACE, SVG_NAMESPACE, MATHML_NAMESPACE, XML_NAMESPACE, XMLNS_NAMESPACE, XLINK_NAMESPACE};
     pub use crate::local_name::local_name;
+    pub use crate::namespace::{
+        ns, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE,
+        XML_NAMESPACE,
+    };
+    pub use crate::{Atom, LocalName, Namespace, Prefix, QualName};
 }

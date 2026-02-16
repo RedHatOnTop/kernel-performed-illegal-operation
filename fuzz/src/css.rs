@@ -2,10 +2,10 @@
 //!
 //! Fuzzing harness for CSS parsing.
 
+use crate::{FuzzResult, FuzzTarget};
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
-use crate::{FuzzTarget, FuzzResult};
 
 /// CSS Parser fuzzer
 pub struct CssFuzzer {
@@ -365,7 +365,9 @@ pub struct CssSelectorFuzzer {
 impl CssSelectorFuzzer {
     /// Create new selector fuzzer
     pub fn new() -> Self {
-        Self { max_complexity: 100 }
+        Self {
+            max_complexity: 100,
+        }
     }
 }
 
@@ -387,7 +389,8 @@ impl FuzzTarget for CssSelectorFuzzer {
         };
 
         // Check selector complexity
-        let complexity = text.matches(|c| matches!(c, ' ' | '>' | '+' | '~' | ':' | '['))
+        let complexity = text
+            .matches(|c| matches!(c, ' ' | '>' | '+' | '~' | ':' | '['))
             .count();
 
         if complexity > self.max_complexity {

@@ -1,0 +1,29 @@
+// KPIO Network Interface Definition
+// WIT format for the kpio:net host API
+
+package kpio:net@0.1.0;
+
+interface sockets {
+    enum socket-domain {
+        ipv4,
+        ipv6,
+    }
+
+    enum socket-type {
+        stream,
+        dgram,
+    }
+
+    socket-create: func(domain: u32, sock-type: u32) -> s32;
+    socket-bind: func(id: s32, addr-ptr: u32, addr-len: u32, port: u32) -> s32;
+    socket-connect: func(id: s32, addr-ptr: u32, addr-len: u32, port: u32) -> s32;
+    socket-listen: func(id: s32, backlog: u32) -> s32;
+    socket-accept: func(id: s32) -> s32;
+    socket-send: func(id: s32, data-ptr: u32, data-len: u32) -> s32;
+    socket-recv: func(id: s32, buf-ptr: u32, buf-len: u32) -> s32;
+    socket-close: func(id: s32) -> s32;
+}
+
+world net-app {
+    import sockets;
+}

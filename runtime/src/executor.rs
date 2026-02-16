@@ -76,9 +76,9 @@ impl ExecutorContext {
         let mut import_idx = 0;
         for import in &module.imports {
             if let ImportKind::Function(_) = &import.kind {
-                let hf = host_fns.iter().find(|hf| {
-                    hf.module == import.module && hf.name == import.name
-                });
+                let hf = host_fns
+                    .iter()
+                    .find(|hf| hf.module == import.module && hf.name == import.name);
                 host_functions.push(hf.cloned());
                 import_idx += 1;
             }
@@ -219,9 +219,12 @@ impl ExecutorContext {
             }
             let offset = Self::eval_const_expr_static(&seg.offset_expr, &self.globals)?;
             let offset = offset.as_i32().unwrap_or(0) as u32;
-            let table = self.tables.get_mut(seg.table_idx as usize).ok_or(
-                TrapError::UndefinedElement { index: seg.table_idx },
-            )?;
+            let table =
+                self.tables
+                    .get_mut(seg.table_idx as usize)
+                    .ok_or(TrapError::UndefinedElement {
+                        index: seg.table_idx,
+                    })?;
             for (i, &func_idx) in seg.func_indices.iter().enumerate() {
                 table.set(offset + i as u32, Some(func_idx))?;
             }
@@ -786,7 +789,9 @@ fn execute_instruction(
         // ====================================================================
         Instruction::TableGet(table_idx) => {
             let idx = stack.pop_i32()? as u32;
-            let table = ctx.tables.get(*table_idx as usize)
+            let table = ctx
+                .tables
+                .get(*table_idx as usize)
                 .ok_or(TrapError::UndefinedElement { index: *table_idx })?;
             let val = table.get(idx)?;
             stack.push(WasmValue::FuncRef(val))?;
@@ -798,12 +803,16 @@ fn execute_instruction(
                 WasmValue::FuncRef(v) => v,
                 _ => None,
             };
-            let table = ctx.tables.get_mut(*table_idx as usize)
+            let table = ctx
+                .tables
+                .get_mut(*table_idx as usize)
                 .ok_or(TrapError::UndefinedElement { index: *table_idx })?;
             table.set(idx, func_ref)?;
         }
         Instruction::TableSize(table_idx) => {
-            let table = ctx.tables.get(*table_idx as usize)
+            let table = ctx
+                .tables
+                .get(*table_idx as usize)
                 .ok_or(TrapError::UndefinedElement { index: *table_idx })?;
             stack.push(WasmValue::I32(table.size() as i32))?;
         }
@@ -814,16 +823,104 @@ fn execute_instruction(
                 WasmValue::FuncRef(v) => v,
                 _ => None,
             };
-            let table = ctx.tables.get_mut(*table_idx as usize)
+            let table = ctx
+                .tables
+                .get_mut(*table_idx as usize)
                 .ok_or(TrapError::UndefinedElement { index: *table_idx })?;
             match table.grow(n, init_ref) {
                 Ok(old) => stack.push(WasmValue::I32(old as i32))?,
                 Err(_) => stack.push(WasmValue::I32(-1))?,
             }
         }
-        Instruction::TableInit(_, _) | Instruction::ElemDrop(_) |
-        Instruction::TableCopy(_, _) | Instruction::TableFill(_) => {
-            // Bulk table operations - simplified for MVP
+        Instruction::TableInit(elem_idx, table_idx) => {
+            // table.init: copy elements from passive element segment to table
+            let n = stack.pop_i32()? as u32;   // count
+            let s = stack.pop_i32()? as u32;   // source offset in element segment
+            let d = stack.pop_i32()? as u32;   // destination offset in table
+            let elem = ctx.module.elements.get(*elem_idx as usize).ok_or(
+                TrapError::ExecutionError(String::from("element segment index OOB")),
+            )?;
+            if s.checked_add(n).map_or(true, |end| end as usize > elem.func_indices.len())
+            {
+                return Err(TrapError::ExecutionError(String::from(
+                    "table.init: source range out of bounds",
+                )));
+            }
+            let table = ctx
+                .tables
+                .get_mut(*table_idx as usize)
+                .ok_or(TrapError::UndefinedElement { index: *table_idx })?;
+            for i in 0..n {
+                let func_idx = elem.func_indices[(s + i) as usize];
+                table.set(d + i, Some(func_idx))?;
+            }
+        }
+        Instruction::ElemDrop(elem_idx) => {
+            // elem.drop: mark element segment as dropped by clearing its
+            // function indices. This frees memory and prevents future
+            // table.init from using this segment (as required by spec).
+            if let Some(elem) = ctx.module.elements.get_mut(*elem_idx as usize) {
+                elem.func_indices.clear();
+                elem.passive = false; // mark as dropped
+            }
+        }
+        Instruction::TableCopy(dst_table, src_table) => {
+            // table.copy: copy entries between tables (or within one table)
+            let n = stack.pop_i32()? as u32;
+            let s = stack.pop_i32()? as u32;
+            let d = stack.pop_i32()? as u32;
+            if *dst_table == *src_table {
+                // Overlapping copy within the same table
+                let table = ctx
+                    .tables
+                    .get_mut(*dst_table as usize)
+                    .ok_or(TrapError::UndefinedElement { index: *dst_table })?;
+                if d <= s {
+                    for i in 0..n {
+                        let val = table.get(s + i)?;
+                        table.set(d + i, val)?;
+                    }
+                } else {
+                    for i in (0..n).rev() {
+                        let val = table.get(s + i)?;
+                        table.set(d + i, val)?;
+                    }
+                }
+            } else {
+                // Different tables: read source entries first, then write
+                let src = ctx
+                    .tables
+                    .get(*src_table as usize)
+                    .ok_or(TrapError::UndefinedElement { index: *src_table })?;
+                let mut entries = Vec::new();
+                for i in 0..n {
+                    entries.push(src.get(s + i)?);
+                }
+                let dst = ctx
+                    .tables
+                    .get_mut(*dst_table as usize)
+                    .ok_or(TrapError::UndefinedElement { index: *dst_table })?;
+                for (i, val) in entries.into_iter().enumerate() {
+                    dst.set(d + i as u32, val)?;
+                }
+            }
+        }
+        Instruction::TableFill(table_idx) => {
+            // table.fill: fill a range of table entries with a value
+            let n = stack.pop_i32()? as u32;
+            let val = stack.pop()?;
+            let d = stack.pop_i32()? as u32;
+            let func_ref = match val {
+                WasmValue::FuncRef(v) => v,
+                _ => None,
+            };
+            let table = ctx
+                .tables
+                .get_mut(*table_idx as usize)
+                .ok_or(TrapError::UndefinedElement { index: *table_idx })?;
+            for i in 0..n {
+                table.set(d + i, func_ref)?;
+            }
         }
 
         // ====================================================================
@@ -832,29 +929,69 @@ fn execute_instruction(
         Instruction::I32Load(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: 0 })?;
-            let val = mem.read_u32(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 4,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u32(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I32(val as i32))?;
         }
         Instruction::I64Load(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: 0 })?;
-            let val = mem.read_u64(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 8,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u64(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 8,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I64(val as i64))?;
         }
         Instruction::F32Load(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: 0 })?;
-            let bits = mem.read_u32(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 4,
+                memory_size: 0,
+            })?;
+            let bits = mem
+                .read_u32(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::F32(f32::from_bits(bits)))?;
         }
         Instruction::F64Load(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: 0 })?;
-            let bits = mem.read_u64(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 8,
+                memory_size: 0,
+            })?;
+            let bits = mem
+                .read_u64(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 8,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::F64(f64::from_bits(bits)))?;
         }
 
@@ -862,29 +999,69 @@ fn execute_instruction(
         Instruction::I32Load8S(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: 0 })?;
-            let val = mem.read_u8(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 1,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u8(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I32(val as i8 as i32))?;
         }
         Instruction::I32Load8U(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: 0 })?;
-            let val = mem.read_u8(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 1,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u8(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I32(val as i32))?;
         }
         Instruction::I32Load16S(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: 0 })?;
-            let val = mem.read_u16(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 2,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u16(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I32(val as i16 as i32))?;
         }
         Instruction::I32Load16U(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: 0 })?;
-            let val = mem.read_u16(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 2,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u16(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I32(val as i32))?;
         }
 
@@ -892,43 +1069,103 @@ fn execute_instruction(
         Instruction::I64Load8S(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: 0 })?;
-            let val = mem.read_u8(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 1,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u8(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I64(val as i8 as i64))?;
         }
         Instruction::I64Load8U(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: 0 })?;
-            let val = mem.read_u8(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 1,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u8(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I64(val as i64))?;
         }
         Instruction::I64Load16S(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: 0 })?;
-            let val = mem.read_u16(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 2,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u16(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I64(val as i16 as i64))?;
         }
         Instruction::I64Load16U(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: 0 })?;
-            let val = mem.read_u16(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 2,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u16(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I64(val as i64))?;
         }
         Instruction::I64Load32S(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: 0 })?;
-            let val = mem.read_u32(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 4,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u32(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I64(val as i32 as i64))?;
         }
         Instruction::I64Load32U(_, offset) => {
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: 0 })?;
-            let val = mem.read_u32(addr).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: mem.size() })?;
+            let mem = ctx.memories.first().ok_or(TrapError::MemoryOutOfBounds {
+                offset: addr,
+                size: 4,
+                memory_size: 0,
+            })?;
+            let val = mem
+                .read_u32(addr)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: mem.size(),
+                })?;
             stack.push(WasmValue::I64(val as i64))?;
         }
 
@@ -939,29 +1176,77 @@ fn execute_instruction(
             let val = stack.pop_i32()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: 0 })?;
-            mem.write_u32(addr, val as u32).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: 0,
+                })?;
+            mem.write_u32(addr, val as u32)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: mem.size(),
+                })?;
         }
         Instruction::I64Store(_, offset) => {
             let val = stack.pop_i64()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: 0 })?;
-            mem.write_u64(addr, val as u64).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 8,
+                    memory_size: 0,
+                })?;
+            mem.write_u64(addr, val as u64)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 8,
+                    memory_size: mem.size(),
+                })?;
         }
         Instruction::F32Store(_, offset) => {
             let val = stack.pop_f32()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: 0 })?;
-            mem.write_u32(addr, val.to_bits()).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: 0,
+                })?;
+            mem.write_u32(addr, val.to_bits())
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: mem.size(),
+                })?;
         }
         Instruction::F64Store(_, offset) => {
             let val = stack.pop_f64()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: 0 })?;
-            mem.write_u64(addr, val.to_bits()).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 8, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 8,
+                    memory_size: 0,
+                })?;
+            mem.write_u64(addr, val.to_bits())
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 8,
+                    memory_size: mem.size(),
+                })?;
         }
 
         // Partial stores
@@ -969,36 +1254,96 @@ fn execute_instruction(
             let val = stack.pop_i32()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: 0 })?;
-            mem.write_u8(addr, val as u8).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: 0,
+                })?;
+            mem.write_u8(addr, val as u8)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: mem.size(),
+                })?;
         }
         Instruction::I32Store16(_, offset) => {
             let val = stack.pop_i32()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: 0 })?;
-            mem.write_u16(addr, val as u16).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: 0,
+                })?;
+            mem.write_u16(addr, val as u16)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: mem.size(),
+                })?;
         }
         Instruction::I64Store8(_, offset) => {
             let val = stack.pop_i64()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: 0 })?;
-            mem.write_u8(addr, val as u8).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 1, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: 0,
+                })?;
+            mem.write_u8(addr, val as u8)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 1,
+                    memory_size: mem.size(),
+                })?;
         }
         Instruction::I64Store16(_, offset) => {
             let val = stack.pop_i64()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: 0 })?;
-            mem.write_u16(addr, val as u16).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 2, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: 0,
+                })?;
+            mem.write_u16(addr, val as u16)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 2,
+                    memory_size: mem.size(),
+                })?;
         }
         Instruction::I64Store32(_, offset) => {
             let val = stack.pop_i64()?;
             let base = stack.pop_i32()? as u32;
             let addr = (base as u64 + *offset as u64) as usize;
-            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: 0 })?;
-            mem.write_u32(addr, val as u32).map_err(|_| TrapError::MemoryOutOfBounds { offset: addr, size: 4, memory_size: mem.size() })?;
+            let mem = ctx
+                .memories
+                .first_mut()
+                .ok_or(TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: 0,
+                })?;
+            mem.write_u32(addr, val as u32)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: addr,
+                    size: 4,
+                    memory_size: mem.size(),
+                })?;
         }
 
         // ====================================================================
@@ -1019,9 +1364,99 @@ fn execute_instruction(
                 stack.push(WasmValue::I32(-1))?;
             }
         }
-        Instruction::MemoryInit(_) | Instruction::DataDrop(_) |
-        Instruction::MemoryCopy | Instruction::MemoryFill => {
-            // Bulk memory ops - simplified for MVP
+        Instruction::MemoryInit(data_idx) => {
+            // memory.init: copy data from passive data segment into memory
+            let n = stack.pop_i32()? as u32;     // byte count
+            let s = stack.pop_i32()? as u32;     // source offset in data segment
+            let d = stack.pop_i32()? as u32;     // destination offset in memory
+            let seg = ctx.module.data.get(*data_idx as usize).ok_or(
+                TrapError::ExecutionError(String::from("data segment index OOB")),
+            )?;
+            let src_end = s.checked_add(n).ok_or(TrapError::MemoryOutOfBounds {
+                offset: s as usize,
+                size: n as usize,
+                memory_size: seg.data.len(),
+            })? as usize;
+            if src_end > seg.data.len() {
+                return Err(TrapError::MemoryOutOfBounds {
+                    offset: s as usize,
+                    size: n as usize,
+                    memory_size: seg.data.len(),
+                });
+            }
+            let data_bytes = seg.data[s as usize..src_end].to_vec();
+            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds {
+                offset: d as usize,
+                size: n as usize,
+                memory_size: 0,
+            })?;
+            mem.write_bytes(d as usize, &data_bytes)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: d as usize,
+                    size: n as usize,
+                    memory_size: mem.size(),
+                })?;
+        }
+        Instruction::DataDrop(data_idx) => {
+            // data.drop: mark data segment as dropped by clearing its
+            // data bytes. This frees memory and prevents future
+            // memory.init from using this segment (as required by spec).
+            if let Some(seg) = ctx.module.data.get_mut(*data_idx as usize) {
+                seg.data.clear();
+                seg.passive = false; // mark as dropped
+            }
+        }
+        Instruction::MemoryCopy => {
+            // memory.copy: copy bytes within the same memory (overlapping safe)
+            let n = stack.pop_i32()? as usize;   // byte count
+            let s = stack.pop_i32()? as usize;   // source offset
+            let d = stack.pop_i32()? as usize;   // destination offset
+            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds {
+                offset: d,
+                size: n,
+                memory_size: 0,
+            })?;
+            let mem_size = mem.size();
+            if s.checked_add(n).map_or(true, |end| end > mem_size)
+                || d.checked_add(n).map_or(true, |end| end > mem_size)
+            {
+                return Err(TrapError::MemoryOutOfBounds {
+                    offset: d.max(s),
+                    size: n,
+                    memory_size: mem_size,
+                });
+            }
+            mem.copy_within(s, d, n)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: d,
+                    size: n,
+                    memory_size: mem_size,
+                })?;
+        }
+        Instruction::MemoryFill => {
+            // memory.fill: fill a memory region with a byte value
+            let n = stack.pop_i32()? as usize;   // byte count
+            let val = stack.pop_i32()? as u8;     // fill value
+            let d = stack.pop_i32()? as usize;    // destination offset
+            let mem = ctx.memories.first_mut().ok_or(TrapError::MemoryOutOfBounds {
+                offset: d,
+                size: n,
+                memory_size: 0,
+            })?;
+            let mem_size = mem.size();
+            if d.checked_add(n).map_or(true, |end| end > mem_size) {
+                return Err(TrapError::MemoryOutOfBounds {
+                    offset: d,
+                    size: n,
+                    memory_size: mem_size,
+                });
+            }
+            mem.fill(d, n, val)
+                .map_err(|_| TrapError::MemoryOutOfBounds {
+                    offset: d,
+                    size: n,
+                    memory_size: mem_size,
+                })?;
         }
 
         // ====================================================================
@@ -1035,268 +1470,756 @@ fn execute_instruction(
         // ====================================================================
         // i32 Comparison
         // ====================================================================
-        Instruction::I32Eqz => { let a = stack.pop_i32()?; stack.push(WasmValue::I32(if a == 0 { 1 } else { 0 }))?; }
-        Instruction::I32Eq => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?; }
-        Instruction::I32Ne => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?; }
-        Instruction::I32LtS => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?; }
-        Instruction::I32LtU => { let b = stack.pop_i32()? as u32; let a = stack.pop_i32()? as u32; stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?; }
-        Instruction::I32GtS => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?; }
-        Instruction::I32GtU => { let b = stack.pop_i32()? as u32; let a = stack.pop_i32()? as u32; stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?; }
-        Instruction::I32LeS => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?; }
-        Instruction::I32LeU => { let b = stack.pop_i32()? as u32; let a = stack.pop_i32()? as u32; stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?; }
-        Instruction::I32GeS => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?; }
-        Instruction::I32GeU => { let b = stack.pop_i32()? as u32; let a = stack.pop_i32()? as u32; stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?; }
+        Instruction::I32Eqz => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(if a == 0 { 1 } else { 0 }))?;
+        }
+        Instruction::I32Eq => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?;
+        }
+        Instruction::I32Ne => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?;
+        }
+        Instruction::I32LtS => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?;
+        }
+        Instruction::I32LtU => {
+            let b = stack.pop_i32()? as u32;
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?;
+        }
+        Instruction::I32GtS => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?;
+        }
+        Instruction::I32GtU => {
+            let b = stack.pop_i32()? as u32;
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?;
+        }
+        Instruction::I32LeS => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?;
+        }
+        Instruction::I32LeU => {
+            let b = stack.pop_i32()? as u32;
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?;
+        }
+        Instruction::I32GeS => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?;
+        }
+        Instruction::I32GeU => {
+            let b = stack.pop_i32()? as u32;
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?;
+        }
 
         // ====================================================================
         // i64 Comparison
         // ====================================================================
-        Instruction::I64Eqz => { let a = stack.pop_i64()?; stack.push(WasmValue::I32(if a == 0 { 1 } else { 0 }))?; }
-        Instruction::I64Eq => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?; }
-        Instruction::I64Ne => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?; }
-        Instruction::I64LtS => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?; }
-        Instruction::I64LtU => { let b = stack.pop_i64()? as u64; let a = stack.pop_i64()? as u64; stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?; }
-        Instruction::I64GtS => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?; }
-        Instruction::I64GtU => { let b = stack.pop_i64()? as u64; let a = stack.pop_i64()? as u64; stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?; }
-        Instruction::I64LeS => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?; }
-        Instruction::I64LeU => { let b = stack.pop_i64()? as u64; let a = stack.pop_i64()? as u64; stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?; }
-        Instruction::I64GeS => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?; }
-        Instruction::I64GeU => { let b = stack.pop_i64()? as u64; let a = stack.pop_i64()? as u64; stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?; }
+        Instruction::I64Eqz => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(if a == 0 { 1 } else { 0 }))?;
+        }
+        Instruction::I64Eq => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?;
+        }
+        Instruction::I64Ne => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?;
+        }
+        Instruction::I64LtS => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?;
+        }
+        Instruction::I64LtU => {
+            let b = stack.pop_i64()? as u64;
+            let a = stack.pop_i64()? as u64;
+            stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?;
+        }
+        Instruction::I64GtS => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?;
+        }
+        Instruction::I64GtU => {
+            let b = stack.pop_i64()? as u64;
+            let a = stack.pop_i64()? as u64;
+            stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?;
+        }
+        Instruction::I64LeS => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?;
+        }
+        Instruction::I64LeU => {
+            let b = stack.pop_i64()? as u64;
+            let a = stack.pop_i64()? as u64;
+            stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?;
+        }
+        Instruction::I64GeS => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?;
+        }
+        Instruction::I64GeU => {
+            let b = stack.pop_i64()? as u64;
+            let a = stack.pop_i64()? as u64;
+            stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?;
+        }
 
         // ====================================================================
         // f32 Comparison
         // ====================================================================
-        Instruction::F32Eq => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?; }
-        Instruction::F32Ne => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?; }
-        Instruction::F32Lt => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?; }
-        Instruction::F32Gt => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?; }
-        Instruction::F32Le => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?; }
-        Instruction::F32Ge => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?; }
+        Instruction::F32Eq => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?;
+        }
+        Instruction::F32Ne => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?;
+        }
+        Instruction::F32Lt => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?;
+        }
+        Instruction::F32Gt => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?;
+        }
+        Instruction::F32Le => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?;
+        }
+        Instruction::F32Ge => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?;
+        }
 
         // ====================================================================
         // f64 Comparison
         // ====================================================================
-        Instruction::F64Eq => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?; }
-        Instruction::F64Ne => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?; }
-        Instruction::F64Lt => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?; }
-        Instruction::F64Gt => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?; }
-        Instruction::F64Le => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?; }
-        Instruction::F64Ge => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?; }
+        Instruction::F64Eq => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(if a == b { 1 } else { 0 }))?;
+        }
+        Instruction::F64Ne => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(if a != b { 1 } else { 0 }))?;
+        }
+        Instruction::F64Lt => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(if a < b { 1 } else { 0 }))?;
+        }
+        Instruction::F64Gt => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(if a > b { 1 } else { 0 }))?;
+        }
+        Instruction::F64Le => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(if a <= b { 1 } else { 0 }))?;
+        }
+        Instruction::F64Ge => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(if a >= b { 1 } else { 0 }))?;
+        }
 
         // ====================================================================
         // i32 Arithmetic
         // ====================================================================
-        Instruction::I32Clz => { let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.leading_zeros() as i32))?; }
-        Instruction::I32Ctz => { let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.trailing_zeros() as i32))?; }
-        Instruction::I32Popcnt => { let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.count_ones() as i32))?; }
-        Instruction::I32Add => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.wrapping_add(b)))?; }
-        Instruction::I32Sub => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.wrapping_sub(b)))?; }
-        Instruction::I32Mul => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.wrapping_mul(b)))?; }
+        Instruction::I32Clz => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.leading_zeros() as i32))?;
+        }
+        Instruction::I32Ctz => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.trailing_zeros() as i32))?;
+        }
+        Instruction::I32Popcnt => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.count_ones() as i32))?;
+        }
+        Instruction::I32Add => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.wrapping_add(b)))?;
+        }
+        Instruction::I32Sub => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.wrapping_sub(b)))?;
+        }
+        Instruction::I32Mul => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.wrapping_mul(b)))?;
+        }
         Instruction::I32DivS => {
             let b = stack.pop_i32()?;
             let a = stack.pop_i32()?;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
-            if a == i32::MIN && b == -1 { return Err(TrapError::IntegerOverflow); }
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
+            if a == i32::MIN && b == -1 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I32(a.wrapping_div(b)))?;
         }
         Instruction::I32DivU => {
             let b = stack.pop_i32()? as u32;
             let a = stack.pop_i32()? as u32;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
             stack.push(WasmValue::I32((a / b) as i32))?;
         }
         Instruction::I32RemS => {
             let b = stack.pop_i32()?;
             let a = stack.pop_i32()?;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
-            stack.push(WasmValue::I32(if a == i32::MIN && b == -1 { 0 } else { a.wrapping_rem(b) }))?;
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
+            stack.push(WasmValue::I32(if a == i32::MIN && b == -1 {
+                0
+            } else {
+                a.wrapping_rem(b)
+            }))?;
         }
         Instruction::I32RemU => {
             let b = stack.pop_i32()? as u32;
             let a = stack.pop_i32()? as u32;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
             stack.push(WasmValue::I32((a % b) as i32))?;
         }
-        Instruction::I32And => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a & b))?; }
-        Instruction::I32Or => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a | b))?; }
-        Instruction::I32Xor => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a ^ b))?; }
-        Instruction::I32Shl => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.wrapping_shl(b as u32 % 32)))?; }
-        Instruction::I32ShrS => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.wrapping_shr(b as u32 % 32)))?; }
-        Instruction::I32ShrU => { let b = stack.pop_i32()?; let a = stack.pop_i32()? as u32; stack.push(WasmValue::I32((a.wrapping_shr(b as u32 % 32)) as i32))?; }
-        Instruction::I32Rotl => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.rotate_left(b as u32 % 32)))?; }
-        Instruction::I32Rotr => { let b = stack.pop_i32()?; let a = stack.pop_i32()?; stack.push(WasmValue::I32(a.rotate_right(b as u32 % 32)))?; }
+        Instruction::I32And => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a & b))?;
+        }
+        Instruction::I32Or => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a | b))?;
+        }
+        Instruction::I32Xor => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a ^ b))?;
+        }
+        Instruction::I32Shl => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.wrapping_shl(b as u32 % 32)))?;
+        }
+        Instruction::I32ShrS => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.wrapping_shr(b as u32 % 32)))?;
+        }
+        Instruction::I32ShrU => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::I32((a.wrapping_shr(b as u32 % 32)) as i32))?;
+        }
+        Instruction::I32Rotl => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.rotate_left(b as u32 % 32)))?;
+        }
+        Instruction::I32Rotr => {
+            let b = stack.pop_i32()?;
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a.rotate_right(b as u32 % 32)))?;
+        }
 
         // ====================================================================
         // i64 Arithmetic
         // ====================================================================
-        Instruction::I64Clz => { let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.leading_zeros() as i64))?; }
-        Instruction::I64Ctz => { let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.trailing_zeros() as i64))?; }
-        Instruction::I64Popcnt => { let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.count_ones() as i64))?; }
-        Instruction::I64Add => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.wrapping_add(b)))?; }
-        Instruction::I64Sub => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.wrapping_sub(b)))?; }
-        Instruction::I64Mul => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.wrapping_mul(b)))?; }
+        Instruction::I64Clz => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.leading_zeros() as i64))?;
+        }
+        Instruction::I64Ctz => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.trailing_zeros() as i64))?;
+        }
+        Instruction::I64Popcnt => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.count_ones() as i64))?;
+        }
+        Instruction::I64Add => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.wrapping_add(b)))?;
+        }
+        Instruction::I64Sub => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.wrapping_sub(b)))?;
+        }
+        Instruction::I64Mul => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.wrapping_mul(b)))?;
+        }
         Instruction::I64DivS => {
             let b = stack.pop_i64()?;
             let a = stack.pop_i64()?;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
-            if a == i64::MIN && b == -1 { return Err(TrapError::IntegerOverflow); }
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
+            if a == i64::MIN && b == -1 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I64(a.wrapping_div(b)))?;
         }
         Instruction::I64DivU => {
             let b = stack.pop_i64()? as u64;
             let a = stack.pop_i64()? as u64;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
             stack.push(WasmValue::I64((a / b) as i64))?;
         }
         Instruction::I64RemS => {
             let b = stack.pop_i64()?;
             let a = stack.pop_i64()?;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
-            stack.push(WasmValue::I64(if a == i64::MIN && b == -1 { 0 } else { a.wrapping_rem(b) }))?;
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
+            stack.push(WasmValue::I64(if a == i64::MIN && b == -1 {
+                0
+            } else {
+                a.wrapping_rem(b)
+            }))?;
         }
         Instruction::I64RemU => {
             let b = stack.pop_i64()? as u64;
             let a = stack.pop_i64()? as u64;
-            if b == 0 { return Err(TrapError::DivisionByZero); }
+            if b == 0 {
+                return Err(TrapError::DivisionByZero);
+            }
             stack.push(WasmValue::I64((a % b) as i64))?;
         }
-        Instruction::I64And => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a & b))?; }
-        Instruction::I64Or => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a | b))?; }
-        Instruction::I64Xor => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a ^ b))?; }
-        Instruction::I64Shl => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.wrapping_shl((b as u32) % 64)))?; }
-        Instruction::I64ShrS => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.wrapping_shr((b as u32) % 64)))?; }
-        Instruction::I64ShrU => { let b = stack.pop_i64()?; let a = stack.pop_i64()? as u64; stack.push(WasmValue::I64((a.wrapping_shr((b as u32) % 64)) as i64))?; }
-        Instruction::I64Rotl => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.rotate_left((b as u32) % 64)))?; }
-        Instruction::I64Rotr => { let b = stack.pop_i64()?; let a = stack.pop_i64()?; stack.push(WasmValue::I64(a.rotate_right((b as u32) % 64)))?; }
+        Instruction::I64And => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a & b))?;
+        }
+        Instruction::I64Or => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a | b))?;
+        }
+        Instruction::I64Xor => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a ^ b))?;
+        }
+        Instruction::I64Shl => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.wrapping_shl((b as u32) % 64)))?;
+        }
+        Instruction::I64ShrS => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.wrapping_shr((b as u32) % 64)))?;
+        }
+        Instruction::I64ShrU => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()? as u64;
+            stack.push(WasmValue::I64((a.wrapping_shr((b as u32) % 64)) as i64))?;
+        }
+        Instruction::I64Rotl => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.rotate_left((b as u32) % 64)))?;
+        }
+        Instruction::I64Rotr => {
+            let b = stack.pop_i64()?;
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a.rotate_right((b as u32) % 64)))?;
+        }
 
         // ====================================================================
         // f32 Arithmetic
         // ====================================================================
-        Instruction::F32Abs => { let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_abs(a)))?; }
-        Instruction::F32Neg => { let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_neg(a)))?; }
-        Instruction::F32Ceil => { let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_ceil(a)))?; }
-        Instruction::F32Floor => { let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_floor(a)))?; }
-        Instruction::F32Trunc => { let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_trunc(a)))?; }
-        Instruction::F32Nearest => { let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_nearest(a)))?; }
-        Instruction::F32Sqrt => { let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_sqrt(a)))?; }
-        Instruction::F32Add => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::F32(a + b))?; }
-        Instruction::F32Sub => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::F32(a - b))?; }
-        Instruction::F32Mul => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::F32(a * b))?; }
-        Instruction::F32Div => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::F32(a / b))?; }
-        Instruction::F32Min => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_min(a, b)))?; }
-        Instruction::F32Max => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_max(a, b)))?; }
-        Instruction::F32Copysign => { let b = stack.pop_f32()?; let a = stack.pop_f32()?; stack.push(WasmValue::F32(f32_copysign(a, b)))?; }
+        Instruction::F32Abs => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_abs(a)))?;
+        }
+        Instruction::F32Neg => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_neg(a)))?;
+        }
+        Instruction::F32Ceil => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_ceil(a)))?;
+        }
+        Instruction::F32Floor => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_floor(a)))?;
+        }
+        Instruction::F32Trunc => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_trunc(a)))?;
+        }
+        Instruction::F32Nearest => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_nearest(a)))?;
+        }
+        Instruction::F32Sqrt => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_sqrt(a)))?;
+        }
+        Instruction::F32Add => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(a + b))?;
+        }
+        Instruction::F32Sub => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(a - b))?;
+        }
+        Instruction::F32Mul => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(a * b))?;
+        }
+        Instruction::F32Div => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(a / b))?;
+        }
+        Instruction::F32Min => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_min(a, b)))?;
+        }
+        Instruction::F32Max => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_max(a, b)))?;
+        }
+        Instruction::F32Copysign => {
+            let b = stack.pop_f32()?;
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F32(f32_copysign(a, b)))?;
+        }
 
         // ====================================================================
         // f64 Arithmetic
         // ====================================================================
-        Instruction::F64Abs => { let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_abs(a)))?; }
-        Instruction::F64Neg => { let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_neg(a)))?; }
-        Instruction::F64Ceil => { let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_ceil(a)))?; }
-        Instruction::F64Floor => { let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_floor(a)))?; }
-        Instruction::F64Trunc => { let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_trunc(a)))?; }
-        Instruction::F64Nearest => { let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_nearest(a)))?; }
-        Instruction::F64Sqrt => { let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_sqrt(a)))?; }
-        Instruction::F64Add => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::F64(a + b))?; }
-        Instruction::F64Sub => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::F64(a - b))?; }
-        Instruction::F64Mul => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::F64(a * b))?; }
-        Instruction::F64Div => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::F64(a / b))?; }
-        Instruction::F64Min => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_min(a, b)))?; }
-        Instruction::F64Max => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_max(a, b)))?; }
-        Instruction::F64Copysign => { let b = stack.pop_f64()?; let a = stack.pop_f64()?; stack.push(WasmValue::F64(f64_copysign(a, b)))?; }
+        Instruction::F64Abs => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_abs(a)))?;
+        }
+        Instruction::F64Neg => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_neg(a)))?;
+        }
+        Instruction::F64Ceil => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_ceil(a)))?;
+        }
+        Instruction::F64Floor => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_floor(a)))?;
+        }
+        Instruction::F64Trunc => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_trunc(a)))?;
+        }
+        Instruction::F64Nearest => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_nearest(a)))?;
+        }
+        Instruction::F64Sqrt => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_sqrt(a)))?;
+        }
+        Instruction::F64Add => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(a + b))?;
+        }
+        Instruction::F64Sub => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(a - b))?;
+        }
+        Instruction::F64Mul => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(a * b))?;
+        }
+        Instruction::F64Div => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(a / b))?;
+        }
+        Instruction::F64Min => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_min(a, b)))?;
+        }
+        Instruction::F64Max => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_max(a, b)))?;
+        }
+        Instruction::F64Copysign => {
+            let b = stack.pop_f64()?;
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F64(f64_copysign(a, b)))?;
+        }
 
         // ====================================================================
         // Conversions
         // ====================================================================
-        Instruction::I32WrapI64 => { let a = stack.pop_i64()?; stack.push(WasmValue::I32(a as i32))?; }
+        Instruction::I32WrapI64 => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I32(a as i32))?;
+        }
         Instruction::I32TruncF32S => {
             let a = stack.pop_f32()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 2147483648.0_f32 || a < -2147483648.0_f32 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 2147483648.0_f32 || a < -2147483648.0_f32 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I32(a as i32))?;
         }
         Instruction::I32TruncF32U => {
             let a = stack.pop_f32()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 4294967296.0_f32 || a <= -1.0_f32 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 4294967296.0_f32 || a <= -1.0_f32 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I32(a as u32 as i32))?;
         }
         Instruction::I32TruncF64S => {
             let a = stack.pop_f64()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 2147483648.0_f64 || a <= -2147483649.0_f64 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 2147483648.0_f64 || a <= -2147483649.0_f64 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I32(a as i32))?;
         }
         Instruction::I32TruncF64U => {
             let a = stack.pop_f64()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 4294967296.0_f64 || a <= -1.0_f64 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 4294967296.0_f64 || a <= -1.0_f64 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I32(a as u32 as i32))?;
         }
-        Instruction::I64ExtendI32S => { let a = stack.pop_i32()?; stack.push(WasmValue::I64(a as i64))?; }
-        Instruction::I64ExtendI32U => { let a = stack.pop_i32()? as u32; stack.push(WasmValue::I64(a as i64))?; }
+        Instruction::I64ExtendI32S => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I64(a as i64))?;
+        }
+        Instruction::I64ExtendI32U => {
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::I64(a as i64))?;
+        }
         Instruction::I64TruncF32S => {
             let a = stack.pop_f32()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 9223372036854775808.0_f32 || a < -9223372036854775808.0_f32 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 9223372036854775808.0_f32 || a < -9223372036854775808.0_f32 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I64(a as i64))?;
         }
         Instruction::I64TruncF32U => {
             let a = stack.pop_f32()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 18446744073709551616.0_f32 || a <= -1.0_f32 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 18446744073709551616.0_f32 || a <= -1.0_f32 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I64(a as u64 as i64))?;
         }
         Instruction::I64TruncF64S => {
             let a = stack.pop_f64()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 9223372036854775808.0_f64 || a < -9223372036854775808.0_f64 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 9223372036854775808.0_f64 || a < -9223372036854775808.0_f64 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I64(a as i64))?;
         }
         Instruction::I64TruncF64U => {
             let a = stack.pop_f64()?;
-            if a.is_nan() { return Err(TrapError::InvalidConversionToInteger); }
-            if a >= 18446744073709551616.0_f64 || a <= -1.0_f64 { return Err(TrapError::IntegerOverflow); }
+            if a.is_nan() {
+                return Err(TrapError::InvalidConversionToInteger);
+            }
+            if a >= 18446744073709551616.0_f64 || a <= -1.0_f64 {
+                return Err(TrapError::IntegerOverflow);
+            }
             stack.push(WasmValue::I64(a as u64 as i64))?;
         }
-        Instruction::F32ConvertI32S => { let a = stack.pop_i32()?; stack.push(WasmValue::F32(a as f32))?; }
-        Instruction::F32ConvertI32U => { let a = stack.pop_i32()? as u32; stack.push(WasmValue::F32(a as f32))?; }
-        Instruction::F32ConvertI64S => { let a = stack.pop_i64()?; stack.push(WasmValue::F32(a as f32))?; }
-        Instruction::F32ConvertI64U => { let a = stack.pop_i64()? as u64; stack.push(WasmValue::F32(a as f32))?; }
-        Instruction::F32DemoteF64 => { let a = stack.pop_f64()?; stack.push(WasmValue::F32(a as f32))?; }
-        Instruction::F64ConvertI32S => { let a = stack.pop_i32()?; stack.push(WasmValue::F64(a as f64))?; }
-        Instruction::F64ConvertI32U => { let a = stack.pop_i32()? as u32; stack.push(WasmValue::F64(a as f64))?; }
-        Instruction::F64ConvertI64S => { let a = stack.pop_i64()?; stack.push(WasmValue::F64(a as f64))?; }
-        Instruction::F64ConvertI64U => { let a = stack.pop_i64()? as u64; stack.push(WasmValue::F64(a as f64))?; }
-        Instruction::F64PromoteF32 => { let a = stack.pop_f32()?; stack.push(WasmValue::F64(a as f64))?; }
+        Instruction::F32ConvertI32S => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::F32(a as f32))?;
+        }
+        Instruction::F32ConvertI32U => {
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::F32(a as f32))?;
+        }
+        Instruction::F32ConvertI64S => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::F32(a as f32))?;
+        }
+        Instruction::F32ConvertI64U => {
+            let a = stack.pop_i64()? as u64;
+            stack.push(WasmValue::F32(a as f32))?;
+        }
+        Instruction::F32DemoteF64 => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::F32(a as f32))?;
+        }
+        Instruction::F64ConvertI32S => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::F64(a as f64))?;
+        }
+        Instruction::F64ConvertI32U => {
+            let a = stack.pop_i32()? as u32;
+            stack.push(WasmValue::F64(a as f64))?;
+        }
+        Instruction::F64ConvertI64S => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::F64(a as f64))?;
+        }
+        Instruction::F64ConvertI64U => {
+            let a = stack.pop_i64()? as u64;
+            stack.push(WasmValue::F64(a as f64))?;
+        }
+        Instruction::F64PromoteF32 => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::F64(a as f64))?;
+        }
 
         // ====================================================================
         // Reinterpretations
         // ====================================================================
-        Instruction::I32ReinterpretF32 => { let a = stack.pop_f32()?; stack.push(WasmValue::I32(a.to_bits() as i32))?; }
-        Instruction::I64ReinterpretF64 => { let a = stack.pop_f64()?; stack.push(WasmValue::I64(a.to_bits() as i64))?; }
-        Instruction::F32ReinterpretI32 => { let a = stack.pop_i32()?; stack.push(WasmValue::F32(f32::from_bits(a as u32)))?; }
-        Instruction::F64ReinterpretI64 => { let a = stack.pop_i64()?; stack.push(WasmValue::F64(f64::from_bits(a as u64)))?; }
+        Instruction::I32ReinterpretF32 => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(a.to_bits() as i32))?;
+        }
+        Instruction::I64ReinterpretF64 => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I64(a.to_bits() as i64))?;
+        }
+        Instruction::F32ReinterpretI32 => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::F32(f32::from_bits(a as u32)))?;
+        }
+        Instruction::F64ReinterpretI64 => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::F64(f64::from_bits(a as u64)))?;
+        }
 
         // ====================================================================
         // Sign Extension (post-MVP)
         // ====================================================================
-        Instruction::I32Extend8S => { let a = stack.pop_i32()?; stack.push(WasmValue::I32(a as i8 as i32))?; }
-        Instruction::I32Extend16S => { let a = stack.pop_i32()?; stack.push(WasmValue::I32(a as i16 as i32))?; }
-        Instruction::I64Extend8S => { let a = stack.pop_i64()?; stack.push(WasmValue::I64(a as i8 as i64))?; }
-        Instruction::I64Extend16S => { let a = stack.pop_i64()?; stack.push(WasmValue::I64(a as i16 as i64))?; }
-        Instruction::I64Extend32S => { let a = stack.pop_i64()?; stack.push(WasmValue::I64(a as i32 as i64))?; }
+        Instruction::I32Extend8S => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a as i8 as i32))?;
+        }
+        Instruction::I32Extend16S => {
+            let a = stack.pop_i32()?;
+            stack.push(WasmValue::I32(a as i16 as i32))?;
+        }
+        Instruction::I64Extend8S => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a as i8 as i64))?;
+        }
+        Instruction::I64Extend16S => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a as i16 as i64))?;
+        }
+        Instruction::I64Extend32S => {
+            let a = stack.pop_i64()?;
+            stack.push(WasmValue::I64(a as i32 as i64))?;
+        }
 
         // ====================================================================
         // Saturating Truncation
         // ====================================================================
-        Instruction::I32TruncSatF32S => { let a = stack.pop_f32()?; stack.push(WasmValue::I32(trunc_sat_f32_i32(a)))?; }
-        Instruction::I32TruncSatF32U => { let a = stack.pop_f32()?; stack.push(WasmValue::I32(trunc_sat_f32_u32(a) as i32))?; }
-        Instruction::I32TruncSatF64S => { let a = stack.pop_f64()?; stack.push(WasmValue::I32(trunc_sat_f64_i32(a)))?; }
-        Instruction::I32TruncSatF64U => { let a = stack.pop_f64()?; stack.push(WasmValue::I32(trunc_sat_f64_u32(a) as i32))?; }
-        Instruction::I64TruncSatF32S => { let a = stack.pop_f32()?; stack.push(WasmValue::I64(trunc_sat_f32_i64(a)))?; }
-        Instruction::I64TruncSatF32U => { let a = stack.pop_f32()?; stack.push(WasmValue::I64(trunc_sat_f32_u64(a) as i64))?; }
-        Instruction::I64TruncSatF64S => { let a = stack.pop_f64()?; stack.push(WasmValue::I64(trunc_sat_f64_i64(a)))?; }
-        Instruction::I64TruncSatF64U => { let a = stack.pop_f64()?; stack.push(WasmValue::I64(trunc_sat_f64_u64(a) as i64))?; }
+        Instruction::I32TruncSatF32S => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(trunc_sat_f32_i32(a)))?;
+        }
+        Instruction::I32TruncSatF32U => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I32(trunc_sat_f32_u32(a) as i32))?;
+        }
+        Instruction::I32TruncSatF64S => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(trunc_sat_f64_i32(a)))?;
+        }
+        Instruction::I32TruncSatF64U => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I32(trunc_sat_f64_u32(a) as i32))?;
+        }
+        Instruction::I64TruncSatF32S => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I64(trunc_sat_f32_i64(a)))?;
+        }
+        Instruction::I64TruncSatF32U => {
+            let a = stack.pop_f32()?;
+            stack.push(WasmValue::I64(trunc_sat_f32_u64(a) as i64))?;
+        }
+        Instruction::I64TruncSatF64S => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I64(trunc_sat_f64_i64(a)))?;
+        }
+        Instruction::I64TruncSatF64U => {
+            let a = stack.pop_f64()?;
+            stack.push(WasmValue::I64(trunc_sat_f64_u64(a) as i64))?;
+        }
     }
 
     Ok(ControlFlow::Continue)
@@ -1314,11 +2237,7 @@ fn get_current_instructions<'a>(ctx: &'a ExecutorContext, frame: &CallFrame) -> 
 }
 
 /// Branch to a label by depth index.
-fn branch(
-    stack: &mut ValueStack,
-    frame: &mut CallFrame,
-    label_idx: u32,
-) -> Result<(), TrapError> {
+fn branch(stack: &mut ValueStack, frame: &mut CallFrame, label_idx: u32) -> Result<(), TrapError> {
     let block_idx = frame.block_stack.len() - 1 - label_idx as usize;
     let target_block = &frame.block_stack[block_idx];
 
@@ -1397,9 +2316,11 @@ fn block_arity(bt: &BlockType, module: &Module) -> usize {
     match bt {
         BlockType::Empty => 0,
         BlockType::Value(_) => 1,
-        BlockType::TypeIndex(idx) => {
-            module.types.get(*idx as usize).map(|t| t.results.len()).unwrap_or(0)
-        }
+        BlockType::TypeIndex(idx) => module
+            .types
+            .get(*idx as usize)
+            .map(|t| t.results.len())
+            .unwrap_or(0),
     }
 }
 
@@ -1408,9 +2329,11 @@ fn block_param_arity(bt: &BlockType, module: &Module) -> usize {
     match bt {
         BlockType::Empty => 0,
         BlockType::Value(_) => 0,
-        BlockType::TypeIndex(idx) => {
-            module.types.get(*idx as usize).map(|t| t.params.len()).unwrap_or(0)
-        }
+        BlockType::TypeIndex(idx) => module
+            .types
+            .get(*idx as usize)
+            .map(|t| t.params.len())
+            .unwrap_or(0),
     }
 }
 
@@ -1418,10 +2341,18 @@ fn block_param_arity(bt: &BlockType, module: &Module) -> usize {
 // IEEE 754 Float Helpers (no_std compatible)
 // ============================================================================
 
-fn f32_abs(a: f32) -> f32 { f32::from_bits(a.to_bits() & 0x7FFF_FFFF) }
-fn f32_neg(a: f32) -> f32 { f32::from_bits(a.to_bits() ^ 0x8000_0000) }
-fn f64_abs(a: f64) -> f64 { f64::from_bits(a.to_bits() & 0x7FFF_FFFF_FFFF_FFFF) }
-fn f64_neg(a: f64) -> f64 { f64::from_bits(a.to_bits() ^ 0x8000_0000_0000_0000) }
+fn f32_abs(a: f32) -> f32 {
+    f32::from_bits(a.to_bits() & 0x7FFF_FFFF)
+}
+fn f32_neg(a: f32) -> f32 {
+    f32::from_bits(a.to_bits() ^ 0x8000_0000)
+}
+fn f64_abs(a: f64) -> f64 {
+    f64::from_bits(a.to_bits() & 0x7FFF_FFFF_FFFF_FFFF)
+}
+fn f64_neg(a: f64) -> f64 {
+    f64::from_bits(a.to_bits() ^ 0x8000_0000_0000_0000)
+}
 
 fn f32_copysign(a: f32, b: f32) -> f32 {
     f32::from_bits((a.to_bits() & 0x7FFF_FFFF) | (b.to_bits() & 0x8000_0000))
@@ -1431,57 +2362,121 @@ fn f64_copysign(a: f64, b: f64) -> f64 {
 }
 
 fn f32_min(a: f32, b: f32) -> f32 {
-    if a.is_nan() || b.is_nan() { return f32::NAN; }
-    if a == 0.0 && b == 0.0 { return if a.to_bits() & 0x8000_0000 != 0 { a } else { b }; }
-    if a < b { a } else { b }
+    if a.is_nan() || b.is_nan() {
+        return f32::NAN;
+    }
+    if a == 0.0 && b == 0.0 {
+        return if a.to_bits() & 0x8000_0000 != 0 { a } else { b };
+    }
+    if a < b {
+        a
+    } else {
+        b
+    }
 }
 
 fn f32_max(a: f32, b: f32) -> f32 {
-    if a.is_nan() || b.is_nan() { return f32::NAN; }
-    if a == 0.0 && b == 0.0 { return if a.to_bits() & 0x8000_0000 != 0 { b } else { a }; }
-    if a > b { a } else { b }
+    if a.is_nan() || b.is_nan() {
+        return f32::NAN;
+    }
+    if a == 0.0 && b == 0.0 {
+        return if a.to_bits() & 0x8000_0000 != 0 { b } else { a };
+    }
+    if a > b {
+        a
+    } else {
+        b
+    }
 }
 
 fn f64_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() { return f64::NAN; }
-    if a == 0.0 && b == 0.0 { return if a.to_bits() & 0x8000_0000_0000_0000 != 0 { a } else { b }; }
-    if a < b { a } else { b }
+    if a.is_nan() || b.is_nan() {
+        return f64::NAN;
+    }
+    if a == 0.0 && b == 0.0 {
+        return if a.to_bits() & 0x8000_0000_0000_0000 != 0 {
+            a
+        } else {
+            b
+        };
+    }
+    if a < b {
+        a
+    } else {
+        b
+    }
 }
 
 fn f64_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() { return f64::NAN; }
-    if a == 0.0 && b == 0.0 { return if a.to_bits() & 0x8000_0000_0000_0000 != 0 { b } else { a }; }
-    if a > b { a } else { b }
+    if a.is_nan() || b.is_nan() {
+        return f64::NAN;
+    }
+    if a == 0.0 && b == 0.0 {
+        return if a.to_bits() & 0x8000_0000_0000_0000 != 0 {
+            b
+        } else {
+            a
+        };
+    }
+    if a > b {
+        a
+    } else {
+        b
+    }
 }
 
 // no_std ceil/floor/trunc/nearest/sqrt via bit manipulation
 fn f32_ceil(a: f32) -> f32 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     let i = a as i32 as f32;
-    if a > 0.0 && i < a { i + 1.0 } else { i }
+    if a > 0.0 && i < a {
+        i + 1.0
+    } else {
+        i
+    }
 }
 
 fn f32_floor(a: f32) -> f32 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     let i = a as i32 as f32;
-    if a < 0.0 && i > a { i - 1.0 } else { i }
+    if a < 0.0 && i > a {
+        i - 1.0
+    } else {
+        i
+    }
 }
 
 fn f32_trunc(a: f32) -> f32 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     (a as i32) as f32
 }
 
 fn f32_nearest(a: f32) -> f32 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     let r = f32_floor(a + 0.5);
     // Ties to even
-    if (a + 0.5) == r && r as i32 % 2 != 0 { r - 1.0 } else { r }
+    if (a + 0.5) == r && r as i32 % 2 != 0 {
+        r - 1.0
+    } else {
+        r
+    }
 }
 
 fn f32_sqrt(a: f32) -> f32 {
-    if a.is_nan() || a < 0.0 { return f32::NAN; }
-    if a == 0.0 || a.is_infinite() { return a; }
+    if a.is_nan() || a < 0.0 {
+        return f32::NAN;
+    }
+    if a == 0.0 || a.is_infinite() {
+        return a;
+    }
     // Newton's method
     let mut x = f32::from_bits((a.to_bits() >> 1) + 0x1FC00000);
     for _ in 0..8 {
@@ -1491,31 +2486,55 @@ fn f32_sqrt(a: f32) -> f32 {
 }
 
 fn f64_ceil(a: f64) -> f64 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     let i = a as i64 as f64;
-    if a > 0.0 && i < a { i + 1.0 } else { i }
+    if a > 0.0 && i < a {
+        i + 1.0
+    } else {
+        i
+    }
 }
 
 fn f64_floor(a: f64) -> f64 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     let i = a as i64 as f64;
-    if a < 0.0 && i > a { i - 1.0 } else { i }
+    if a < 0.0 && i > a {
+        i - 1.0
+    } else {
+        i
+    }
 }
 
 fn f64_trunc(a: f64) -> f64 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     (a as i64) as f64
 }
 
 fn f64_nearest(a: f64) -> f64 {
-    if a.is_nan() || a.is_infinite() || a == 0.0 { return a; }
+    if a.is_nan() || a.is_infinite() || a == 0.0 {
+        return a;
+    }
     let r = f64_floor(a + 0.5);
-    if (a + 0.5) == r && r as i64 % 2 != 0 { r - 1.0 } else { r }
+    if (a + 0.5) == r && r as i64 % 2 != 0 {
+        r - 1.0
+    } else {
+        r
+    }
 }
 
 fn f64_sqrt(a: f64) -> f64 {
-    if a.is_nan() || a < 0.0 { return f64::NAN; }
-    if a == 0.0 || a.is_infinite() { return a; }
+    if a.is_nan() || a < 0.0 {
+        return f64::NAN;
+    }
+    if a == 0.0 || a.is_infinite() {
+        return a;
+    }
     let mut x = f64::from_bits((a.to_bits() >> 1) + 0x1FF8_0000_0000_0000);
     for _ in 0..12 {
         x = 0.5 * (x + a / x);
@@ -1528,58 +2547,106 @@ fn f64_sqrt(a: f64) -> f64 {
 // ============================================================================
 
 fn trunc_sat_f32_i32(a: f32) -> i32 {
-    if a.is_nan() { return 0; }
-    if a >= i32::MAX as f32 { return i32::MAX; }
-    if a <= i32::MIN as f32 { return i32::MIN; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= i32::MAX as f32 {
+        return i32::MAX;
+    }
+    if a <= i32::MIN as f32 {
+        return i32::MIN;
+    }
     a as i32
 }
 
 fn trunc_sat_f32_u32(a: f32) -> u32 {
-    if a.is_nan() { return 0; }
-    if a >= u32::MAX as f32 { return u32::MAX; }
-    if a <= 0.0 { return 0; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= u32::MAX as f32 {
+        return u32::MAX;
+    }
+    if a <= 0.0 {
+        return 0;
+    }
     a as u32
 }
 
 fn trunc_sat_f64_i32(a: f64) -> i32 {
-    if a.is_nan() { return 0; }
-    if a >= i32::MAX as f64 { return i32::MAX; }
-    if a <= i32::MIN as f64 { return i32::MIN; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= i32::MAX as f64 {
+        return i32::MAX;
+    }
+    if a <= i32::MIN as f64 {
+        return i32::MIN;
+    }
     a as i32
 }
 
 fn trunc_sat_f64_u32(a: f64) -> u32 {
-    if a.is_nan() { return 0; }
-    if a >= u32::MAX as f64 { return u32::MAX; }
-    if a <= 0.0 { return 0; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= u32::MAX as f64 {
+        return u32::MAX;
+    }
+    if a <= 0.0 {
+        return 0;
+    }
     a as u32
 }
 
 fn trunc_sat_f32_i64(a: f32) -> i64 {
-    if a.is_nan() { return 0; }
-    if a >= i64::MAX as f32 { return i64::MAX; }
-    if a <= i64::MIN as f32 { return i64::MIN; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= i64::MAX as f32 {
+        return i64::MAX;
+    }
+    if a <= i64::MIN as f32 {
+        return i64::MIN;
+    }
     a as i64
 }
 
 fn trunc_sat_f32_u64(a: f32) -> u64 {
-    if a.is_nan() { return 0; }
-    if a >= u64::MAX as f32 { return u64::MAX; }
-    if a <= 0.0 { return 0; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= u64::MAX as f32 {
+        return u64::MAX;
+    }
+    if a <= 0.0 {
+        return 0;
+    }
     a as u64
 }
 
 fn trunc_sat_f64_i64(a: f64) -> i64 {
-    if a.is_nan() { return 0; }
-    if a >= i64::MAX as f64 { return i64::MAX; }
-    if a <= i64::MIN as f64 { return i64::MIN; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= i64::MAX as f64 {
+        return i64::MAX;
+    }
+    if a <= i64::MIN as f64 {
+        return i64::MIN;
+    }
     a as i64
 }
 
 fn trunc_sat_f64_u64(a: f64) -> u64 {
-    if a.is_nan() { return 0; }
-    if a >= u64::MAX as f64 { return u64::MAX; }
-    if a <= 0.0 { return 0; }
+    if a.is_nan() {
+        return 0;
+    }
+    if a >= u64::MAX as f64 {
+        return u64::MAX;
+    }
+    if a <= 0.0 {
+        return 0;
+    }
     a as u64
 }
 
@@ -1678,7 +2745,8 @@ mod tests {
             "add",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "add", &[WasmValue::I32(3), WasmValue::I32(7)]).unwrap();
+        let result =
+            execute_export(&mut ctx, "add", &[WasmValue::I32(3), WasmValue::I32(7)]).unwrap();
         assert_eq!(result[0].as_i32(), Some(10));
     }
 
@@ -1692,7 +2760,8 @@ mod tests {
             "sub",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "sub", &[WasmValue::I32(10), WasmValue::I32(3)]).unwrap();
+        let result =
+            execute_export(&mut ctx, "sub", &[WasmValue::I32(10), WasmValue::I32(3)]).unwrap();
         assert_eq!(result[0].as_i32(), Some(7));
     }
 
@@ -1706,7 +2775,8 @@ mod tests {
             "mul",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "mul", &[WasmValue::I32(6), WasmValue::I32(7)]).unwrap();
+        let result =
+            execute_export(&mut ctx, "mul", &[WasmValue::I32(6), WasmValue::I32(7)]).unwrap();
         assert_eq!(result[0].as_i32(), Some(42));
     }
 
@@ -1734,7 +2804,8 @@ mod tests {
             "div",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "div", &[WasmValue::I32(10), WasmValue::I32(3)]).unwrap();
+        let result =
+            execute_export(&mut ctx, "div", &[WasmValue::I32(10), WasmValue::I32(3)]).unwrap();
         assert_eq!(result[0].as_i32(), Some(3));
     }
 
@@ -1749,7 +2820,12 @@ mod tests {
             "and",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "and", &[WasmValue::I32(0xFF00), WasmValue::I32(0x0FF0)]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "and",
+            &[WasmValue::I32(0xFF00), WasmValue::I32(0x0FF0)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_i32(), Some(0x0F00));
     }
 
@@ -1763,7 +2839,8 @@ mod tests {
             "shl",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "shl", &[WasmValue::I32(1), WasmValue::I32(8)]).unwrap();
+        let result =
+            execute_export(&mut ctx, "shl", &[WasmValue::I32(1), WasmValue::I32(8)]).unwrap();
         assert_eq!(result[0].as_i32(), Some(256));
     }
 
@@ -1792,7 +2869,12 @@ mod tests {
             "add64",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "add64", &[WasmValue::I64(100), WasmValue::I64(200)]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "add64",
+            &[WasmValue::I64(100), WasmValue::I64(200)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_i64(), Some(300));
     }
 
@@ -1806,7 +2888,12 @@ mod tests {
             "mul64",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "mul64", &[WasmValue::I64(1000000), WasmValue::I64(1000000)]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "mul64",
+            &[WasmValue::I64(1000000), WasmValue::I64(1000000)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_i64(), Some(1000000000000));
     }
 
@@ -1821,7 +2908,12 @@ mod tests {
             "fadd",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "fadd", &[WasmValue::F32(1.5), WasmValue::F32(2.5)]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "fadd",
+            &[WasmValue::F32(1.5), WasmValue::F32(2.5)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_f32(), Some(4.0));
     }
 
@@ -1835,7 +2927,12 @@ mod tests {
             "fmul",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "fmul", &[WasmValue::F64(3.14), WasmValue::F64(2.0)]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "fmul",
+            &[WasmValue::F64(3.14), WasmValue::F64(2.0)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_f64(), Some(6.28));
     }
 
@@ -1849,7 +2946,12 @@ mod tests {
             "fadd",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "fadd", &[WasmValue::F32(f32::NAN), WasmValue::F32(1.0)]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "fadd",
+            &[WasmValue::F32(f32::NAN), WasmValue::F32(1.0)],
+        )
+        .unwrap();
         assert!(result[0].as_f32().unwrap().is_nan());
     }
 
@@ -1885,19 +2987,19 @@ mod tests {
                 I32Const(1),
                 I32LeS,
                 If(BlockType::Value(ValueType::I32)),
-                    // then n
-                    LocalGet(0),
+                // then n
+                LocalGet(0),
                 Else,
-                    // else fib(n-1) + fib(n-2)
-                    LocalGet(0),
-                    I32Const(1),
-                    I32Sub,
-                    Call(0), // fib(n-1)
-                    LocalGet(0),
-                    I32Const(2),
-                    I32Sub,
-                    Call(0), // fib(n-2)
-                    I32Add,
+                // else fib(n-1) + fib(n-2)
+                LocalGet(0),
+                I32Const(1),
+                I32Sub,
+                Call(0), // fib(n-1)
+                LocalGet(0),
+                I32Const(2),
+                I32Sub,
+                Call(0), // fib(n-2)
+                I32Add,
                 End,
                 End,
             ],
@@ -1935,24 +3037,24 @@ mod tests {
                 I32Const(1),
                 LocalSet(1), // result = 1
                 Block(BlockType::Empty),
-                    Loop(BlockType::Empty),
-                        // if n <= 1 then break
-                        LocalGet(0),
-                        I32Const(1),
-                        I32LeS,
-                        BrIf(1), // break out of block
-                        // result *= n
-                        LocalGet(1),
-                        LocalGet(0),
-                        I32Mul,
-                        LocalSet(1),
-                        // n -= 1
-                        LocalGet(0),
-                        I32Const(1),
-                        I32Sub,
-                        LocalSet(0),
-                        Br(0), // continue loop
-                    End,
+                Loop(BlockType::Empty),
+                // if n <= 1 then break
+                LocalGet(0),
+                I32Const(1),
+                I32LeS,
+                BrIf(1), // break out of block
+                // result *= n
+                LocalGet(1),
+                LocalGet(0),
+                I32Mul,
+                LocalSet(1),
+                // n -= 1
+                LocalGet(0),
+                I32Const(1),
+                I32Sub,
+                LocalSet(0),
+                Br(0), // continue loop
+                End,
                 End,
                 LocalGet(1),
                 End,
@@ -2000,7 +3102,12 @@ mod tests {
             Some(10),
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        let result = execute_export(&mut ctx, "store_load", &[WasmValue::I32(0), WasmValue::I32(12345)]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "store_load",
+            &[WasmValue::I32(0), WasmValue::I32(12345)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_i32(), Some(12345));
     }
 
@@ -2137,9 +3244,9 @@ mod tests {
                 FunctionBody {
                     locals: vec![],
                     instructions: vec![
-                        LocalGet(0), // a
-                        LocalGet(1), // b
-                        LocalGet(2), // selector
+                        LocalGet(0),        // a
+                        LocalGet(1),        // b
+                        LocalGet(2),        // selector
                         CallIndirect(0, 0), // call type 0 from table 0
                         End,
                     ],
@@ -2154,15 +3261,21 @@ mod tests {
         let mut ctx = ExecutorContext::new(module).unwrap();
 
         // dispatch(3, 7, 0) = add(3, 7) = 10
-        let result = execute_export(&mut ctx, "dispatch", &[
-            WasmValue::I32(3), WasmValue::I32(7), WasmValue::I32(0),
-        ]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "dispatch",
+            &[WasmValue::I32(3), WasmValue::I32(7), WasmValue::I32(0)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_i32(), Some(10));
 
         // dispatch(3, 7, 1) = mul(3, 7) = 21
-        let result = execute_export(&mut ctx, "dispatch", &[
-            WasmValue::I32(3), WasmValue::I32(7), WasmValue::I32(1),
-        ]).unwrap();
+        let result = execute_export(
+            &mut ctx,
+            "dispatch",
+            &[WasmValue::I32(3), WasmValue::I32(7), WasmValue::I32(1)],
+        )
+        .unwrap();
         assert_eq!(result[0].as_i32(), Some(21));
     }
 
@@ -2178,9 +3291,21 @@ mod tests {
             "le",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        assert_eq!(execute_export(&mut ctx, "le", &[WasmValue::I32(1), WasmValue::I32(2)]).unwrap()[0].as_i32(), Some(1));
-        assert_eq!(execute_export(&mut ctx, "le", &[WasmValue::I32(2), WasmValue::I32(2)]).unwrap()[0].as_i32(), Some(1));
-        assert_eq!(execute_export(&mut ctx, "le", &[WasmValue::I32(3), WasmValue::I32(2)]).unwrap()[0].as_i32(), Some(0));
+        assert_eq!(
+            execute_export(&mut ctx, "le", &[WasmValue::I32(1), WasmValue::I32(2)]).unwrap()[0]
+                .as_i32(),
+            Some(1)
+        );
+        assert_eq!(
+            execute_export(&mut ctx, "le", &[WasmValue::I32(2), WasmValue::I32(2)]).unwrap()[0]
+                .as_i32(),
+            Some(1)
+        );
+        assert_eq!(
+            execute_export(&mut ctx, "le", &[WasmValue::I32(3), WasmValue::I32(2)]).unwrap()[0]
+                .as_i32(),
+            Some(0)
+        );
     }
 
     // Conversion test
@@ -2269,6 +3394,9 @@ mod tests {
             "div_ovf",
         );
         let mut ctx = ExecutorContext::new(module).unwrap();
-        assert!(matches!(execute_export(&mut ctx, "div_ovf", &[]), Err(TrapError::IntegerOverflow)));
+        assert!(matches!(
+            execute_export(&mut ctx, "div_ovf", &[]),
+            Err(TrapError::IntegerOverflow)
+        ));
     }
 }

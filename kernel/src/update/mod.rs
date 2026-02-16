@@ -3,12 +3,12 @@
 //! A/B partition updates with rollback capability.
 
 mod downloader;
-mod verifier;
 mod partition;
+mod verifier;
 
 pub use downloader::*;
-pub use verifier::*;
 pub use partition::*;
+pub use verifier::*;
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -202,7 +202,9 @@ impl UpdateManager {
 
     /// Start downloading update
     pub fn start_download(&mut self) -> Result<(), UpdateError> {
-        let update = self.available_update.as_ref()
+        let update = self
+            .available_update
+            .as_ref()
             .ok_or(UpdateError::NotAvailable)?;
 
         if self.status != UpdateStatus::Available {
@@ -222,7 +224,7 @@ impl UpdateManager {
         // Would start async download
         // For now, simulate completion
         self.progress.downloaded_bytes = update.size;
-        
+
         Ok(())
     }
 
@@ -235,7 +237,9 @@ impl UpdateManager {
         self.status = UpdateStatus::Verifying;
         self.progress.phase = UpdateStatus::Verifying;
 
-        let update = self.available_update.as_ref()
+        let update = self
+            .available_update
+            .as_ref()
             .ok_or(UpdateError::NotAvailable)?;
 
         // Verify checksum
@@ -276,7 +280,9 @@ impl UpdateManager {
         self.progress.phase = UpdateStatus::Installing;
 
         // Get inactive partition
-        let target = self.partitions.inactive_partition()
+        let target = self
+            .partitions
+            .inactive_partition()
             .ok_or_else(|| UpdateError::PartitionError("No inactive partition".into()))?;
 
         // Would write update to partition

@@ -205,7 +205,7 @@ KPIO's approach: Browser components are first-class OS citizens with kernel inte
 - [ ] WASI clock functions return correct time
 - [ ] WASM can allocate and use linear memory
 - [ ] Two WASM modules can communicate via IPC
-- [ ] Wasmtime spec tests pass (subset applicable to no_std)
+- [ ] WASM spec tests pass (subset applicable to current runtime)
 
 ---
 

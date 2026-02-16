@@ -7,19 +7,19 @@
 
 #![allow(dead_code)]
 
-pub mod ethernet;
 pub mod arp;
-pub mod ipv4;
-pub mod udp;
-pub mod tcp;
-pub mod dns;
-pub mod dhcp;
 pub mod crypto;
-pub mod x509;
+pub mod dhcp;
+pub mod dns;
+pub mod ethernet;
+pub mod http;
+pub mod ipv4;
+pub mod tcp;
 pub mod tls;
 pub mod tls13;
-pub mod http;
+pub mod udp;
 pub mod websocket;
+pub mod x509;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -232,7 +232,9 @@ pub fn init() {
         Ok(lease) => {
             crate::serial_println!(
                 "[Net] DHCP lease acquired: {} (gw {}, dns {})",
-                lease.ip, lease.gateway, lease.dns
+                lease.ip,
+                lease.gateway,
+                lease.dns
             );
             // Update ARP with new gateway
             arp::insert(lease.gateway, cfg.mac);
@@ -240,7 +242,8 @@ pub fn init() {
         Err(e) => {
             crate::serial_println!(
                 "[Net] DHCP failed ({}), using static config ({})",
-                e, cfg.ip
+                e,
+                cfg.ip
             );
         }
     }

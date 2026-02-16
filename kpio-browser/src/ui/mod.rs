@@ -4,12 +4,12 @@
 
 #![allow(dead_code)]
 
-pub mod tabs;
-pub mod settings;
 pub mod bookmarks;
-pub mod history;
 pub mod downloads;
+pub mod history;
 pub mod print;
+pub mod settings;
+pub mod tabs;
 
 use alloc::string::String;
 
@@ -39,22 +39,22 @@ impl Color {
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
-    
+
     /// Create opaque color.
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self::new(r, g, b, 255)
     }
-    
+
     /// White color.
     pub const fn white() -> Self {
         Self::rgb(255, 255, 255)
     }
-    
+
     /// Black color.
     pub const fn black() -> Self {
         Self::rgb(0, 0, 0)
     }
-    
+
     /// Transparent.
     pub const fn transparent() -> Self {
         Self::new(0, 0, 0, 0)
@@ -73,14 +73,19 @@ pub struct Rect {
 impl Rect {
     /// Create a new rectangle.
     pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
-    
+
     /// Check if point is inside.
     pub fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.x 
-            && x < self.x + self.width as i32 
-            && y >= self.y 
+        x >= self.x
+            && x < self.x + self.width as i32
+            && y >= self.y
             && y < self.y + self.height as i32
     }
 }
@@ -93,9 +98,15 @@ pub enum UiEvent {
     /// Mouse move.
     MouseMove { x: i32, y: i32 },
     /// Key press.
-    KeyPress { key: KeyCode, modifiers: KeyModifiers },
+    KeyPress {
+        key: KeyCode,
+        modifiers: KeyModifiers,
+    },
     /// Key release.
-    KeyRelease { key: KeyCode, modifiers: KeyModifiers },
+    KeyRelease {
+        key: KeyCode,
+        modifiers: KeyModifiers,
+    },
     /// Text input.
     TextInput { text: String },
     /// Window resize.
@@ -120,21 +131,89 @@ pub enum MouseButton {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyCode {
     // Letters
-    A, B, C, D, E, F, G, H, I, J, K, L, M,
-    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
     // Numbers
-    Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
+    Num0,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
     // Function keys
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
     // Special keys
-    Escape, Tab, CapsLock, Shift, Control, Alt, Meta,
-    Space, Enter, Backspace, Delete, Insert,
-    Home, End, PageUp, PageDown,
-    Left, Right, Up, Down,
+    Escape,
+    Tab,
+    CapsLock,
+    Shift,
+    Control,
+    Alt,
+    Meta,
+    Space,
+    Enter,
+    Backspace,
+    Delete,
+    Insert,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Left,
+    Right,
+    Up,
+    Down,
     // Punctuation
-    Comma, Period, Slash, Semicolon, Quote,
-    BracketLeft, BracketRight, Backslash,
-    Minus, Equal, Grave,
+    Comma,
+    Period,
+    Slash,
+    Semicolon,
+    Quote,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Minus,
+    Equal,
+    Grave,
 }
 
 /// Key modifiers.
@@ -149,14 +228,24 @@ pub struct KeyModifiers {
 impl KeyModifiers {
     /// No modifiers.
     pub const fn none() -> Self {
-        Self { shift: false, ctrl: false, alt: false, meta: false }
+        Self {
+            shift: false,
+            ctrl: false,
+            alt: false,
+            meta: false,
+        }
     }
-    
+
     /// Ctrl modifier.
     pub const fn ctrl() -> Self {
-        Self { shift: false, ctrl: true, alt: false, meta: false }
+        Self {
+            shift: false,
+            ctrl: true,
+            alt: false,
+            meta: false,
+        }
     }
-    
+
     /// Check if Ctrl is pressed.
     pub fn has_ctrl(&self) -> bool {
         self.ctrl

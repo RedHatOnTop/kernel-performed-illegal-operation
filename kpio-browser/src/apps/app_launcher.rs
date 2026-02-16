@@ -5,7 +5,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::{AppInfo, AppCategory};
+use super::{AppCategory, AppInfo};
 
 /// App launcher
 #[derive(Debug, Clone)]
@@ -79,13 +79,14 @@ impl AppLauncher {
     /// Search apps
     pub fn search(&mut self, query: &str) {
         self.search_query = query.to_string();
-        
+
         if query.is_empty() {
             self.filtered_apps = self.all_apps.clone();
             self.view = LauncherView::Pinned;
         } else {
             let query_lower = query.to_lowercase();
-            self.filtered_apps = self.all_apps
+            self.filtered_apps = self
+                .all_apps
                 .iter()
                 .filter(|app| {
                     app.name.to_lowercase().contains(&query_lower)
@@ -95,7 +96,7 @@ impl AppLauncher {
                 .collect();
             self.view = LauncherView::Search;
         }
-        
+
         self.selected_index = 0;
     }
 

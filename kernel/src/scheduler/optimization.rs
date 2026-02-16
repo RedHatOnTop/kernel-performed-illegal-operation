@@ -26,19 +26,19 @@ pub struct SchedulerParams {
 /// Default optimized scheduler parameters
 pub const OPTIMIZED_SCHED_PARAMS: SchedulerParams = SchedulerParams {
     // Interactive tasks (UI, input) - very short timeslice for responsiveness
-    interactive_timeslice_us: 1_000,     // 1ms
+    interactive_timeslice_us: 1_000, // 1ms
     interactive_priority_boost: 5,
-    
+
     // Normal tasks
-    normal_timeslice_us: 10_000,         // 10ms
-    
+    normal_timeslice_us: 10_000, // 10ms
+
     // Background tasks (indexing, compression)
-    background_timeslice_us: 50_000,     // 50ms
+    background_timeslice_us: 50_000, // 50ms
     background_priority: -5,
-    
+
     // Preemption settings
-    min_granularity_us: 750,             // Min 750µs before preempt
-    wakeup_preempt_threshold_us: 500,    // Preempt if wakeup task waited > 500µs
+    min_granularity_us: 750,          // Min 750µs before preempt
+    wakeup_preempt_threshold_us: 500, // Preempt if wakeup task waited > 500µs
 };
 
 /// Task classification for scheduler
@@ -64,7 +64,7 @@ impl TaskClass {
             TaskClass::Normal => params.normal_timeslice_us,
             TaskClass::Background => params.background_timeslice_us,
             TaskClass::RealTime => params.min_granularity_us, // RT tasks run until done
-            TaskClass::Idle => u64::MAX, // Idle runs when nothing else
+            TaskClass::Idle => u64::MAX,                      // Idle runs when nothing else
         }
     }
 
@@ -114,7 +114,7 @@ impl TicklessScheduler {
         // Disable periodic tick
         self.tick_disabled.store(true, Ordering::Release);
         self.idle_count.fetch_add(1, Ordering::Relaxed);
-        
+
         // In real implementation:
         // 1. Calculate time until next timer event
         // 2. Set one-shot timer for that time
@@ -124,7 +124,8 @@ impl TicklessScheduler {
     /// Exit from idle mode
     pub fn exit_idle(&self, idle_duration_ns: u64) {
         self.tick_disabled.store(false, Ordering::Release);
-        self.total_idle_ns.fetch_add(idle_duration_ns, Ordering::Relaxed);
+        self.total_idle_ns
+            .fetch_add(idle_duration_ns, Ordering::Relaxed);
     }
 
     /// Check if tick is disabled
@@ -306,7 +307,7 @@ mod tests {
     #[test]
     fn test_task_class_timeslice() {
         let params = OPTIMIZED_SCHED_PARAMS;
-        
+
         assert_eq!(TaskClass::Interactive.timeslice_us(&params), 1_000);
         assert_eq!(TaskClass::Normal.timeslice_us(&params), 10_000);
         assert_eq!(TaskClass::Background.timeslice_us(&params), 50_000);
@@ -315,7 +316,7 @@ mod tests {
     #[test]
     fn test_cpu_affinity() {
         let mask = CpuAffinityMask::from_cpus(&[0, 2, 4]);
-        
+
         assert!(mask.allows(0));
         assert!(!mask.allows(1));
         assert!(mask.allows(2));
@@ -325,11 +326,11 @@ mod tests {
     #[test]
     fn test_lock_free_counter() {
         let counter = LockFreeCounter::new(0);
-        
+
         counter.increment();
         counter.increment();
         assert_eq!(counter.get(), 2);
-        
+
         counter.decrement();
         assert_eq!(counter.get(), 1);
     }
@@ -337,15 +338,15 @@ mod tests {
     #[test]
     fn test_batch_accumulator() {
         let mut batch: BatchAccumulator<u32, 4> = BatchAccumulator::new();
-        
+
         assert!(batch.add(1));
         assert!(batch.add(2));
         assert!(batch.add(3));
         assert!(batch.add(4));
         assert!(!batch.add(5)); // Full
-        
+
         assert!(batch.is_full());
-        
+
         let items: Vec<_> = batch.drain().collect();
         assert_eq!(items, vec![1, 2, 3, 4]);
         assert!(batch.is_empty());

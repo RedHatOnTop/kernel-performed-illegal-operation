@@ -2,11 +2,11 @@
 //!
 //! Provides browser control capabilities for automated testing.
 
+use crate::screenshot::Screenshot;
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
-use crate::screenshot::Screenshot;
 
 /// Handle to a browser instance for testing
 pub struct BrowserHandle {
@@ -174,20 +174,20 @@ impl BrowserHandle {
         _options: NavigationOptions,
     ) -> Result<(), String> {
         self.state = BrowserState::Busy;
-        
+
         // In real implementation, this would trigger navigation
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.url = String::from(url);
             tab.loading = true;
         }
-        
+
         self.current_url = String::from(url);
-        
+
         // Simulate navigation completion
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.loading = false;
         }
-        
+
         self.state = BrowserState::Ready;
         Ok(())
     }
@@ -206,7 +206,11 @@ impl BrowserHandle {
     }
 
     /// Wait for selector
-    pub fn wait_for_selector(&self, selector: &str, timeout_ms: u64) -> Result<ElementHandle, String> {
+    pub fn wait_for_selector(
+        &self,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<ElementHandle, String> {
         // In real implementation, this would wait for element
         let _ = timeout_ms;
         Ok(ElementHandle {
@@ -295,12 +299,12 @@ impl BrowserHandle {
         if self.tabs.len() <= 1 {
             return Err(String::from("Cannot close last tab"));
         }
-        
+
         self.tabs.remove(self.active_tab);
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
         }
-        
+
         Ok(())
     }
 

@@ -4,8 +4,8 @@
 //! It wraps syscalls for file operations and provides a high-level API.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// File descriptor type
 pub type Fd = i32;
@@ -169,7 +169,7 @@ impl FsBridge {
         if meta.file_type != FileType::Directory {
             return Err(FsError::NotDirectory);
         }
-        
+
         *self.cwd.lock() = self.normalize_path(path);
         Ok(())
     }
@@ -191,13 +191,13 @@ impl FsBridge {
     /// Read entire file contents
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, FsError> {
         let _normalized = self.normalize_path(path);
-        
+
         // TODO: Implement via syscall
         // let fd = syscall::open(normalized, O_RDONLY)?;
         // let mut buffer = Vec::new();
         // syscall::read(fd, &mut buffer)?;
         // syscall::close(fd)?;
-        
+
         // Mock implementation
         Ok(vec![b'H', b'e', b'l', b'l', b'o'])
     }
@@ -206,12 +206,12 @@ impl FsBridge {
     pub fn write_file(&self, path: &str, data: &[u8]) -> Result<(), FsError> {
         let _normalized = self.normalize_path(path);
         let _data = data;
-        
+
         // TODO: Implement via syscall
         // let fd = syscall::open(normalized, O_WRONLY | O_CREAT | O_TRUNC)?;
         // syscall::write(fd, data)?;
         // syscall::close(fd)?;
-        
+
         Ok(())
     }
 
@@ -219,7 +219,7 @@ impl FsBridge {
     pub fn append_file(&self, path: &str, data: &[u8]) -> Result<(), FsError> {
         let _normalized = self.normalize_path(path);
         let _data = data;
-        
+
         // TODO: Implement via syscall
         Ok(())
     }
@@ -227,10 +227,10 @@ impl FsBridge {
     /// Read directory contents
     pub fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {
         let _normalized = self.normalize_path(path);
-        
+
         // TODO: Implement via syscall
         // let entries = syscall::readdir(normalized)?;
-        
+
         // Mock implementation - return some default entries
         Ok(vec![
             DirEntry {
@@ -266,10 +266,10 @@ impl FsBridge {
     /// Get file metadata
     pub fn metadata(&self, path: &str) -> Result<FileMeta, FsError> {
         let _normalized = self.normalize_path(path);
-        
+
         // TODO: Implement via syscall
         // syscall::stat(normalized)
-        
+
         // Mock implementation
         Ok(FileMeta {
             file_type: if path.ends_with('/') || !path.contains('.') {
@@ -317,7 +317,7 @@ impl FsBridge {
     /// Create directory and all parent directories
     pub fn create_dir_all(&self, path: &str) -> Result<(), FsError> {
         let normalized = self.normalize_path(path);
-        
+
         let mut current = String::new();
         for component in normalized.split('/') {
             if component.is_empty() {
@@ -325,12 +325,12 @@ impl FsBridge {
             }
             current.push('/');
             current.push_str(component);
-            
+
             if !self.exists(&current) {
                 self.create_dir(&current)?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -351,7 +351,7 @@ impl FsBridge {
     /// Remove directory and all contents
     pub fn remove_dir_all(&self, path: &str) -> Result<(), FsError> {
         let entries = self.read_dir(path)?;
-        
+
         for entry in entries {
             let entry_path = alloc::format!("{}/{}", path, entry.name);
             if entry.file_type == FileType::Directory {
@@ -360,7 +360,7 @@ impl FsBridge {
                 self.remove_file(&entry_path)?;
             }
         }
-        
+
         self.remove_dir(path)
     }
 

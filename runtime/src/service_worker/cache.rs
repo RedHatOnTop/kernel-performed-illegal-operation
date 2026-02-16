@@ -134,19 +134,20 @@ impl Cache {
     ) -> Vec<Response> {
         match request {
             Some(req) => {
-                let key = self.make_key(req, &CacheMatchOptions {
-                    ignore_search: options.ignore_search,
-                    ignore_method: options.ignore_method,
-                    ignore_vary: options.ignore_vary,
-                });
+                let key = self.make_key(
+                    req,
+                    &CacheMatchOptions {
+                        ignore_search: options.ignore_search,
+                        ignore_method: options.ignore_method,
+                        ignore_vary: options.ignore_vary,
+                    },
+                );
                 self.entries
                     .get(&key)
                     .map(|e| vec![e.response.clone()])
                     .unwrap_or_default()
             }
-            None => {
-                self.entries.values().map(|e| e.response.clone()).collect()
-            }
+            None => self.entries.values().map(|e| e.response.clone()).collect(),
         }
     }
 
@@ -183,11 +184,14 @@ impl Cache {
         request: &Request,
         options: &CacheQueryOptions,
     ) -> Result<bool, CacheError> {
-        let key = self.make_key(request, &CacheMatchOptions {
-            ignore_search: options.ignore_search,
-            ignore_method: options.ignore_method,
-            ignore_vary: options.ignore_vary,
-        });
+        let key = self.make_key(
+            request,
+            &CacheMatchOptions {
+                ignore_search: options.ignore_search,
+                ignore_method: options.ignore_method,
+                ignore_vary: options.ignore_vary,
+            },
+        );
 
         if let Some(entry) = self.entries.remove(&key) {
             self.total_size -= entry.size;
@@ -198,26 +202,23 @@ impl Cache {
     }
 
     /// Get all cached request keys
-    pub fn keys(
-        &self,
-        request: Option<&Request>,
-        options: &CacheQueryOptions,
-    ) -> Vec<Request> {
+    pub fn keys(&self, request: Option<&Request>, options: &CacheQueryOptions) -> Vec<Request> {
         match request {
             Some(req) => {
-                let key = self.make_key(req, &CacheMatchOptions {
-                    ignore_search: options.ignore_search,
-                    ignore_method: options.ignore_method,
-                    ignore_vary: options.ignore_vary,
-                });
+                let key = self.make_key(
+                    req,
+                    &CacheMatchOptions {
+                        ignore_search: options.ignore_search,
+                        ignore_method: options.ignore_method,
+                        ignore_vary: options.ignore_vary,
+                    },
+                );
                 self.entries
                     .get(&key)
                     .map(|e| vec![e.request.clone()])
                     .unwrap_or_default()
             }
-            None => {
-                self.entries.values().map(|e| e.request.clone()).collect()
-            }
+            None => self.entries.values().map(|e| e.request.clone()).collect(),
         }
     }
 
@@ -344,7 +345,8 @@ impl CacheStorageManager {
     /// Get or create storage for origin
     pub fn storage(&mut self, origin: &str) -> &mut CacheStorage {
         if !self.storages.contains_key(origin) {
-            self.storages.insert(origin.to_string(), CacheStorage::new(origin));
+            self.storages
+                .insert(origin.to_string(), CacheStorage::new(origin));
         }
         self.storages.get_mut(origin).unwrap()
     }
@@ -370,10 +372,7 @@ impl Default for CacheStorageManager {
 pub static CACHE_MANAGER: RwLock<CacheStorageManager> = RwLock::new(CacheStorageManager::new());
 
 /// Cache-first strategy
-pub fn cache_first(
-    storage: &CacheStorage,
-    request: &Request,
-) -> Option<Response> {
+pub fn cache_first(storage: &CacheStorage, request: &Request) -> Option<Response> {
     storage.match_request(request, &CacheMatchOptions::default())
 }
 
@@ -389,19 +388,13 @@ pub fn network_first(
 }
 
 /// Stale-while-revalidate strategy
-pub fn stale_while_revalidate(
-    storage: &CacheStorage,
-    request: &Request,
-) -> Option<Response> {
+pub fn stale_while_revalidate(storage: &CacheStorage, request: &Request) -> Option<Response> {
     // Return cached response immediately, update in background
     storage.match_request(request, &CacheMatchOptions::default())
 }
 
 /// Cache only strategy
-pub fn cache_only(
-    storage: &CacheStorage,
-    request: &Request,
-) -> Option<Response> {
+pub fn cache_only(storage: &CacheStorage, request: &Request) -> Option<Response> {
     storage.match_request(request, &CacheMatchOptions::default())
 }
 
@@ -409,4 +402,193 @@ pub fn cache_only(
 pub fn network_only(_request: &Request) -> Option<Response> {
     // Would fetch from network
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cache_put_and_match() {
+        let mut cache = Cache::new("test-cache");
+        let req = Request::new("https://example.com/data.json");
+        let mut resp = Response::new(200);
+        resp.body = Some(b"hello".to_vec());
+        cache.put(req, resp).unwrap();
+
+        let req2 = Request::new("https://example.com/data.json");
+        let result = cache.match_request(&req2, &CacheMatchOptions::default());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().status, 200);
+    }
+
+    #[test]
+    fn test_cache_miss() {
+        let cache = Cache::new("test-cache");
+        let req = Request::new("https://example.com/missing");
+        let result = cache.match_request(&req, &CacheMatchOptions::default());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_cache_delete() {
+        let mut cache = Cache::new("test-cache");
+        let req = Request::new("https://example.com/data.json");
+        let resp = Response::new(200);
+        cache.put(req, resp).unwrap();
+
+        let req2 = Request::new("https://example.com/data.json");
+        let deleted = cache
+            .delete(&req2, &CacheQueryOptions::default())
+            .unwrap();
+        assert!(deleted);
+        assert_eq!(cache.size(), 0);
+    }
+
+    #[test]
+    fn test_cache_delete_nonexistent() {
+        let mut cache = Cache::new("test-cache");
+        let req = Request::new("https://example.com/missing");
+        let deleted = cache
+            .delete(&req, &CacheQueryOptions::default())
+            .unwrap();
+        assert!(!deleted);
+    }
+
+    #[test]
+    fn test_cache_keys() {
+        let mut cache = Cache::new("test-cache");
+        let req1 = Request::new("https://example.com/a");
+        let req2 = Request::new("https://example.com/b");
+        cache.put(req1, Response::new(200)).unwrap();
+        cache.put(req2, Response::new(201)).unwrap();
+
+        let keys = cache.keys(None, &CacheQueryOptions::default());
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[test]
+    fn test_cache_ignore_search_option() {
+        let mut cache = Cache::new("test-cache");
+        let req = Request::new("https://example.com/data?v=1");
+        cache.put(req, Response::new(200)).unwrap();
+
+        // Without ignore_search, query difference = miss
+        let req2 = Request::new("https://example.com/data?v=2");
+        let result = cache.match_request(&req2, &CacheMatchOptions::default());
+        assert!(result.is_none());
+
+        // With ignore_search, should match
+        let opts = CacheMatchOptions {
+            ignore_search: true,
+            ..Default::default()
+        };
+        let result = cache.match_request(&req2, &opts);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_cache_size_tracking() {
+        let mut cache = Cache::new("test-cache");
+        assert_eq!(cache.size(), 0);
+
+        let req = Request::new("https://example.com/data");
+        let mut resp = Response::new(200);
+        resp.body = Some(vec![0u8; 100]);
+        cache.put(req, resp).unwrap();
+        assert_eq!(cache.size(), 100);
+    }
+
+    #[test]
+    fn test_cache_storage_open_creates() {
+        let mut storage = CacheStorage::new("https://example.com");
+        assert!(!storage.has("v1"));
+        storage.open("v1").unwrap();
+        assert!(storage.has("v1"));
+    }
+
+    #[test]
+    fn test_cache_storage_open_reuses() {
+        let mut storage = CacheStorage::new("https://example.com");
+        {
+            let cache = storage.open("v1").unwrap();
+            cache
+                .put(Request::new("https://example.com/a"), Response::new(200))
+                .unwrap();
+        }
+        // Reopening should find same cache with data
+        {
+            let cache = storage.open("v1").unwrap();
+            let result =
+                cache.match_request(&Request::new("https://example.com/a"), &CacheMatchOptions::default());
+            assert!(result.is_some());
+        }
+    }
+
+    #[test]
+    fn test_cache_storage_delete_cache() {
+        let mut storage = CacheStorage::new("https://example.com");
+        storage.open("v1").unwrap();
+        assert!(storage.has("v1"));
+        storage.delete("v1").unwrap();
+        assert!(!storage.has("v1"));
+    }
+
+    #[test]
+    fn test_cache_storage_keys() {
+        let mut storage = CacheStorage::new("https://example.com");
+        storage.open("a").unwrap();
+        storage.open("b").unwrap();
+        let keys = storage.keys();
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[test]
+    fn test_cache_storage_match_across_caches() {
+        let mut storage = CacheStorage::new("https://example.com");
+        {
+            let cache = storage.open("v1").unwrap();
+            cache
+                .put(Request::new("https://example.com/a"), Response::new(200))
+                .unwrap();
+        }
+        let result = storage.match_request(
+            &Request::new("https://example.com/a"),
+            &CacheMatchOptions::default(),
+        );
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_cache_storage_quota() {
+        let storage = CacheStorage::new("https://example.com");
+        assert_eq!(storage.quota(), 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_cache_storage_manager() {
+        let mut manager = CacheStorageManager::new();
+        let storage = manager.storage("https://example.com");
+        assert_eq!(storage.origin(), "https://example.com");
+    }
+
+    #[test]
+    fn test_cache_first_strategy() {
+        let mut storage = CacheStorage::new("https://example.com");
+        {
+            let cache = storage.open("v1").unwrap();
+            cache
+                .put(Request::new("https://example.com/a"), Response::new(200))
+                .unwrap();
+        }
+        let req = Request::new("https://example.com/a");
+        let result = cache_first(&storage, &req);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_network_only_strategy() {
+        let req = Request::new("https://example.com/a");
+        assert!(network_only(&req).is_none());
+    }
 }

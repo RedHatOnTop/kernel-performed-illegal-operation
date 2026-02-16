@@ -27,9 +27,11 @@ Host function 등록 체계를 정리하고, `implemented/stub` 상태를 추적
 
 네임스페이스별 상태:
 - `wasi_snapshot_preview1.*`: 다수 구현됨 (`fd_*`, `path_*`, `proc_exit`, `random_get` 등)
-- `kpio.*`: 등록됨 (IPC/process/capability 계열), 일부는 stub
-- `kpio_gpu.*`: 등록됨, 현재 stub 중심
-- `kpio_net.*`: 등록됨, 현재 stub 중심
+- `kpio.*`: ✅ 구현 완료 (IPC send/recv/create_channel, process_spawn, capability_derive)
+- `kpio_gpu.*`: ✅ 구현 완료 (create_surface, create_buffer, submit_commands, present)
+- `kpio_net.*`: ✅ 구현 완료 (`host_net.rs` — TCP/UDP 소켓 API ~460줄)
+- `kpio_gui.*`: ✅ 구현 완료 (`host_gui.rs` — 윈도우/캔버스/이벤트 API ~526줄)
+- `kpio_system.*`: ✅ 구현 완료 (`host_system.rs` — 시계/클립보드/로깅 API ~298줄)
 
 판정: PASS
 
@@ -38,9 +40,9 @@ Host function 등록 체계를 정리하고, `implemented/stub` 상태를 추적
 ## S8-QG3: stub/implemented 상태표 최신화
 
 운영 정책:
-1. stub 함수는 런타임에서 명시적 에러/기본값으로 동작
-2. 구현 전환 시 함수 시그니처/ABI 유지
-3. 상태표를 기준으로 S9 패키징/E2E에서 허용 기능을 제한
+1. 모든 네임스페이스의 호스트 함수가 구현 완료됨 (stub 없음)
+2. 함수 시그니처/ABI 유지됨
+3. 상태표를 기준으로 S9 패키징/E2E에서 전체 기능 사용 가능
 
 판정: PASS
 

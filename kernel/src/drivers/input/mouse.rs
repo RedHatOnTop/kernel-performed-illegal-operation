@@ -2,8 +2,10 @@
 //!
 //! Driver for PS/2 mouse input.
 
-use super::{InputDevice, InputDeviceType, InputEvent, InputEventType, InputEventData, 
-            MouseButtonEvent, MouseMoveEvent, MouseScrollEvent, MouseButton};
+use super::{
+    InputDevice, InputDeviceType, InputEvent, InputEventData, InputEventType, MouseButton,
+    MouseButtonEvent, MouseMoveEvent, MouseScrollEvent,
+};
 use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
@@ -102,11 +104,11 @@ impl Ps2Mouse {
     /// Process a complete packet
     fn process_packet(&mut self) {
         let flags = self.packet[0];
-        
+
         // X and Y movement (with sign extension)
         let mut dx = self.packet[1] as i32;
         let mut dy = self.packet[2] as i32;
-        
+
         // Apply sign extension
         if (flags & 0x10) != 0 {
             dx |= !0xFF;
@@ -114,10 +116,10 @@ impl Ps2Mouse {
         if (flags & 0x20) != 0 {
             dy |= !0xFF;
         }
-        
+
         // Y is inverted in PS/2
         dy = -dy;
-        
+
         // Check for overflow
         if (flags & 0x40) != 0 || (flags & 0x80) != 0 {
             // Overflow, discard
@@ -127,7 +129,7 @@ impl Ps2Mouse {
         // Update position
         let old_x = self.x;
         let old_y = self.y;
-        
+
         self.x = (self.x + dx).clamp(0, self.screen_width - 1);
         self.y = (self.y + dy).clamp(0, self.screen_height - 1);
 
@@ -148,7 +150,7 @@ impl Ps2Mouse {
         // Handle buttons
         let new_buttons = flags & 0x07;
         let changed = self.buttons ^ new_buttons;
-        
+
         if (changed & 0x01) != 0 {
             self.pending_events.push(InputEvent {
                 event_type: InputEventType::MouseButton,
@@ -161,7 +163,7 @@ impl Ps2Mouse {
                 }),
             });
         }
-        
+
         if (changed & 0x02) != 0 {
             self.pending_events.push(InputEvent {
                 event_type: InputEventType::MouseButton,
@@ -174,7 +176,7 @@ impl Ps2Mouse {
                 }),
             });
         }
-        
+
         if (changed & 0x04) != 0 {
             self.pending_events.push(InputEvent {
                 event_type: InputEventType::MouseButton,
@@ -187,36 +189,33 @@ impl Ps2Mouse {
                 }),
             });
         }
-        
+
         self.buttons = new_buttons;
 
         // Handle scroll wheel (if enabled)
         if self.scroll_enabled {
             let scroll_byte = self.packet[3];
-            
+
             // Scroll data is in bits 0-3 with sign
             let scroll = if (scroll_byte & 0x08) != 0 {
                 (scroll_byte | 0xF0) as i8 as i32
             } else {
                 (scroll_byte & 0x0F) as i32
             };
-            
+
             if scroll != 0 {
                 self.pending_events.push(InputEvent {
                     event_type: InputEventType::MouseScroll,
                     timestamp: get_timestamp(),
-                    data: InputEventData::MouseScroll(MouseScrollEvent {
-                        dx: 0,
-                        dy: scroll,
-                    }),
+                    data: InputEventData::MouseScroll(MouseScrollEvent { dx: 0, dy: scroll }),
                 });
             }
-            
+
             // Handle extra buttons (if 5-button mode)
             if self.five_button_enabled {
                 let button4 = (scroll_byte & 0x10) != 0;
                 let button5 = (scroll_byte & 0x20) != 0;
-                
+
                 // Would generate events for back/forward buttons
                 let _ = (button4, button5);
             }
@@ -269,16 +268,16 @@ pub fn init() {
     // Initialize with default screen size
     // Real implementation would get actual screen size
     let mouse = Ps2Mouse::new(1920, 1080);
-    
+
     // Enable mouse in PS/2 controller
     // Write 0xA8 to command port to enable second port
     // Write 0xD4 then 0xF4 to enable mouse data reporting
-    
+
     // Try to enable scroll wheel (Intellimouse)
     // This requires sending specific sample rate sequence:
     // 200, 100, 80 sample rates
     // Then check device ID
-    
+
     *PS2_MOUSE.lock() = Some(mouse);
 }
 

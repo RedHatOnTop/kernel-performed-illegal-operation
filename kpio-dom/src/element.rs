@@ -3,10 +3,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use servo_types::{QualName, LocalName, Namespace};
 use servo_types::namespace::HTML_NAMESPACE;
+use servo_types::{LocalName, Namespace, QualName};
 
-use crate::node::{Node, NodeData, Attribute, NodeId};
+use crate::node::{Attribute, Node, NodeData, NodeId};
 use crate::Document;
 
 /// Element-specific data.
@@ -21,17 +21,15 @@ pub struct ElementData {
 impl ElementData {
     /// Create element data from a QualName and attributes.
     pub fn new(tag_name: QualName, attributes: Vec<Attribute>) -> Self {
-        let id = attributes.iter()
+        let id = attributes
+            .iter()
             .find(|a| a.name.local.as_str() == "id")
             .map(|a| a.value.clone());
-        
-        let classes: Vec<String> = attributes.iter()
+
+        let classes: Vec<String> = attributes
+            .iter()
             .find(|a| a.name.local.as_str() == "class")
-            .map(|a| {
-                a.value.split_whitespace()
-                    .map(|s| s.into())
-                    .collect()
-            })
+            .map(|a| a.value.split_whitespace().map(|s| s.into()).collect())
             .unwrap_or_default();
 
         ElementData {
@@ -49,7 +47,8 @@ impl ElementData {
 
     /// Get attribute value.
     pub fn get_attribute(&self, name: &str) -> Option<&str> {
-        self.attributes.iter()
+        self.attributes
+            .iter()
             .find(|a| a.name.local.as_str() == name)
             .map(|a| a.value.as_str())
     }
@@ -60,13 +59,15 @@ impl ElementData {
         if name == "id" {
             self.id = Some(value.clone());
         } else if name == "class" {
-            self.classes = value.split_whitespace()
-                .map(|s| s.into())
-                .collect();
+            self.classes = value.split_whitespace().map(|s| s.into()).collect();
         }
 
         // Update or add attribute
-        if let Some(attr) = self.attributes.iter_mut().find(|a| a.name.local.as_str() == name) {
+        if let Some(attr) = self
+            .attributes
+            .iter_mut()
+            .find(|a| a.name.local.as_str() == name)
+        {
             attr.value = value;
         } else {
             self.attributes.push(Attribute::new(name, &value));
@@ -85,7 +86,9 @@ impl ElementData {
 
     /// Check if has attribute.
     pub fn has_attribute(&self, name: &str) -> bool {
-        self.attributes.iter().any(|a| a.name.local.as_str() == name)
+        self.attributes
+            .iter()
+            .any(|a| a.name.local.as_str() == name)
     }
 
     /// Get local tag name.
@@ -133,7 +136,11 @@ impl ElementData {
         if class_str.is_empty() {
             self.remove_attribute("class");
         } else {
-            if let Some(attr) = self.attributes.iter_mut().find(|a| a.name.local.as_str() == "class") {
+            if let Some(attr) = self
+                .attributes
+                .iter_mut()
+                .find(|a| a.name.local.as_str() == "class")
+            {
                 attr.value = class_str;
             } else {
                 self.attributes.push(Attribute::new("class", &class_str));
@@ -186,8 +193,8 @@ impl Element for Node {
 
     fn is_html_element(&self, tag: &str) -> bool {
         if let Some(name) = self.element_name() {
-            name.ns == Namespace::new(HTML_NAMESPACE) && 
-            name.local.as_str().eq_ignore_ascii_case(tag)
+            name.ns == Namespace::new(HTML_NAMESPACE)
+                && name.local.as_str().eq_ignore_ascii_case(tag)
         } else {
             false
         }

@@ -2,9 +2,9 @@
 //!
 //! Block trackers and enhance privacy.
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 
 /// Tracking protection manager
 #[derive(Debug, Clone)]
@@ -134,9 +134,9 @@ impl TrackingProtection {
         if self.settings.block_social && self.is_social_tracker(&request.url) {
             return BlockResult::Block(BlockReason::SocialTracker);
         }
-        if self.settings.block_third_party_cookies 
-            && request.is_third_party 
-            && request.request_type == RequestType::Cookie 
+        if self.settings.block_third_party_cookies
+            && request.is_third_party
+            && request.request_type == RequestType::Cookie
         {
             return BlockResult::Block(BlockReason::ThirdPartyCookie);
         }
@@ -204,11 +204,15 @@ impl TrackingProtection {
     // Tracker detection (simplified - real implementation would use filter lists)
 
     fn is_in_blocklist(&self, url: &str) -> bool {
-        self.custom_blocklist.iter().any(|p| Self::match_pattern(p, url))
+        self.custom_blocklist
+            .iter()
+            .any(|p| Self::match_pattern(p, url))
     }
 
     fn is_in_allowlist(&self, url: &str) -> bool {
-        self.custom_allowlist.iter().any(|p| Self::match_pattern(p, url))
+        self.custom_allowlist
+            .iter()
+            .any(|p| Self::match_pattern(p, url))
     }
 
     fn is_tracker(&self, url: &str) -> bool {
@@ -288,9 +292,13 @@ impl TrackingProtection {
             let parts: Vec<&str> = pattern.split('*').collect();
             let mut pos = 0;
             for (i, part) in parts.iter().enumerate() {
-                if part.is_empty() { continue; }
+                if part.is_empty() {
+                    continue;
+                }
                 if let Some(found) = url[pos..].find(part) {
-                    if i == 0 && found != 0 { return false; }
+                    if i == 0 && found != 0 {
+                        return false;
+                    }
                     pos += found + part.len();
                 } else {
                     return false;
@@ -478,7 +486,9 @@ pub fn strip_tracking_params(url: &str, params: &[String]) -> String {
             .split('&')
             .filter(|param| {
                 let key = param.split('=').next().unwrap_or("");
-                !params.iter().any(|p| key == p || key.starts_with(&alloc::format!("{}_", p)))
+                !params
+                    .iter()
+                    .any(|p| key == p || key.starts_with(&alloc::format!("{}_", p)))
             })
             .collect();
 

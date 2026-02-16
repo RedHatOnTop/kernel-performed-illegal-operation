@@ -1,11 +1,11 @@
 //! DOM Node - Base node type
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 use core::fmt;
 
-use servo_types::{QualName, LocalName};
+use servo_types::{LocalName, QualName};
 
 /// Node ID - unique identifier within a document.
 pub type NodeId = usize;
@@ -67,18 +67,11 @@ pub enum NodeData {
         classes: Vec<String>,
     },
     /// Text node
-    Text {
-        content: String,
-    },
+    Text { content: String },
     /// Comment node
-    Comment {
-        content: String,
-    },
+    Comment { content: String },
     /// Processing instruction
-    ProcessingInstruction {
-        target: String,
-        data: String,
-    },
+    ProcessingInstruction { target: String, data: String },
 }
 
 /// An element attribute.
@@ -120,17 +113,15 @@ impl Node {
 
     /// Create a new element node.
     pub fn new_element(id: NodeId, name: QualName, attrs: Vec<Attribute>) -> Self {
-        let id_attr = attrs.iter()
+        let id_attr = attrs
+            .iter()
             .find(|a| a.name.local.as_str() == "id")
             .map(|a| a.value.clone());
-        
-        let classes: Vec<String> = attrs.iter()
+
+        let classes: Vec<String> = attrs
+            .iter()
             .find(|a| a.name.local.as_str() == "class")
-            .map(|a| {
-                a.value.split_whitespace()
-                    .map(|s| s.into())
-                    .collect()
-            })
+            .map(|a| a.value.split_whitespace().map(|s| s.into()).collect())
             .unwrap_or_default();
 
         Node {
@@ -251,11 +242,10 @@ impl Node {
     /// Get attribute value.
     pub fn get_attribute(&self, name: &str) -> Option<&str> {
         match &self.data {
-            NodeData::Element { attrs, .. } => {
-                attrs.iter()
-                    .find(|a| a.name.local.as_str() == name)
-                    .map(|a| a.value.as_str())
-            }
+            NodeData::Element { attrs, .. } => attrs
+                .iter()
+                .find(|a| a.name.local.as_str() == name)
+                .map(|a| a.value.as_str()),
             _ => None,
         }
     }
@@ -263,9 +253,7 @@ impl Node {
     /// Check if element has a class.
     pub fn has_class(&self, class: &str) -> bool {
         match &self.data {
-            NodeData::Element { classes, .. } => {
-                classes.iter().any(|c| c == class)
-            }
+            NodeData::Element { classes, .. } => classes.iter().any(|c| c == class),
             _ => false,
         }
     }
@@ -275,8 +263,20 @@ impl Node {
         if let Some(name) = self.tag_name() {
             matches!(
                 name,
-                "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input"
-                    | "link" | "meta" | "param" | "source" | "track" | "wbr"
+                "area"
+                    | "base"
+                    | "br"
+                    | "col"
+                    | "embed"
+                    | "hr"
+                    | "img"
+                    | "input"
+                    | "link"
+                    | "meta"
+                    | "param"
+                    | "source"
+                    | "track"
+                    | "wbr"
             )
         } else {
             false

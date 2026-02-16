@@ -6,12 +6,12 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 use spin::RwLock;
 
-use super::{ApiResult, ApiError, ApiContext, EventEmitter};
+use super::{ApiContext, ApiError, ApiResult, EventEmitter};
 
 /// Tab ID.
 pub type TabId = u32;
@@ -347,12 +347,12 @@ impl TabsApi {
             on_moved: RwLock::new(EventEmitter::new()),
         }
     }
-    
+
     /// Query tabs.
     pub fn query(&self, _ctx: &ApiContext, query: QueryInfo) -> ApiResult<Vec<Tab>> {
         let tabs = self.tabs.read();
         let mut results = Vec::new();
-        
+
         for tab in tabs.values() {
             // Apply filters
             if let Some(active) = query.active {
@@ -371,28 +371,35 @@ impl TabsApi {
                 }
             }
             if let Some(ref url_patterns) = query.url {
-                let matches = tab.url.as_ref().map(|url| {
-                    url_patterns.iter().any(|pattern| matches_url_pattern(url, pattern))
-                }).unwrap_or(false);
+                let matches = tab
+                    .url
+                    .as_ref()
+                    .map(|url| {
+                        url_patterns
+                            .iter()
+                            .any(|pattern| matches_url_pattern(url, pattern))
+                    })
+                    .unwrap_or(false);
                 if !matches {
                     continue;
                 }
             }
-            
+
             results.push(tab.clone());
         }
-        
+
         Ok(results)
     }
-    
+
     /// Get a tab by ID.
     pub fn get(&self, _ctx: &ApiContext, tab_id: TabId) -> ApiResult<Tab> {
-        self.tabs.read()
+        self.tabs
+            .read()
             .get(&tab_id)
             .cloned()
             .ok_or_else(|| ApiError::not_found("Tab"))
     }
-    
+
     /// Get current tab.
     pub fn get_current(&self, ctx: &ApiContext) -> ApiResult<Option<Tab>> {
         if let Some(tab_id) = ctx.tab_id {
@@ -401,34 +408,40 @@ impl TabsApi {
             Ok(None)
         }
     }
-    
+
     /// Create a new tab.
     pub fn create(&self, _ctx: &ApiContext, props: CreateProperties) -> ApiResult<Tab> {
         let mut next_id = self.next_tab_id.write();
         let tab_id = *next_id;
         *next_id += 1;
-        
+
         let window_id = props.window_id.unwrap_or(*self.current_window_id.read());
         let index = props.index.unwrap_or(0);
-        
+
         let mut tab = Tab::new(tab_id, window_id, index);
         tab.url = props.url;
         tab.active = props.active.unwrap_or(true);
         tab.pinned = props.pinned.unwrap_or(false);
         tab.opener_tab_id = props.opener_tab_id;
-        
+
         self.tabs.write().insert(tab_id, tab.clone());
         self.on_created.read().emit(&tab);
-        
+
         Ok(tab)
     }
-    
+
     /// Update a tab.
-    pub fn update(&self, _ctx: &ApiContext, tab_id: TabId, props: UpdateProperties) -> ApiResult<Tab> {
+    pub fn update(
+        &self,
+        _ctx: &ApiContext,
+        tab_id: TabId,
+        props: UpdateProperties,
+    ) -> ApiResult<Tab> {
         let mut tabs = self.tabs.write();
-        let tab = tabs.get_mut(&tab_id)
+        let tab = tabs
+            .get_mut(&tab_id)
             .ok_or_else(|| ApiError::not_found("Tab"))?;
-        
+
         let mut change_info = TabChangeInfo {
             status: None,
             url: None,
@@ -441,7 +454,7 @@ impl TabsApi {
             fav_icon_url: None,
             title: None,
         };
-        
+
         if let Some(url) = props.url {
             tab.url = Some(url.clone());
             change_info.url = Some(url);
@@ -461,19 +474,21 @@ impl TabsApi {
                 change_info.auto_discardable = Some(auto_discardable);
             }
         }
-        
+
         let tab_clone = tab.clone();
         drop(tabs);
-        
-        self.on_updated.read().emit(&(tab_id, change_info, tab_clone.clone()));
-        
+
+        self.on_updated
+            .read()
+            .emit(&(tab_id, change_info, tab_clone.clone()));
+
         Ok(tab_clone)
     }
-    
+
     /// Remove tabs.
     pub fn remove(&self, _ctx: &ApiContext, tab_ids: Vec<TabId>) -> ApiResult<()> {
         let mut tabs = self.tabs.write();
-        
+
         for tab_id in tab_ids {
             if let Some(tab) = tabs.remove(&tab_id) {
                 let remove_info = TabRemoveInfo {
@@ -483,22 +498,27 @@ impl TabsApi {
                 self.on_removed.read().emit(&(tab_id, remove_info));
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Reload a tab.
-    pub fn reload(&self, _ctx: &ApiContext, _tab_id: Option<TabId>, _bypass_cache: bool) -> ApiResult<()> {
+    pub fn reload(
+        &self,
+        _ctx: &ApiContext,
+        _tab_id: Option<TabId>,
+        _bypass_cache: bool,
+    ) -> ApiResult<()> {
         // Would trigger page reload
         Ok(())
     }
-    
+
     /// Go back in history.
     pub fn go_back(&self, _ctx: &ApiContext, _tab_id: Option<TabId>) -> ApiResult<()> {
         // Would navigate back
         Ok(())
     }
-    
+
     /// Go forward in history.
     pub fn go_forward(&self, _ctx: &ApiContext, _tab_id: Option<TabId>) -> ApiResult<()> {
         // Would navigate forward
@@ -517,13 +537,13 @@ fn matches_url_pattern(url: &str, pattern: &str) -> bool {
     if pattern == "<all_urls>" {
         return true;
     }
-    
+
     // Simple glob matching
     let parts: Vec<&str> = pattern.split('*').collect();
     if parts.is_empty() {
         return url == pattern;
     }
-    
+
     let mut pos = 0;
     for (i, part) in parts.iter().enumerate() {
         if part.is_empty() {
@@ -538,7 +558,7 @@ fn matches_url_pattern(url: &str, pattern: &str) -> bool {
             return false;
         }
     }
-    
+
     true
 }
 
@@ -546,12 +566,12 @@ fn matches_url_pattern(url: &str, pattern: &str) -> bool {
 mod tests {
     use super::*;
     use crate::ExtensionId;
-    
+
     #[test]
     fn test_tabs_api() {
         let api = TabsApi::new();
         let ctx = ApiContext::new(ExtensionId::new("test"));
-        
+
         // Create a tab
         let props = CreateProperties {
             url: Some("https://example.com".to_string()),
@@ -559,21 +579,33 @@ mod tests {
         };
         let tab = api.create(&ctx, props).unwrap();
         assert_eq!(tab.url, Some("https://example.com".to_string()));
-        
+
         // Query tabs
         let tabs = api.query(&ctx, QueryInfo::default()).unwrap();
         assert_eq!(tabs.len(), 1);
-        
+
         // Get tab
         let tab = api.get(&ctx, tab.id).unwrap();
         assert_eq!(tab.url, Some("https://example.com".to_string()));
     }
-    
+
     #[test]
     fn test_url_pattern_matching() {
-        assert!(matches_url_pattern("https://example.com/path", "<all_urls>"));
-        assert!(matches_url_pattern("https://example.com/path", "https://example.com/*"));
-        assert!(matches_url_pattern("https://example.com/path", "*://example.com/*"));
-        assert!(!matches_url_pattern("https://other.com/path", "https://example.com/*"));
+        assert!(matches_url_pattern(
+            "https://example.com/path",
+            "<all_urls>"
+        ));
+        assert!(matches_url_pattern(
+            "https://example.com/path",
+            "https://example.com/*"
+        ));
+        assert!(matches_url_pattern(
+            "https://example.com/path",
+            "*://example.com/*"
+        ));
+        assert!(!matches_url_pattern(
+            "https://other.com/path",
+            "https://example.com/*"
+        ));
     }
 }

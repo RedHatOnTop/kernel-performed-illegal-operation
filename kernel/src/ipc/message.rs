@@ -56,7 +56,7 @@ impl MessageHeader {
             cap_count: 0,
         }
     }
-    
+
     /// Create a new request message header.
     pub fn new_request(sequence: u64, data_len: usize) -> Self {
         MessageHeader {
@@ -68,7 +68,7 @@ impl MessageHeader {
             cap_count: 0,
         }
     }
-    
+
     /// Create a new reply message header.
     pub fn new_reply(sequence: u64, data_len: usize) -> Self {
         MessageHeader {
@@ -80,7 +80,7 @@ impl MessageHeader {
             cap_count: 0,
         }
     }
-    
+
     /// Create a new error message header.
     pub fn new_error(error_code: u32) -> Self {
         MessageHeader {
@@ -92,7 +92,7 @@ impl MessageHeader {
             cap_count: 0,
         }
     }
-    
+
     /// Get the total message size.
     pub fn total_size(&self) -> usize {
         core::mem::size_of::<MessageHeader>() + self.data_len as usize
@@ -140,7 +140,7 @@ impl Message {
             capabilities: Vec::new(),
         }
     }
-    
+
     /// Create a data message.
     pub fn with_data(data: Vec<u8>) -> Self {
         let mut msg = Self::new(MessageType::Data);
@@ -148,7 +148,7 @@ impl Message {
         msg.data = data;
         msg
     }
-    
+
     /// Create a request message.
     pub fn request(sequence: u64, data: Vec<u8>) -> Self {
         let mut msg = Self::new(MessageType::Request);
@@ -157,7 +157,7 @@ impl Message {
         msg.data = data;
         msg
     }
-    
+
     /// Create a reply message.
     pub fn reply(sequence: u64, data: Vec<u8>) -> Self {
         let mut msg = Self::new(MessageType::Reply);
@@ -166,75 +166,73 @@ impl Message {
         msg.data = data;
         msg
     }
-    
+
     /// Create an error message.
     pub fn error(error_code: u32) -> Self {
         let mut msg = Self::new(MessageType::Error);
         msg.header.flags = error_code;
         msg
     }
-    
+
     /// Get the message header.
     pub fn header(&self) -> &MessageHeader {
         &self.header
     }
-    
+
     /// Get mutable access to the header.
     pub fn header_mut(&mut self) -> &mut MessageHeader {
         &mut self.header
     }
-    
+
     /// Get the message data.
     pub fn data(&self) -> &[u8] {
         &self.data
     }
-    
+
     /// Get mutable access to the data.
     pub fn data_mut(&mut self) -> &mut Vec<u8> {
         &mut self.data
     }
-    
+
     /// Set the message data.
     pub fn set_data(&mut self, data: Vec<u8>) {
         self.header.data_len = data.len() as u32;
         self.data = data;
     }
-    
+
     /// Get attached capabilities.
     pub fn capabilities(&self) -> &[u64] {
         &self.capabilities
     }
-    
+
     /// Add a capability to the message.
     pub fn add_capability(&mut self, cap_id: u64) {
         self.capabilities.push(cap_id);
         self.header.cap_count = self.capabilities.len() as u32;
     }
-    
+
     /// Get the message type.
     pub fn msg_type(&self) -> MessageType {
         self.header.msg_type
     }
-    
+
     /// Get the sequence number.
     pub fn sequence(&self) -> u64 {
         self.header.sequence
     }
-    
+
     /// Set the sender PID.
     pub fn set_sender(&mut self, pid: u64) {
         self.header.sender_pid = pid;
     }
-    
+
     /// Get the sender PID.
     pub fn sender(&self) -> u64 {
         self.header.sender_pid
     }
-    
+
     /// Get total message size in bytes.
     pub fn total_size(&self) -> usize {
-        core::mem::size_of::<MessageHeader>() 
-            + self.data.len() 
-            + self.capabilities.len() * 8
+        core::mem::size_of::<MessageHeader>() + self.data.len() + self.capabilities.len() * 8
     }
 }

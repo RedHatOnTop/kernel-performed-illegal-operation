@@ -2,12 +2,13 @@
 //!
 //! Implements USB HID class driver for keyboards, mice, gamepads, etc.
 
-use super::{InputDevice, InputDeviceType, InputEvent, InputEventType, InputEventData,
-            KeyEvent, KeyCode, Modifiers, MouseButtonEvent, MouseMoveEvent, MouseScrollEvent,
-            MouseButton};
+use super::{
+    InputDevice, InputDeviceType, InputEvent, InputEventData, InputEventType, KeyCode, KeyEvent,
+    Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, MouseScrollEvent,
+};
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// HID descriptor types
 #[repr(u8)]
@@ -132,7 +133,7 @@ impl HidReportDescriptor {
         let mut input_fields = Vec::new();
         let mut output_fields = Vec::new();
         let mut feature_fields = Vec::new();
-        
+
         // Parser state
         let mut usage_page: u16 = 0;
         let mut usage_id: u16 = 0;
@@ -140,7 +141,7 @@ impl HidReportDescriptor {
         let mut report_count: u8 = 0;
         let mut logical_min: i32 = 0;
         let mut logical_max: i32 = 0;
-        
+
         let mut i = 0;
         while i < data.len() {
             let item = data[i];
@@ -151,19 +152,21 @@ impl HidReportDescriptor {
                 3 => 4,
                 _ => 0,
             };
-            
+
             let item_type = (item >> 2) & 0x03;
             let tag = (item >> 4) & 0x0F;
-            
+
             // Read data
             let value = match size {
                 0 => 0u32,
                 1 if i + 1 < data.len() => data[i + 1] as u32,
                 2 if i + 2 < data.len() => u16::from_le_bytes([data[i + 1], data[i + 2]]) as u32,
-                4 if i + 4 < data.len() => u32::from_le_bytes([data[i + 1], data[i + 2], data[i + 3], data[i + 4]]),
+                4 if i + 4 < data.len() => {
+                    u32::from_le_bytes([data[i + 1], data[i + 2], data[i + 3], data[i + 4]])
+                }
                 _ => 0,
             };
-            
+
             match item_type {
                 // Main items
                 0 => {
@@ -211,37 +214,37 @@ impl HidReportDescriptor {
                     }
                 }
                 // Global items
-                1 => {
-                    match tag {
-                        0 => usage_page = value as u16,
-                        1 => logical_min = value as i32,
-                        2 => logical_max = value as i32,
-                        7 => report_size = value as u8,
-                        9 => report_count = value as u8,
-                        _ => {}
-                    }
-                }
+                1 => match tag {
+                    0 => usage_page = value as u16,
+                    1 => logical_min = value as i32,
+                    2 => logical_max = value as i32,
+                    7 => report_size = value as u8,
+                    9 => report_count = value as u8,
+                    _ => {}
+                },
                 // Local items
-                2 => {
-                    match tag {
-                        0 => usage_id = value as u16,
-                        _ => {}
-                    }
-                }
+                2 => match tag {
+                    0 => usage_id = value as u16,
+                    _ => {}
+                },
                 _ => {}
             }
-            
+
             i += 1 + size as usize;
         }
-        
+
         // Calculate sizes
-        let input_size: u16 = input_fields.iter()
+        let input_size: u16 = input_fields
+            .iter()
             .map(|f| f.report_size as u16 * f.report_count as u16)
-            .sum::<u16>() / 8;
-        let output_size: u16 = output_fields.iter()
+            .sum::<u16>()
+            / 8;
+        let output_size: u16 = output_fields
+            .iter()
             .map(|f| f.report_size as u16 * f.report_count as u16)
-            .sum::<u16>() / 8;
-        
+            .sum::<u16>()
+            / 8;
+
         Ok(Self {
             input_fields,
             output_fields,
@@ -328,7 +331,7 @@ impl UsbHidDevice {
             HidDeviceType::Gamepad => self.process_gamepad_report(report, timestamp),
             _ => {}
         }
-        
+
         // Save report
         if report.len() == self.last_report.len() {
             self.last_report.copy_from_slice(report);
@@ -356,7 +359,7 @@ impl UsbHidDevice {
 
         // Boot protocol: [modifiers, reserved, key1, key2, key3, key4, key5, key6]
         let new_modifiers = report[0];
-        
+
         // Check modifier changes
         let modifier_keys = [
             (0x01, KeyCode::LeftCtrl),
@@ -368,11 +371,11 @@ impl UsbHidDevice {
             (0x40, KeyCode::RightAlt),
             (0x80, KeyCode::RightSuper),
         ];
-        
+
         for (mask, keycode) in modifier_keys.iter() {
             let was_pressed = (self.modifiers & mask) != 0;
             let is_pressed = (new_modifiers & mask) != 0;
-            
+
             if is_pressed != was_pressed {
                 self.pending_events.push(InputEvent {
                     event_type: InputEventType::Key,
@@ -439,7 +442,11 @@ impl UsbHidDevice {
         let buttons = report[0];
         let dx = report[1] as i8 as i32;
         let dy = report[2] as i8 as i32;
-        let wheel = if report.len() > 3 { report[3] as i8 as i32 } else { 0 };
+        let wheel = if report.len() > 3 {
+            report[3] as i8 as i32
+        } else {
+            0
+        };
 
         // Check button changes
         let button_map = [
@@ -474,12 +481,7 @@ impl UsbHidDevice {
             self.pending_events.push(InputEvent {
                 event_type: InputEventType::MouseMove,
                 timestamp,
-                data: InputEventData::MouseMove(MouseMoveEvent {
-                    dx,
-                    dy,
-                    x: 0,
-                    y: 0,
-                }),
+                data: InputEventData::MouseMove(MouseMoveEvent { dx, dy, x: 0, y: 0 }),
             });
         }
 

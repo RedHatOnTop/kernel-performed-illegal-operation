@@ -342,7 +342,10 @@ pub struct ImportDecl {
 #[derive(Debug, Clone)]
 pub enum ImportSpecifier {
     Default(Identifier),
-    Named { imported: Identifier, local: Identifier },
+    Named {
+        imported: Identifier,
+        local: Identifier,
+    },
     Namespace(Identifier),
 }
 
@@ -453,7 +456,11 @@ pub enum Literal {
     Number(f64, Span),
     String(StringLiteral),
     BigInt(String, Span),
-    RegExp { pattern: String, flags: String, span: Span },
+    RegExp {
+        pattern: String,
+        flags: String,
+        span: Span,
+    },
 }
 
 /// String literal.
@@ -606,13 +613,13 @@ pub struct UnaryExpr {
 /// Unary operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    Minus,    // -
-    Plus,     // +
-    Not,      // !
-    BitNot,   // ~
-    Typeof,   // typeof
-    Void,     // void
-    Delete,   // delete
+    Minus,  // -
+    Plus,   // +
+    Not,    // !
+    BitNot, // ~
+    Typeof, // typeof
+    Void,   // void
+    Delete, // delete
 }
 
 /// Binary expression.
@@ -627,28 +634,28 @@ pub struct BinaryExpr {
 /// Binary operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
-    Add,              // +
-    Sub,              // -
-    Mul,              // *
-    Div,              // /
-    Mod,              // %
-    Exp,              // **
-    Equal,            // ==
-    NotEqual,         // !=
-    StrictEqual,      // ===
-    StrictNotEqual,   // !==
-    LessThan,         // <
-    LessEqual,        // <=
-    GreaterThan,      // >
-    GreaterEqual,     // >=
-    LeftShift,        // <<
-    RightShift,       // >>
+    Add,                // +
+    Sub,                // -
+    Mul,                // *
+    Div,                // /
+    Mod,                // %
+    Exp,                // **
+    Equal,              // ==
+    NotEqual,           // !=
+    StrictEqual,        // ===
+    StrictNotEqual,     // !==
+    LessThan,           // <
+    LessEqual,          // <=
+    GreaterThan,        // >
+    GreaterEqual,       // >=
+    LeftShift,          // <<
+    RightShift,         // >>
     UnsignedRightShift, // >>>
-    BitAnd,           // &
-    BitOr,            // |
-    BitXor,           // ^
-    In,               // in
-    Instanceof,       // instanceof
+    BitAnd,             // &
+    BitOr,              // |
+    BitXor,             // ^
+    In,                 // in
+    Instanceof,         // instanceof
 }
 
 /// Logical expression.
@@ -696,22 +703,22 @@ pub enum AssignmentTarget {
 /// Assignment operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssignmentOp {
-    Assign,            // =
-    AddAssign,         // +=
-    SubAssign,         // -=
-    MulAssign,         // *=
-    DivAssign,         // /=
-    ModAssign,         // %=
-    ExpAssign,         // **=
-    LeftShiftAssign,   // <<=
-    RightShiftAssign,  // >>=
+    Assign,                   // =
+    AddAssign,                // +=
+    SubAssign,                // -=
+    MulAssign,                // *=
+    DivAssign,                // /=
+    ModAssign,                // %=
+    ExpAssign,                // **=
+    LeftShiftAssign,          // <<=
+    RightShiftAssign,         // >>=
     UnsignedRightShiftAssign, // >>>=
-    BitAndAssign,      // &=
-    BitOrAssign,       // |=
-    BitXorAssign,      // ^=
-    AndAssign,         // &&=
-    OrAssign,          // ||=
-    NullishAssign,     // ??=
+    BitAndAssign,             // &=
+    BitOrAssign,              // |=
+    BitXorAssign,             // ^=
+    AndAssign,                // &&=
+    OrAssign,                 // ||=
+    NullishAssign,            // ??=
 }
 
 /// Sequence expression.

@@ -381,7 +381,13 @@ mod tests {
     fn cache_storage_put_and_match() {
         let mut storage = CacheStorage::new(1);
         storage
-            .put("v1", "/index.html", 200, BTreeMap::new(), b"<html>".to_vec())
+            .put(
+                "v1",
+                "/index.html",
+                200,
+                BTreeMap::new(),
+                b"<html>".to_vec(),
+            )
             .unwrap();
 
         let (cache_name, resp) = storage.match_url("/index.html").unwrap();

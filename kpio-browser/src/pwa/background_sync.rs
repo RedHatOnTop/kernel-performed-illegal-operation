@@ -119,9 +119,7 @@ impl SyncManager {
 
     /// Update network state. If transitioning Offline → Online, sets flag.
     pub fn update_network_state(&mut self, state: NetworkState) {
-        if self.network_state == NetworkState::Offline
-            && state == NetworkState::Online
-        {
+        if self.network_state == NetworkState::Offline && state == NetworkState::Online {
             self.just_came_online = true;
             // Reset retry delays for pending tasks
             for task in self.tasks.values_mut() {
@@ -174,8 +172,7 @@ impl SyncManager {
                         self.tasks.remove(tag);
                     } else {
                         // Schedule retry with backoff
-                        let delay_idx =
-                            (task.attempts as usize - 1).min(RETRY_DELAYS.len() - 1);
+                        let delay_idx = (task.attempts as usize - 1).min(RETRY_DELAYS.len() - 1);
                         // Convert seconds to approximate frames (60fps)
                         task.retry_delay_remaining = RETRY_DELAYS[delay_idx] * 60;
                     }
@@ -203,7 +200,9 @@ impl SyncManager {
             }
             json.push_str(&alloc::format!(
                 "{{\"tag\":\"{}\",\"attempts\":{},\"pending\":{}}}",
-                task.tag, task.attempts, task.pending
+                task.tag,
+                task.attempts,
+                task.pending
             ));
             first = false;
         }
@@ -280,8 +279,7 @@ impl SyncRegistry {
 }
 
 /// Global sync registry.
-pub static SYNC_REGISTRY: RwLock<SyncRegistry> =
-    RwLock::new(SyncRegistry::new());
+pub static SYNC_REGISTRY: RwLock<SyncRegistry> = RwLock::new(SyncRegistry::new());
 
 // ── Tests ───────────────────────────────────────────────────
 

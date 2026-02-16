@@ -3,19 +3,19 @@
 //! Implements Service Worker lifecycle management and event handling
 //! for Progressive Web App support.
 
-mod lifecycle;
-mod fetch;
 mod cache;
-mod sync;
-mod registration;
 mod events;
+mod fetch;
+mod lifecycle;
+mod registration;
+mod sync;
 
-pub use lifecycle::*;
-pub use fetch::*;
 pub use cache::*;
-pub use sync::*;
-pub use registration::*;
 pub use events::*;
+pub use fetch::*;
+pub use lifecycle::*;
+pub use registration::*;
+pub use sync::*;
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -255,7 +255,7 @@ impl ServiceWorker {
 }
 
 /// Service Worker Container
-/// 
+///
 /// Manages all service workers for an origin.
 pub struct ServiceWorkerContainer {
     /// Origin this container belongs to
@@ -321,11 +321,8 @@ impl ServiceWorkerContainer {
         let id = worker.id();
 
         // Create registration
-        let registration = ServiceWorkerRegistration::new(
-            id,
-            scope.clone(),
-            ScriptUrl::new(script_url),
-        );
+        let registration =
+            ServiceWorkerRegistration::new(id, scope.clone(), ScriptUrl::new(script_url));
 
         // Store
         self.registrations.insert(scope, registration);
@@ -413,10 +410,8 @@ impl ServiceWorkerManager {
     /// Get or create container for an origin
     pub fn container(&mut self, origin: &str) -> &mut ServiceWorkerContainer {
         if !self.containers.contains_key(origin) {
-            self.containers.insert(
-                origin.to_string(),
-                ServiceWorkerContainer::new(origin),
-            );
+            self.containers
+                .insert(origin.to_string(), ServiceWorkerContainer::new(origin));
         }
         self.containers.get_mut(origin).unwrap()
     }
@@ -432,7 +427,8 @@ impl ServiceWorkerManager {
             .get(origin)
             .and_then(|c| c.match_registration(url))
             .and_then(|reg| {
-                self.containers.get(origin)
+                self.containers
+                    .get(origin)
                     .and_then(|c| c.get_worker(reg.worker_id()))
             })
             .filter(|w| w.is_active())
@@ -446,7 +442,7 @@ impl Default for ServiceWorkerManager {
 }
 
 /// Global manager instance
-pub static SERVICE_WORKER_MANAGER: RwLock<ServiceWorkerManager> = 
+pub static SERVICE_WORKER_MANAGER: RwLock<ServiceWorkerManager> =
     RwLock::new(ServiceWorkerManager::new());
 
 /// Initialize service worker subsystem
@@ -455,3 +451,121 @@ pub fn init() {
 }
 
 use alloc::string::ToString;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scope_contains() {
+        let scope = Scope::new("/app");
+        assert!(scope.contains("/app/index.html"));
+        assert!(scope.contains("/app/sub/page.html"));
+        assert!(!scope.contains("/other/page.html"));
+    }
+
+    #[test]
+    fn test_scope_auto_trailing_slash() {
+        let scope = Scope::new("/app");
+        assert_eq!(scope.path(), "/app/");
+        let scope2 = Scope::new("/app/");
+        assert_eq!(scope2.path(), "/app/");
+    }
+
+    #[test]
+    fn test_service_worker_initial_state() {
+        let config = ServiceWorkerConfig {
+            scope: Scope::new("/"),
+            script_url: ScriptUrl::new("/sw.js"),
+            update_via_cache: UpdateViaCache::default(),
+            navigation_preload: false,
+        };
+        let worker = ServiceWorker::new(config);
+        assert_eq!(worker.state(), ServiceWorkerState::Parsed);
+        assert!(!worker.is_active());
+        assert!(!worker.is_installing());
+        assert!(!worker.is_waiting());
+    }
+
+    #[test]
+    fn test_container_register_and_get() {
+        let mut container = ServiceWorkerContainer::new("https://example.com");
+        let id = container.register("/sw.js", Some("/app")).unwrap();
+        assert!(container.get_worker(id).is_some());
+        let scope = Scope::new("/app");
+        assert!(container.get_registration(&scope).is_some());
+    }
+
+    #[test]
+    fn test_container_register_duplicate_fails() {
+        let mut container = ServiceWorkerContainer::new("https://example.com");
+        container.register("/sw.js", Some("/app")).unwrap();
+        let result = container.register("/sw2.js", Some("/app"));
+        assert!(matches!(result, Err(ServiceWorkerError::AlreadyRegistered)));
+    }
+
+    #[test]
+    fn test_container_unregister() {
+        let mut container = ServiceWorkerContainer::new("https://example.com");
+        let id = container.register("/sw.js", Some("/app")).unwrap();
+        let scope = Scope::new("/app");
+        container.unregister(&scope).unwrap();
+        // Worker should still exist but be Redundant
+        let worker = container.get_worker(id).unwrap();
+        assert_eq!(worker.state(), ServiceWorkerState::Redundant);
+    }
+
+    #[test]
+    fn test_container_unregister_not_found() {
+        let mut container = ServiceWorkerContainer::new("https://example.com");
+        let scope = Scope::new("/nonexistent");
+        assert!(matches!(
+            container.unregister(&scope),
+            Err(ServiceWorkerError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn test_container_match_registration() {
+        let mut container = ServiceWorkerContainer::new("https://example.com");
+        container.register("/sw.js", Some("/app")).unwrap();
+        // A URL within the scope should match
+        let reg = container.match_registration("/app/page.html");
+        assert!(reg.is_some());
+        // A URL outside the scope should not match
+        let reg = container.match_registration("/other/page.html");
+        assert!(reg.is_none());
+    }
+
+    #[test]
+    fn test_container_set_controller() {
+        let mut container = ServiceWorkerContainer::new("https://example.com");
+        let id = container.register("/sw.js", Some("/")).unwrap();
+        assert!(container.controller().is_none());
+        container.set_controller(id);
+        assert!(container.controller().is_some());
+    }
+
+    #[test]
+    fn test_manager_container_creation() {
+        let mut manager = ServiceWorkerManager::new();
+        let container = manager.container("https://example.com");
+        assert_eq!(container.origin(), "https://example.com");
+        // Accessing same origin should return same container
+        let container2 = manager.container("https://example.com");
+        assert_eq!(container2.origin(), "https://example.com");
+    }
+
+    #[test]
+    fn test_service_worker_id_unique() {
+        let id1 = ServiceWorkerId::new();
+        let id2 = ServiceWorkerId::new();
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_script_url() {
+        let url = ScriptUrl::new("/service-worker.js");
+        assert_eq!(url.url(), "/service-worker.js");
+    }
+}

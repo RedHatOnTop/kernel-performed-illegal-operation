@@ -6,12 +6,12 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 use spin::RwLock;
 
-use super::{ApiResult, ApiError, ApiContext, EventEmitter};
+use super::{ApiContext, ApiError, ApiResult, EventEmitter};
 use crate::api::tabs::TabId;
 
 /// Request ID.
@@ -83,7 +83,7 @@ impl ResourceType {
             _ => None,
         }
     }
-    
+
     /// Convert to string.
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -126,7 +126,7 @@ impl HttpHeader {
             binary_value: None,
         }
     }
-    
+
     /// Create a header with binary value.
     pub fn new_binary(name: impl Into<String>, binary: Vec<u8>) -> Self {
         Self {
@@ -390,7 +390,7 @@ impl WebRequestApi {
             on_error_occurred: RwLock::new(EventEmitter::new()),
         }
     }
-    
+
     /// Add before request listener.
     pub fn add_before_request_listener(
         &self,
@@ -400,7 +400,7 @@ impl WebRequestApi {
     ) -> u64 {
         self.add_listener(ctx, &self.before_request_listeners, filter, options)
     }
-    
+
     /// Add before send headers listener.
     pub fn add_before_send_headers_listener(
         &self,
@@ -410,7 +410,7 @@ impl WebRequestApi {
     ) -> u64 {
         self.add_listener(ctx, &self.before_send_headers_listeners, filter, options)
     }
-    
+
     /// Add headers received listener.
     pub fn add_headers_received_listener(
         &self,
@@ -420,7 +420,7 @@ impl WebRequestApi {
     ) -> u64 {
         self.add_listener(ctx, &self.headers_received_listeners, filter, options)
     }
-    
+
     /// Helper to add listener.
     fn add_listener(
         &self,
@@ -432,118 +432,136 @@ impl WebRequestApi {
         let mut next_id = self.next_listener_id.write();
         let id = *next_id;
         *next_id += 1;
-        
+
         listeners.write().push(RegisteredListener {
             id,
             filter,
             options,
             extension_id: ctx.extension_id.as_str().to_string(),
         });
-        
+
         id
     }
-    
+
     /// Remove listener.
     pub fn remove_listener(&self, listener_id: u64) {
         // Remove from all listener lists
-        self.before_request_listeners.write().retain(|l| l.id != listener_id);
-        self.before_send_headers_listeners.write().retain(|l| l.id != listener_id);
-        self.send_headers_listeners.write().retain(|l| l.id != listener_id);
-        self.headers_received_listeners.write().retain(|l| l.id != listener_id);
-        self.auth_required_listeners.write().retain(|l| l.id != listener_id);
-        self.response_started_listeners.write().retain(|l| l.id != listener_id);
-        self.before_redirect_listeners.write().retain(|l| l.id != listener_id);
-        self.completed_listeners.write().retain(|l| l.id != listener_id);
+        self.before_request_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
+        self.before_send_headers_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
+        self.send_headers_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
+        self.headers_received_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
+        self.auth_required_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
+        self.response_started_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
+        self.before_redirect_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
+        self.completed_listeners
+            .write()
+            .retain(|l| l.id != listener_id);
         self.error_listeners.write().retain(|l| l.id != listener_id);
     }
-    
+
     /// Handle before request (internal).
     pub fn handle_before_request(&self, details: &RequestDetails) -> Option<BlockingResponse> {
         let listeners = self.before_request_listeners.read();
-        
+
         for listener in listeners.iter() {
             if self.matches_filter(&listener.filter, details) {
                 // Emit event
                 self.on_before_request.read().emit(details);
-                
+
                 if listener.options.blocking {
                     // Would wait for response
                     return Some(BlockingResponse::default());
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Handle headers received (internal).
     pub fn handle_headers_received(&self, details: &ResponseDetails) -> Option<BlockingResponse> {
         let listeners = self.headers_received_listeners.read();
-        
+
         for listener in listeners.iter() {
             if self.matches_response_filter(&listener.filter, details) {
                 self.on_headers_received.read().emit(details);
-                
+
                 if listener.options.blocking {
                     return Some(BlockingResponse::default());
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Check if filter matches request.
     fn matches_filter(&self, filter: &RequestFilter, details: &RequestDetails) -> bool {
         // Check URL patterns
         if !filter.urls.is_empty() {
-            let matches = filter.urls.iter().any(|pattern| {
-                matches_url_pattern(&details.url, pattern)
-            });
+            let matches = filter
+                .urls
+                .iter()
+                .any(|pattern| matches_url_pattern(&details.url, pattern));
             if !matches {
                 return false;
             }
         }
-        
+
         // Check resource types
         if let Some(ref types) = filter.types {
             if !types.contains(&details.resource_type) {
                 return false;
             }
         }
-        
+
         // Check tab ID
         if let Some(tab_id) = filter.tab_id {
             if details.tab_id != tab_id as i32 {
                 return false;
             }
         }
-        
+
         true
     }
-    
+
     /// Check if filter matches response.
     fn matches_response_filter(&self, filter: &RequestFilter, details: &ResponseDetails) -> bool {
         // Check URL patterns
         if !filter.urls.is_empty() {
-            let matches = filter.urls.iter().any(|pattern| {
-                matches_url_pattern(&details.url, pattern)
-            });
+            let matches = filter
+                .urls
+                .iter()
+                .any(|pattern| matches_url_pattern(&details.url, pattern));
             if !matches {
                 return false;
             }
         }
-        
+
         // Check resource types
         if let Some(ref types) = filter.types {
             if !types.contains(&details.resource_type) {
                 return false;
             }
         }
-        
+
         true
     }
-    
+
     /// Get maximum redirects constant.
     pub const fn max_handler_behavior_changed_calls_per_10_minutes() -> usize {
         20
@@ -561,16 +579,16 @@ fn matches_url_pattern(url: &str, pattern: &str) -> bool {
     if pattern == "<all_urls>" {
         return true;
     }
-    
+
     // Parse pattern: <scheme>://<host>/<path>
     let parts: Vec<&str> = pattern.splitn(2, "://").collect();
     if parts.len() != 2 {
         return false;
     }
-    
+
     let scheme_pattern = parts[0];
     let rest = parts[1];
-    
+
     // Check scheme
     if scheme_pattern != "*" {
         let url_scheme = url.split("://").next().unwrap_or("");
@@ -578,14 +596,14 @@ fn matches_url_pattern(url: &str, pattern: &str) -> bool {
             return false;
         }
     }
-    
+
     // Extract URL host and path
     let url_rest = url.split("://").nth(1).unwrap_or("");
     let url_host = url_rest.split('/').next().unwrap_or("");
-    
+
     // Parse pattern host and path
     let pattern_host = rest.split('/').next().unwrap_or("");
-    
+
     // Check host
     if pattern_host != "*" {
         if pattern_host.starts_with("*.") {
@@ -598,7 +616,7 @@ fn matches_url_pattern(url: &str, pattern: &str) -> bool {
             return false;
         }
     }
-    
+
     true
 }
 
@@ -606,30 +624,51 @@ fn matches_url_pattern(url: &str, pattern: &str) -> bool {
 mod tests {
     use super::*;
     use crate::ExtensionId;
-    
+
     #[test]
     fn test_url_pattern_matching() {
         // All URLs
-        assert!(matches_url_pattern("https://example.com/path", "<all_urls>"));
-        
+        assert!(matches_url_pattern(
+            "https://example.com/path",
+            "<all_urls>"
+        ));
+
         // Specific scheme and host
-        assert!(matches_url_pattern("https://example.com/path", "https://example.com/*"));
-        assert!(!matches_url_pattern("http://example.com/path", "https://example.com/*"));
-        
+        assert!(matches_url_pattern(
+            "https://example.com/path",
+            "https://example.com/*"
+        ));
+        assert!(!matches_url_pattern(
+            "http://example.com/path",
+            "https://example.com/*"
+        ));
+
         // Wildcard scheme
-        assert!(matches_url_pattern("https://example.com/path", "*://example.com/*"));
-        assert!(matches_url_pattern("http://example.com/path", "*://example.com/*"));
-        
+        assert!(matches_url_pattern(
+            "https://example.com/path",
+            "*://example.com/*"
+        ));
+        assert!(matches_url_pattern(
+            "http://example.com/path",
+            "*://example.com/*"
+        ));
+
         // Subdomain wildcard
-        assert!(matches_url_pattern("https://sub.example.com/path", "*://*.example.com/*"));
-        assert!(matches_url_pattern("https://example.com/path", "*://*.example.com/*"));
+        assert!(matches_url_pattern(
+            "https://sub.example.com/path",
+            "*://*.example.com/*"
+        ));
+        assert!(matches_url_pattern(
+            "https://example.com/path",
+            "*://*.example.com/*"
+        ));
     }
-    
+
     #[test]
     fn test_web_request_api() {
         let api = WebRequestApi::new();
         let ctx = ApiContext::new(ExtensionId::new("test"));
-        
+
         // Add listener
         let filter = RequestFilter {
             urls: vec!["<all_urls>".to_string()],
@@ -637,9 +676,9 @@ mod tests {
         };
         let options = ListenerOptions::default();
         let id = api.add_before_request_listener(&ctx, filter, options);
-        
+
         assert!(id > 0);
-        
+
         // Remove listener
         api.remove_listener(id);
     }

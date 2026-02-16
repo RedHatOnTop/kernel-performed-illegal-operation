@@ -8,86 +8,86 @@ use alloc::vec::Vec;
 use core::ptr;
 
 use super::{
-    MacAddress, NetworkDevice, NetworkError, NetworkCapabilities, NetworkStats,
-    LinkStatus, LinkSpeed, LinkDuplex, NETWORK_MANAGER,
+    LinkDuplex, LinkSpeed, LinkStatus, MacAddress, NetworkCapabilities, NetworkDevice,
+    NetworkError, NetworkStats, NETWORK_MANAGER,
 };
 
 /// RTL8111 register offsets
 #[allow(dead_code)]
 mod regs {
-    pub const MAC0: u32 = 0x00;         // MAC address bytes 0-3
-    pub const MAC4: u32 = 0x04;         // MAC address bytes 4-5
-    pub const MAR0: u32 = 0x08;         // Multicast filter 0-3
-    pub const MAR4: u32 = 0x0C;         // Multicast filter 4-7
-    pub const TNPDS: u32 = 0x20;        // TX Normal Priority Descriptors
-    pub const THPDS: u32 = 0x28;        // TX High Priority Descriptors
-    pub const CR: u32 = 0x37;           // Command Register
-    pub const TPP: u32 = 0x38;          // TX Priority Polling
-    pub const IMR: u32 = 0x3C;          // Interrupt Mask Register
-    pub const ISR: u32 = 0x3E;          // Interrupt Status Register
-    pub const TCR: u32 = 0x40;          // TX Configuration Register
-    pub const RCR: u32 = 0x44;          // RX Configuration Register
-    pub const TCTR: u32 = 0x48;         // Timer Count Register
-    pub const MPC: u32 = 0x4C;          // Missed Packet Counter
-    pub const CR9346: u32 = 0x50;       // 93C46 Command Register
-    pub const CONFIG0: u32 = 0x51;      // Configuration Register 0
-    pub const CONFIG1: u32 = 0x52;      // Configuration Register 1
-    pub const CONFIG2: u32 = 0x53;      // Configuration Register 2
-    pub const CONFIG3: u32 = 0x54;      // Configuration Register 3
-    pub const CONFIG4: u32 = 0x55;      // Configuration Register 4
-    pub const CONFIG5: u32 = 0x56;      // Configuration Register 5
-    pub const PHYAR: u32 = 0x60;        // PHY Access Register
-    pub const PHY_STATUS: u32 = 0x6C;   // PHY Status
-    pub const RMS: u32 = 0xDA;          // RX Max Size
-    pub const CPCR: u32 = 0xE0;         // C+ Mode Command Register
-    pub const RDSAR: u32 = 0xE4;        // RX Descriptor Start Address
-    pub const MTPS: u32 = 0xEC;         // Max TX Packet Size
+    pub const MAC0: u32 = 0x00; // MAC address bytes 0-3
+    pub const MAC4: u32 = 0x04; // MAC address bytes 4-5
+    pub const MAR0: u32 = 0x08; // Multicast filter 0-3
+    pub const MAR4: u32 = 0x0C; // Multicast filter 4-7
+    pub const TNPDS: u32 = 0x20; // TX Normal Priority Descriptors
+    pub const THPDS: u32 = 0x28; // TX High Priority Descriptors
+    pub const CR: u32 = 0x37; // Command Register
+    pub const TPP: u32 = 0x38; // TX Priority Polling
+    pub const IMR: u32 = 0x3C; // Interrupt Mask Register
+    pub const ISR: u32 = 0x3E; // Interrupt Status Register
+    pub const TCR: u32 = 0x40; // TX Configuration Register
+    pub const RCR: u32 = 0x44; // RX Configuration Register
+    pub const TCTR: u32 = 0x48; // Timer Count Register
+    pub const MPC: u32 = 0x4C; // Missed Packet Counter
+    pub const CR9346: u32 = 0x50; // 93C46 Command Register
+    pub const CONFIG0: u32 = 0x51; // Configuration Register 0
+    pub const CONFIG1: u32 = 0x52; // Configuration Register 1
+    pub const CONFIG2: u32 = 0x53; // Configuration Register 2
+    pub const CONFIG3: u32 = 0x54; // Configuration Register 3
+    pub const CONFIG4: u32 = 0x55; // Configuration Register 4
+    pub const CONFIG5: u32 = 0x56; // Configuration Register 5
+    pub const PHYAR: u32 = 0x60; // PHY Access Register
+    pub const PHY_STATUS: u32 = 0x6C; // PHY Status
+    pub const RMS: u32 = 0xDA; // RX Max Size
+    pub const CPCR: u32 = 0xE0; // C+ Mode Command Register
+    pub const RDSAR: u32 = 0xE4; // RX Descriptor Start Address
+    pub const MTPS: u32 = 0xEC; // Max TX Packet Size
 }
 
 /// Command register bits
 #[allow(dead_code)]
 mod cr {
-    pub const RST: u8 = 1 << 4;         // Reset
-    pub const RE: u8 = 1 << 3;          // Receiver Enable
-    pub const TE: u8 = 1 << 2;          // Transmitter Enable
+    pub const RST: u8 = 1 << 4; // Reset
+    pub const RE: u8 = 1 << 3; // Receiver Enable
+    pub const TE: u8 = 1 << 2; // Transmitter Enable
 }
 
 /// PHY status bits
 #[allow(dead_code)]
 mod phy_status {
-    pub const LINK: u8 = 1 << 1;        // Link Status
+    pub const LINK: u8 = 1 << 1; // Link Status
     pub const FULL_DUPLEX: u8 = 1 << 0; // Full Duplex
-    pub const SPEED_1000: u8 = 1 << 4;  // 1000 Mbps
-    pub const SPEED_100: u8 = 1 << 3;   // 100 Mbps
-    pub const SPEED_10: u8 = 1 << 2;    // 10 Mbps
+    pub const SPEED_1000: u8 = 1 << 4; // 1000 Mbps
+    pub const SPEED_100: u8 = 1 << 3; // 100 Mbps
+    pub const SPEED_10: u8 = 1 << 2; // 10 Mbps
 }
 
 /// Interrupt bits
 #[allow(dead_code)]
 mod intr {
-    pub const ROK: u16 = 1 << 0;        // Receive OK
-    pub const RER: u16 = 1 << 1;        // Receive Error
-    pub const TOK: u16 = 1 << 2;        // Transmit OK
-    pub const TER: u16 = 1 << 3;        // Transmit Error
-    pub const RDU: u16 = 1 << 4;        // RX Descriptor Unavailable
-    pub const LINK: u16 = 1 << 5;       // Link Change
-    pub const FOVW: u16 = 1 << 6;       // RX FIFO Overflow
-    pub const TDU: u16 = 1 << 7;        // TX Descriptor Unavailable
-    pub const SW: u16 = 1 << 8;         // Software Interrupt
-    pub const TIMEOUT: u16 = 1 << 14;   // Timer Interrupt
+    pub const ROK: u16 = 1 << 0; // Receive OK
+    pub const RER: u16 = 1 << 1; // Receive Error
+    pub const TOK: u16 = 1 << 2; // Transmit OK
+    pub const TER: u16 = 1 << 3; // Transmit Error
+    pub const RDU: u16 = 1 << 4; // RX Descriptor Unavailable
+    pub const LINK: u16 = 1 << 5; // Link Change
+    pub const FOVW: u16 = 1 << 6; // RX FIFO Overflow
+    pub const TDU: u16 = 1 << 7; // TX Descriptor Unavailable
+    pub const SW: u16 = 1 << 8; // Software Interrupt
+    pub const TIMEOUT: u16 = 1 << 14; // Timer Interrupt
 }
 
 /// RX configuration bits
 #[allow(dead_code)]
 mod rcr {
-    pub const AAP: u32 = 1 << 0;        // Accept All Packets (promisc)
-    pub const APM: u32 = 1 << 1;        // Accept Physical Match
-    pub const AM: u32 = 1 << 2;         // Accept Multicast
-    pub const AB: u32 = 1 << 3;         // Accept Broadcast
-    pub const AR: u32 = 1 << 4;         // Accept Runt
-    pub const AER: u32 = 1 << 5;        // Accept Error Packet
-    pub const MXDMA_UNLIMITED: u32 = 7 << 8;  // Unlimited DMA burst
-    pub const RXFTH_NONE: u32 = 7 << 13;      // No RX FIFO threshold
+    pub const AAP: u32 = 1 << 0; // Accept All Packets (promisc)
+    pub const APM: u32 = 1 << 1; // Accept Physical Match
+    pub const AM: u32 = 1 << 2; // Accept Multicast
+    pub const AB: u32 = 1 << 3; // Accept Broadcast
+    pub const AR: u32 = 1 << 4; // Accept Runt
+    pub const AER: u32 = 1 << 5; // Accept Error Packet
+    pub const MXDMA_UNLIMITED: u32 = 7 << 8; // Unlimited DMA burst
+    pub const RXFTH_NONE: u32 = 7 << 13; // No RX FIFO threshold
 }
 
 /// Number of RX/TX descriptors
@@ -209,9 +209,7 @@ impl Rtl8111Device {
 
     /// Read 8-bit register
     fn read8(&self, reg: u32) -> u8 {
-        unsafe {
-            ptr::read_volatile((self.mmio_base + reg as usize) as *const u8)
-        }
+        unsafe { ptr::read_volatile((self.mmio_base + reg as usize) as *const u8) }
     }
 
     /// Write 8-bit register
@@ -223,9 +221,7 @@ impl Rtl8111Device {
 
     /// Read 16-bit register
     fn read16(&self, reg: u32) -> u16 {
-        unsafe {
-            ptr::read_volatile((self.mmio_base + reg as usize) as *const u16)
-        }
+        unsafe { ptr::read_volatile((self.mmio_base + reg as usize) as *const u16) }
     }
 
     /// Write 16-bit register
@@ -237,9 +233,7 @@ impl Rtl8111Device {
 
     /// Read 32-bit register
     fn read32(&self, reg: u32) -> u32 {
-        unsafe {
-            ptr::read_volatile((self.mmio_base + reg as usize) as *const u32)
-        }
+        unsafe { ptr::read_volatile((self.mmio_base + reg as usize) as *const u32) }
     }
 
     /// Write 32-bit register
@@ -262,7 +256,7 @@ impl Rtl8111Device {
     /// Reset the device
     fn reset(&mut self) {
         self.write8(regs::CR, cr::RST);
-        
+
         // Wait for reset to complete
         for _ in 0..1000 {
             if (self.read8(regs::CR) & cr::RST) == 0 {

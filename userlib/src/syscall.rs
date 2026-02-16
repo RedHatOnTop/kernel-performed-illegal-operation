@@ -22,7 +22,7 @@ pub enum SyscallNumber {
     Fork = 7,
     Exec = 8,
     Wait = 9,
-    
+
     // IPC (10-19)
     ChannelCreate = 10,
     ChannelSend = 11,
@@ -31,7 +31,7 @@ pub enum SyscallNumber {
     ShmCreate = 14,
     ShmMap = 15,
     ShmUnmap = 16,
-    
+
     // Process Info & Control (20-29)
     ProcessInfo = 20,
     Yield = 21,
@@ -40,7 +40,7 @@ pub enum SyscallNumber {
     GetPid = 24,
     GetPpid = 25,
     Brk = 26,
-    
+
     // Sockets (30-39)
     SocketCreate = 30,
     SocketBind = 31,
@@ -49,26 +49,26 @@ pub enum SyscallNumber {
     SocketConnect = 34,
     SocketSend = 35,
     SocketRecv = 36,
-    
+
     // GPU (40-49)
     GpuAlloc = 40,
     GpuSubmit = 41,
     GpuPresent = 42,
     GpuSetPriority = 43,
     GpuWait = 44,
-    
+
     // Threading (50-59)
     ThreadCreate = 50,
     ThreadExit = 51,
     ThreadJoin = 52,
     FutexWait = 53,
     FutexWake = 54,
-    
+
     // Epoll (60-69)
     EpollCreate = 60,
     EpollCtl = 61,
     EpollWait = 62,
-    
+
     // KPIO Extensions (100+)
     DebugPrint = 100,
     TabRegister = 101,
@@ -76,7 +76,7 @@ pub enum SyscallNumber {
     TabGetMemory = 103,
     WasmCacheGet = 104,
     WasmCachePut = 105,
-    
+
     // App Management (106-111)
     AppInstall = 106,
     AppLaunch = 107,
@@ -302,11 +302,25 @@ pub fn net_accept(fd: u64) -> Result<(u64, [u8; 4], u16), SyscallError> {
 }
 
 pub fn net_send(fd: u64, buf: &[u8]) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::SocketSend, fd, buf.as_ptr() as u64, buf.len() as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::SocketSend,
+            fd,
+            buf.as_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
 }
 
 pub fn net_recv(fd: u64, buf: &mut [u8]) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::SocketRecv, fd, buf.as_mut_ptr() as u64, buf.len() as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::SocketRecv,
+            fd,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
 }
 
 pub fn net_close(fd: u64) -> SyscallResult {
@@ -330,7 +344,14 @@ pub fn net_local_addr(fd: u64) -> Result<([u8; 4], u16), SyscallError> {
 // --- File System ---
 
 pub fn fs_open(path: &str, flags: u32) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::Open, path.as_ptr() as u64, path.len() as u64, flags as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::Open,
+            path.as_ptr() as u64,
+            path.len() as u64,
+            flags as u64,
+        )
+    }
 }
 
 pub fn fs_close(fd: u64) -> SyscallResult {
@@ -338,11 +359,25 @@ pub fn fs_close(fd: u64) -> SyscallResult {
 }
 
 pub fn fs_read(fd: u64, buf: &mut [u8]) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::Read, fd, buf.as_mut_ptr() as u64, buf.len() as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::Read,
+            fd,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
 }
 
 pub fn fs_write(fd: u64, buf: &[u8]) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::Write, fd, buf.as_ptr() as u64, buf.len() as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::Write,
+            fd,
+            buf.as_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
 }
 
 pub fn fs_seek(fd: u64, offset: i64, whence: u32) -> Result<u64, SyscallError> {
@@ -422,12 +457,21 @@ pub fn sched_yield() -> SyscallResult {
 }
 
 pub fn thread_spawn(entry: usize, arg: usize, stack_size: usize) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::ThreadCreate, entry as u64, arg as u64, stack_size as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::ThreadCreate,
+            entry as u64,
+            arg as u64,
+            stack_size as u64,
+        )
+    }
 }
 
 pub fn thread_exit(code: i32) -> ! {
     unsafe { syscall1(SyscallNumber::ThreadExit, code as u64) };
-    loop { core::hint::spin_loop(); }
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 pub fn thread_join(handle: u64) -> SyscallResult {
@@ -512,13 +556,34 @@ pub fn current_exe() -> Result<String, SyscallError> {
 // --- IO ---
 
 pub fn stdin_read(buf: &mut [u8]) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::Read, 0, buf.as_mut_ptr() as u64, buf.len() as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::Read,
+            0,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
 }
 
 pub fn stdout_write(buf: &[u8]) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::Write, 1, buf.as_ptr() as u64, buf.len() as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::Write,
+            1,
+            buf.as_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
 }
 
 pub fn stderr_write(buf: &[u8]) -> SyscallResult {
-    unsafe { syscall3(SyscallNumber::Write, 2, buf.as_ptr() as u64, buf.len() as u64) }
+    unsafe {
+        syscall3(
+            SyscallNumber::Write,
+            2,
+            buf.as_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
 }

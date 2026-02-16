@@ -54,20 +54,29 @@ fn parse_state(s: &str) -> Option<SavedWindowState> {
     let y = extract_i32(s, "\"y\":")?;
     let width = extract_u32(s, "\"width\":")?;
     let height = extract_u32(s, "\"height\":")?;
-    Some(SavedWindowState { x, y, width, height })
+    Some(SavedWindowState {
+        x,
+        y,
+        width,
+        height,
+    })
 }
 
 fn extract_i32(s: &str, key: &str) -> Option<i32> {
     let idx = s.find(key)? + key.len();
     let rest = s[idx..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit() && c != '-').unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '-')
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
 fn extract_u32(s: &str, key: &str) -> Option<u32> {
     let idx = s.find(key)? + key.len();
     let rest = s[idx..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 

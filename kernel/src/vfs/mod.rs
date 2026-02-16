@@ -18,18 +18,28 @@ use alloc::vec::Vec;
 pub struct OpenFlags(pub u32);
 
 impl OpenFlags {
-    pub const RDONLY:  OpenFlags = OpenFlags(0);
-    pub const WRONLY:  OpenFlags = OpenFlags(1);
-    pub const RDWR:    OpenFlags = OpenFlags(2);
-    pub const CREAT:   OpenFlags = OpenFlags(0o100);
-    pub const TRUNC:   OpenFlags = OpenFlags(0o1000);
-    pub const APPEND:  OpenFlags = OpenFlags(0o2000);
+    pub const RDONLY: OpenFlags = OpenFlags(0);
+    pub const WRONLY: OpenFlags = OpenFlags(1);
+    pub const RDWR: OpenFlags = OpenFlags(2);
+    pub const CREAT: OpenFlags = OpenFlags(0o100);
+    pub const TRUNC: OpenFlags = OpenFlags(0o1000);
+    pub const APPEND: OpenFlags = OpenFlags(0o2000);
 
-    pub fn readable(self) -> bool  { self.0 & 3 != 1 }
-    pub fn writable(self) -> bool  { self.0 & 3 != 0 }
-    pub fn create(self) -> bool    { self.0 & 0o100 != 0 }
-    pub fn truncate(self) -> bool  { self.0 & 0o1000 != 0 }
-    pub fn append(self) -> bool    { self.0 & 0o2000 != 0 }
+    pub fn readable(self) -> bool {
+        self.0 & 3 != 1
+    }
+    pub fn writable(self) -> bool {
+        self.0 & 3 != 0
+    }
+    pub fn create(self) -> bool {
+        self.0 & 0o100 != 0
+    }
+    pub fn truncate(self) -> bool {
+        self.0 & 0o1000 != 0
+    }
+    pub fn append(self) -> bool {
+        self.0 & 0o2000 != 0
+    }
 }
 
 /// Stat information for a file.
@@ -68,8 +78,7 @@ pub enum VfsError {
 pub fn stat(path: &str) -> Result<FileStat, VfsError> {
     use crate::terminal::fs;
 
-    let ino = fs::with_fs(|f| f.resolve(path))
-        .ok_or(VfsError::NotFound)?;
+    let ino = fs::with_fs(|f| f.resolve(path)).ok_or(VfsError::NotFound)?;
 
     fs::with_fs(|f| {
         let inode = f.get(ino).ok_or(VfsError::NotFound)?;
@@ -91,11 +100,9 @@ pub fn stat(path: &str) -> Result<FileStat, VfsError> {
 pub fn read_all(path: &str) -> Result<Vec<u8>, VfsError> {
     use crate::terminal::fs;
 
-    let ino = fs::with_fs(|f| f.resolve(path))
-        .ok_or(VfsError::NotFound)?;
+    let ino = fs::with_fs(|f| f.resolve(path)).ok_or(VfsError::NotFound)?;
 
-    fs::with_fs(|f| f.read_file(ino))
-        .map_err(|_| VfsError::IoError)
+    fs::with_fs(|f| f.read_file(ino)).map_err(|_| VfsError::IoError)
 }
 
 /// Write bytes to a file (create if missing, truncate existing).
@@ -105,13 +112,11 @@ pub fn write_all(path: &str, data: &[u8]) -> Result<(), VfsError> {
     // Try to resolve existing
     let existing = fs::with_fs(|f| f.resolve(path));
     if let Some(ino) = existing {
-        fs::with_fs(|f| f.write_file(ino, data))
-            .map_err(|_| VfsError::IoError)
+        fs::with_fs(|f| f.write_file(ino, data)).map_err(|_| VfsError::IoError)
     } else {
         // Create — need parent dir + file name
         let (parent_path, name) = split_path(path);
-        let parent_ino = fs::with_fs(|f| f.resolve(parent_path))
-            .ok_or(VfsError::NotFound)?;
+        let parent_ino = fs::with_fs(|f| f.resolve(parent_path)).ok_or(VfsError::NotFound)?;
         fs::with_fs(|f| f.create_file(parent_ino, name, data))
             .map(|_| ())
             .map_err(|_| VfsError::IoError)
@@ -122,11 +127,9 @@ pub fn write_all(path: &str, data: &[u8]) -> Result<(), VfsError> {
 pub fn readdir(path: &str) -> Result<Vec<(String, u64)>, VfsError> {
     use crate::terminal::fs;
 
-    let ino = fs::with_fs(|f| f.resolve(path))
-        .ok_or(VfsError::NotFound)?;
+    let ino = fs::with_fs(|f| f.resolve(path)).ok_or(VfsError::NotFound)?;
 
-    fs::with_fs(|f| f.readdir_all(ino))
-        .ok_or(VfsError::NotDirectory)
+    fs::with_fs(|f| f.readdir_all(ino)).ok_or(VfsError::NotDirectory)
 }
 
 /// Split "/a/b/c" into ("/a/b", "c").

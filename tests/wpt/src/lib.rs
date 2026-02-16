@@ -5,10 +5,10 @@
 #![no_std]
 extern crate alloc;
 
-pub mod runner;
 pub mod harness;
-pub mod results;
 pub mod manifest;
+pub mod results;
+pub mod runner;
 
 use alloc::string::String;
 use alloc::vec::Vec;

@@ -2,10 +2,10 @@
 //!
 //! PCI device enumeration and configuration space access.
 
-use alloc::vec::Vec;
-use alloc::string::String;
+use super::{DeviceResource, DeviceStatus, DeviceType, HardwareDevice};
 use alloc::format;
-use super::{HardwareDevice, DeviceType, DeviceStatus, DeviceResource};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// PCI configuration space address
 const PCI_CONFIG_ADDRESS: u16 = 0xCF8;
@@ -26,7 +26,11 @@ pub struct PciAddress {
 impl PciAddress {
     /// Create a new PCI address
     pub const fn new(bus: u8, device: u8, function: u8) -> Self {
-        Self { bus, device, function }
+        Self {
+            bus,
+            device,
+            function,
+        }
     }
 
     /// Create configuration space address
@@ -179,15 +183,15 @@ pub struct PciCapability {
 
 /// Common PCI capability IDs
 pub mod capability_ids {
-    pub const PM: u8 = 0x01;        // Power Management
-    pub const AGP: u8 = 0x02;       // AGP
-    pub const VPD: u8 = 0x03;       // Vital Product Data
-    pub const SLOT_ID: u8 = 0x04;   // Slot Identification
-    pub const MSI: u8 = 0x05;       // Message Signaled Interrupts
-    pub const PCIX: u8 = 0x07;      // PCI-X
-    pub const VENDOR: u8 = 0x09;    // Vendor Specific
-    pub const PCIE: u8 = 0x10;      // PCI Express
-    pub const MSIX: u8 = 0x11;      // MSI-X
+    pub const PM: u8 = 0x01; // Power Management
+    pub const AGP: u8 = 0x02; // AGP
+    pub const VPD: u8 = 0x03; // Vital Product Data
+    pub const SLOT_ID: u8 = 0x04; // Slot Identification
+    pub const MSI: u8 = 0x05; // Message Signaled Interrupts
+    pub const PCIX: u8 = 0x07; // PCI-X
+    pub const VENDOR: u8 = 0x09; // Vendor Specific
+    pub const PCIE: u8 = 0x10; // PCI Express
+    pub const MSIX: u8 = 0x11; // MSI-X
 }
 
 /// Read 32-bit value from PCI configuration space
@@ -279,22 +283,22 @@ pub fn scan_function(addr: PciAddress) -> Option<PciDevice> {
         for i in 0..6 {
             let bar_offset = 0x10 + (i * 4) as u8;
             let bar_value = read_config_u32(addr, bar_offset);
-            
+
             if bar_value == 0 {
                 continue;
             }
 
             let is_memory = (bar_value & 1) == 0;
-            
+
             if is_memory {
                 let is_64bit = ((bar_value >> 1) & 3) == 2;
                 let prefetchable = ((bar_value >> 3) & 1) != 0;
-                
+
                 // Determine size by writing all 1s and reading back
                 write_config_u32(addr, bar_offset, 0xFFFFFFFF);
                 let size_mask = read_config_u32(addr, bar_offset);
                 write_config_u32(addr, bar_offset, bar_value);
-                
+
                 let size = if size_mask != 0 {
                     let size = !(size_mask & 0xFFFFFFF0) + 1;
                     size as u64
@@ -332,19 +336,20 @@ pub fn scan_function(addr: PciAddress) -> Option<PciDevice> {
     // Parse capabilities
     let mut capabilities = Vec::new();
     let status = read_config_u16(addr, 0x06);
-    if (status & 0x10) != 0 {  // Capabilities list present
+    if (status & 0x10) != 0 {
+        // Capabilities list present
         let mut cap_offset = read_config_u8(addr, 0x34);
         while cap_offset != 0 && cap_offset != 0xFF {
             let cap_header = read_config_u32(addr, cap_offset);
             let cap_id = (cap_header & 0xFF) as u8;
             let next_offset = ((cap_header >> 8) & 0xFF) as u8;
-            
+
             capabilities.push(PciCapability {
                 id: cap_id,
                 offset: cap_offset,
                 data: Vec::new(), // Could read capability-specific data
             });
-            
+
             cap_offset = next_offset;
         }
     }
@@ -372,7 +377,7 @@ pub fn enumerate(devices: &mut Vec<HardwareDevice>) {
     for bus in 0..=255u8 {
         for device in 0..32u8 {
             let addr = PciAddress::new(bus, device, 0);
-            
+
             if !device_exists(addr) {
                 continue;
             }
@@ -387,8 +392,13 @@ pub fn enumerate(devices: &mut Vec<HardwareDevice>) {
                 let addr = PciAddress::new(bus, device, function);
                 if let Some(pci_dev) = scan_function(addr) {
                     // Convert to HardwareDevice
-                    let name = get_device_name(pci_dev.vendor_id, pci_dev.device_id, pci_dev.class, pci_dev.subclass);
-                    
+                    let name = get_device_name(
+                        pci_dev.vendor_id,
+                        pci_dev.device_id,
+                        pci_dev.class,
+                        pci_dev.subclass,
+                    );
+
                     let mut resources = Vec::new();
                     for bar in &pci_dev.bars {
                         if bar.is_present() {
@@ -405,7 +415,7 @@ pub fn enumerate(devices: &mut Vec<HardwareDevice>) {
                             }
                         }
                     }
-                    
+
                     if pci_dev.interrupt_pin != 0 {
                         resources.push(DeviceResource::Irq {
                             irq: pci_dev.interrupt_line,
@@ -474,26 +484,28 @@ pub fn find_by_class(devices: &[PciDevice], class: u8) -> Vec<&PciDevice> {
 
 /// Find device by vendor and device ID
 pub fn find_by_id(devices: &[PciDevice], vendor_id: u16, device_id: u16) -> Option<&PciDevice> {
-    devices.iter().find(|d| d.vendor_id == vendor_id && d.device_id == device_id)
+    devices
+        .iter()
+        .find(|d| d.vendor_id == vendor_id && d.device_id == device_id)
 }
 
 /// Enable bus mastering for DMA
 pub fn enable_bus_master(addr: PciAddress) {
     let command = read_config_u16(addr, 0x04);
-    let new_command = command | 0x04;  // Set Bus Master bit
+    let new_command = command | 0x04; // Set Bus Master bit
     write_config_u32(addr, 0x04, new_command as u32);
 }
 
 /// Enable memory space access
 pub fn enable_memory_space(addr: PciAddress) {
     let command = read_config_u16(addr, 0x04);
-    let new_command = command | 0x02;  // Set Memory Space bit
+    let new_command = command | 0x02; // Set Memory Space bit
     write_config_u32(addr, 0x04, new_command as u32);
 }
 
 /// Enable I/O space access
 pub fn enable_io_space(addr: PciAddress) {
     let command = read_config_u16(addr, 0x04);
-    let new_command = command | 0x01;  // Set I/O Space bit
+    let new_command = command | 0x01; // Set I/O Space bit
     write_config_u32(addr, 0x04, new_command as u32);
 }

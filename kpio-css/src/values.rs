@@ -1,8 +1,8 @@
 //! CSS Values - Fundamental CSS value types
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 use core::fmt;
 
 /// A CSS value that can be applied to a property.
@@ -69,27 +69,42 @@ impl Length {
 
     /// Zero length.
     pub fn zero() -> Self {
-        Length { value: 0.0, unit: LengthUnit::Px }
+        Length {
+            value: 0.0,
+            unit: LengthUnit::Px,
+        }
     }
 
     /// Create a pixel length.
     pub fn px(value: f32) -> Self {
-        Length { value, unit: LengthUnit::Px }
+        Length {
+            value,
+            unit: LengthUnit::Px,
+        }
     }
 
     /// Create an em length.
     pub fn em(value: f32) -> Self {
-        Length { value, unit: LengthUnit::Em }
+        Length {
+            value,
+            unit: LengthUnit::Em,
+        }
     }
 
     /// Create a rem length.
     pub fn rem(value: f32) -> Self {
-        Length { value, unit: LengthUnit::Rem }
+        Length {
+            value,
+            unit: LengthUnit::Rem,
+        }
     }
 
     /// Create a percentage-based length.
     pub fn percent(value: f32) -> Self {
-        Length { value, unit: LengthUnit::Percent }
+        Length {
+            value,
+            unit: LengthUnit::Percent,
+        }
     }
 
     /// Convert to pixels given a context.
@@ -102,8 +117,12 @@ impl Length {
             LengthUnit::Ch => self.value * context.font_size * 0.5, // Approximation
             LengthUnit::Vw => self.value * context.viewport_width / 100.0,
             LengthUnit::Vh => self.value * context.viewport_height / 100.0,
-            LengthUnit::Vmin => self.value * context.viewport_width.min(context.viewport_height) / 100.0,
-            LengthUnit::Vmax => self.value * context.viewport_width.max(context.viewport_height) / 100.0,
+            LengthUnit::Vmin => {
+                self.value * context.viewport_width.min(context.viewport_height) / 100.0
+            }
+            LengthUnit::Vmax => {
+                self.value * context.viewport_width.max(context.viewport_height) / 100.0
+            }
             LengthUnit::Percent => self.value * context.containing_block / 100.0,
             LengthUnit::Cm => self.value * 96.0 / 2.54,
             LengthUnit::Mm => self.value * 96.0 / 25.4,
@@ -306,7 +325,14 @@ impl fmt::Display for Color {
         if self.a == 255 {
             write!(f, "rgb({}, {}, {})", self.r, self.g, self.b)
         } else {
-            write!(f, "rgba({}, {}, {}, {})", self.r, self.g, self.b, self.alpha_f32())
+            write!(
+                f,
+                "rgba({}, {}, {}, {})",
+                self.r,
+                self.g,
+                self.b,
+                self.alpha_f32()
+            )
         }
     }
 }
@@ -593,11 +619,17 @@ pub enum WhiteSpace {
 
 impl WhiteSpace {
     pub fn preserves_newlines(&self) -> bool {
-        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine | WhiteSpace::BreakSpaces)
+        matches!(
+            self,
+            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine | WhiteSpace::BreakSpaces
+        )
     }
 
     pub fn preserves_spaces(&self) -> bool {
-        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::BreakSpaces)
+        matches!(
+            self,
+            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::BreakSpaces
+        )
     }
 
     pub fn allows_wrap(&self) -> bool {

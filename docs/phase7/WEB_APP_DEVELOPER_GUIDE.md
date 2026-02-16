@@ -1,35 +1,35 @@
-# KPIO Web App 개발자 가이드
+# KPIO Web App Developer Guide
 
-KPIO OS에서 Progressive Web App (PWA)을 개발하고 설치하는 방법을 안내합니다.
+A guide for developing and installing Progressive Web Apps (PWAs) on KPIO OS.
 
-## 목차
+## Table of Contents
 
-1. [PWA 기본 구조](#pwa-기본-구조)
-2. [Web App Manifest 작성](#web-app-manifest-작성)
-3. [Service Worker 등록](#service-worker-등록)
-4. [오프라인 전략](#오프라인-전략)
+1. [PWA Basic Structure](#pwa-basic-structure)
+2. [Writing a Web App Manifest](#writing-a-web-app-manifest)
+3. [Registering a Service Worker](#registering-a-service-worker)
+4. [Offline Strategies](#offline-strategies)
 5. [Web Storage API](#web-storage-api)
 6. [IndexedDB](#indexeddb)
 7. [Notifications API](#notifications-api)
 8. [Background Sync](#background-sync)
-9. [지원/미지원 API 목록](#지원미지원-api-목록)
-10. [제한 사항](#제한-사항)
-11. [데모 앱 참고](#데모-앱-참고)
+9. [Supported / Unsupported API List](#supported--unsupported-api-list)
+10. [Limitations](#limitations)
+11. [Demo App References](#demo-app-references)
 
 ---
 
-## PWA 기본 구조
+## PWA Basic Structure
 
-KPIO 호환 PWA는 최소 3개의 파일로 구성됩니다:
+A KPIO-compatible PWA consists of at least 3 files:
 
 ```
 my-app/
-├── index.html        ← 앱 진입점
+├── index.html        ← App entry point
 ├── manifest.json     ← Web App Manifest
 └── sw.js             ← Service Worker
 ```
 
-## Web App Manifest 작성
+## Writing a Web App Manifest
 
 ```json
 {
@@ -47,24 +47,24 @@ my-app/
 }
 ```
 
-### 필수 필드
+### Required Fields
 
-| 필드 | 설명 |
-|------|------|
-| `name` | 앱 전체 이름 (설치 다이얼로그, 스플래시) |
-| `short_name` | 짧은 이름 (데스크톱 아이콘 레이블) |
-| `start_url` | 앱 시작 URL |
-| `display` | `standalone` (권장) 또는 `minimal-ui` |
-| `theme_color` | 타이틀 바 색상 (hex) |
-| `icons` | 최소 192x192 1개 필수 |
+| Field | Description |
+|-------|-------------|
+| `name` | Full app name (install dialog, splash screen) |
+| `short_name` | Short name (desktop icon label) |
+| `start_url` | App start URL |
+| `display` | `standalone` (recommended) or `minimal-ui` |
+| `theme_color` | Title bar color (hex) |
+| `icons` | At least one 192x192 icon required |
 
-### `display` 모드
+### `display` Modes
 
-- **`standalone`**: 주소 바 없음, 네이티브 앱처럼 표시. 타이틀 바에 `theme_color` 적용
-- **`minimal-ui`**: 최소한의 네비게이션 바 (뒤로/앞으로/URL 표시)
-- **`fullscreen`**: 전체 화면 (크롬 없음)
+- **`standalone`**: No address bar, displayed like a native app. `theme_color` applied to title bar
+- **`minimal-ui`**: Minimal navigation bar (back/forward/URL display)
+- **`fullscreen`**: Full screen (no chrome)
 
-## Service Worker 등록
+## Registering a Service Worker
 
 ```html
 <script>
@@ -76,16 +76,16 @@ my-app/
 </script>
 ```
 
-### 라이프사이클
+### Lifecycle
 
-1. **Parsed** → SW 스크립트 로드
-2. **Installing** → `install` 이벤트 (리소스 프리캐시)
-3. **Waiting** → 이전 SW 활성 대기
-4. **Activated** → `activate` 이벤트 (이전 캐시 정리)
+1. **Parsed** → SW script loaded
+2. **Installing** → `install` event (pre-cache resources)
+3. **Waiting** → Waiting for previous SW to deactivate
+4. **Activated** → `activate` event (clean up old caches)
 
-## 오프라인 전략
+## Offline Strategies
 
-### Cache First (정적 콘텐츠용)
+### Cache First (for static content)
 
 ```javascript
 self.addEventListener('fetch', event => {
@@ -97,7 +97,7 @@ self.addEventListener('fetch', event => {
 });
 ```
 
-### Network First (동적 데이터용)
+### Network First (for dynamic data)
 
 ```javascript
 self.addEventListener('fetch', event => {
@@ -115,7 +115,7 @@ self.addEventListener('fetch', event => {
 
 ## Web Storage API
 
-### localStorage (영속 저장)
+### localStorage (persistent storage)
 
 ```javascript
 localStorage.setItem('theme', 'dark');
@@ -124,14 +124,14 @@ localStorage.removeItem('theme');
 localStorage.clear();
 ```
 
-### sessionStorage (세션 한정)
+### sessionStorage (session-scoped)
 
 ```javascript
 sessionStorage.setItem('tab_state', 'active');
-// 앱 종료 시 자동 삭제
+// Automatically deleted when the app closes
 ```
 
-**주의**: 쿼터 5MB (키 + 값 합산)
+**Note**: 5MB quota (total of keys + values)
 
 ## IndexedDB
 
@@ -147,11 +147,11 @@ request.onupgradeneeded = (event) => {
 request.onsuccess = (event) => {
   const db = event.target.result;
 
-  // 쓰기
+  // Write
   const tx = db.transaction('notes', 'readwrite');
   tx.objectStore('notes').put({ title: 'Hello', body: 'World' });
 
-  // 읽기
+  // Read
   const rtx = db.transaction('notes', 'readonly');
   rtx.objectStore('notes').getAll().onsuccess = (e) => {
     console.log(e.target.result);
@@ -159,36 +159,36 @@ request.onsuccess = (event) => {
 };
 ```
 
-**주의**: 앱 당 총 50MB 쿼터
+**Note**: 50MB total quota per app
 
 ## Notifications API
 
 ```javascript
-// 1. 권한 요청
+// 1. Request permission
 const permission = await Notification.requestPermission();
 
-// 2. 알림 표시
+// 2. Show notification
 if (permission === 'granted') {
-  new Notification('새 메시지', {
-    body: '홍길동님이 메시지를 보냈습니다.',
+  new Notification('New Message', {
+    body: 'You have received a new message.',
     icon: 'icon-192.png'
   });
 }
 ```
 
-KPIO에서의 동작:
-- 토스트가 화면 우상단에 표시됨 (최대 3개 동시)
-- 5초 후 자동 사라짐
-- 클릭 시 앱 윈도우 포커스
+Behavior on KPIO:
+- Toast displayed in top-right corner (max 3 simultaneous)
+- Auto-dismissed after 5 seconds
+- Clicking focuses the app window
 
 ## Background Sync
 
 ```javascript
-// 등록
+// Register
 const reg = await navigator.serviceWorker.ready;
 await reg.sync.register('outbox-sync');
 
-// SW에서 처리
+// Handle in SW
 self.addEventListener('sync', event => {
   if (event.tag === 'outbox-sync') {
     event.waitUntil(sendPendingMessages());
@@ -196,54 +196,54 @@ self.addEventListener('sync', event => {
 });
 ```
 
-KPIO에서의 동작:
-- 오프라인 → 온라인 전환 시 `sync` 이벤트 발생
-- 실패 시 백오프 재시도 (30초 → 60초 → 300초)
-- 최대 3회 시도 후 폐기
+Behavior on KPIO:
+- `sync` event fired on offline → online transition
+- Retry with backoff on failure (30s → 60s → 300s)
+- Discarded after max 3 attempts
 
-## 지원/미지원 API 목록
+## Supported / Unsupported API List
 
-### ✅ 지원
+### ✅ Supported
 
-| API | 상태 |
-|-----|------|
-| Web App Manifest | ✅ 완전 지원 |
-| Service Worker (기본 라이프사이클) | ✅ 지원 |
-| Cache API | ✅ 지원 (25MB 쿼터) |
-| Fetch Interception | ✅ 지원 |
-| localStorage | ✅ 지원 (5MB) |
-| sessionStorage | ✅ 지원 |
-| IndexedDB | ✅ 지원 (50MB) |
-| Notifications API | ✅ 지원 |
-| Background Sync | ✅ 지원 |
-| `display: standalone` | ✅ 지원 |
-| `display: minimal-ui` | ✅ 지원 |
+| API | Status |
+|-----|--------|
+| Web App Manifest | ✅ Fully supported |
+| Service Worker (basic lifecycle) | ✅ Supported |
+| Cache API | ✅ Supported (25MB quota) |
+| Fetch Interception | ✅ Supported |
+| localStorage | ✅ Supported (5MB) |
+| sessionStorage | ✅ Supported |
+| IndexedDB | ✅ Supported (50MB) |
+| Notifications API | ✅ Supported |
+| Background Sync | ✅ Supported |
+| `display: standalone` | ✅ Supported |
+| `display: minimal-ui` | ✅ Supported |
 
-### ❌ 미지원
+### ❌ Unsupported
 
-| API | 비고 |
-|-----|------|
-| Push API (서버 푸시) | 로컬 알림만 지원 |
-| Periodic Background Sync | 미구현 |
-| Web Share API | 미구현 |
-| Payment Request API | 미구현 |
-| WebRTC | 미구현 |
-| WebGL | 부분 지원 (소프트웨어 렌더링) |
-| Web Bluetooth / USB | 하드웨어 미지원 |
+| API | Notes |
+|-----|-------|
+| Push API (server push) | Local notifications only |
+| Periodic Background Sync | Not implemented |
+| Web Share API | Not implemented |
+| Payment Request API | Not implemented |
+| WebRTC | Not implemented |
+| WebGL | Partial support (software rendering) |
+| Web Bluetooth / USB | Hardware not supported |
 
-## 제한 사항
+## Limitations
 
-| 항목 | 제한 |
-|------|------|
-| localStorage 쿼터 | 5 MB per origin |
-| Cache API 쿼터 | 25 MB per app |
-| IndexedDB 쿼터 | 50 MB per app |
-| 알림 이력 | 최근 50건 |
-| 동시 토스트 | 최대 3개 |
-| Background Sync 재시도 | 최대 3회 |
-| 앱 최대 인스턴스 | 제한 없음 (메모리 의존) |
+| Item | Limit |
+|------|-------|
+| localStorage quota | 5 MB per origin |
+| Cache API quota | 25 MB per app |
+| IndexedDB quota | 50 MB per app |
+| Notification history | Last 50 entries |
+| Simultaneous toasts | Max 3 |
+| Background Sync retries | Max 3 attempts |
+| Max app instances | Unlimited (memory dependent) |
 
-## 데모 앱 참고
+## Demo App References
 
-- **KPIO Notes**: `examples/pwa-notes/` — localStorage 기반 메모 앱 (Cache First)
-- **KPIO Weather**: `examples/pwa-weather/` — 날씨 앱 (Network First + Background Sync + Notifications)
+- **KPIO Notes**: `examples/pwa-notes/` — localStorage-based memo app (Cache First)
+- **KPIO Weather**: `examples/pwa-weather/` — Weather app (Network First + Background Sync + Notifications)

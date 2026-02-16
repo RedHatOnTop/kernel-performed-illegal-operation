@@ -6,9 +6,9 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 
 /// Manifest version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,26 +84,26 @@ impl Manifest {
             ..Default::default()
         }
     }
-    
+
     /// Add a permission.
     pub fn add_permission(&mut self, permission: &str) {
         if !self.permissions.contains(&permission.to_string()) {
             self.permissions.push(permission.to_string());
         }
     }
-    
+
     /// Add a host permission.
     pub fn add_host_permission(&mut self, pattern: &str) {
         if !self.host_permissions.contains(&pattern.to_string()) {
             self.host_permissions.push(pattern.to_string());
         }
     }
-    
+
     /// Add a content script.
     pub fn add_content_script(&mut self, script: ContentScript) {
         self.content_scripts.push(script);
     }
-    
+
     /// Set background service worker.
     pub fn set_background_service_worker(&mut self, script: &str) {
         self.background = Some(BackgroundConfig {
@@ -113,7 +113,7 @@ impl Manifest {
             module_type: None,
         });
     }
-    
+
     /// Validate the manifest.
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.name.is_empty() {
@@ -122,7 +122,7 @@ impl Manifest {
         if self.version.is_empty() {
             return Err(ManifestError::MissingField("version"));
         }
-        
+
         // Validate version format (major.minor.patch or major.minor.patch.build)
         let version_parts: Vec<&str> = self.version.split('.').collect();
         if version_parts.len() < 2 || version_parts.len() > 4 {
@@ -133,21 +133,21 @@ impl Manifest {
                 return Err(ManifestError::InvalidVersion);
             }
         }
-        
+
         // Validate permissions
         for perm in &self.permissions {
             if !is_valid_permission(perm) {
                 return Err(ManifestError::InvalidPermission(perm.clone()));
             }
         }
-        
+
         // Validate host permissions
         for pattern in &self.host_permissions {
             if !is_valid_match_pattern(pattern) {
                 return Err(ManifestError::InvalidMatchPattern(pattern.clone()));
             }
         }
-        
+
         // Validate content scripts
         for script in &self.content_scripts {
             if script.matches.is_empty() {
@@ -159,7 +159,7 @@ impl Manifest {
                 }
             }
         }
-        
+
         Ok(())
     }
 }
@@ -205,17 +205,17 @@ impl ContentScript {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Add a match pattern.
     pub fn add_match(&mut self, pattern: &str) {
         self.matches.push(pattern.to_string());
     }
-    
+
     /// Add a JavaScript file.
     pub fn add_js(&mut self, file: &str) {
         self.js.push(file.to_string());
     }
-    
+
     /// Add a CSS file.
     pub fn add_css(&mut self, file: &str) {
         self.css.push(file.to_string());
@@ -445,7 +445,7 @@ fn is_valid_permission(permission: &str) -> bool {
         "webNavigation",
         "webRequest",
     ];
-    
+
     KNOWN_PERMISSIONS.contains(&permission)
 }
 
@@ -455,34 +455,37 @@ fn is_valid_match_pattern(pattern: &str) -> bool {
     // Scheme: http, https, file, ftp, *, or chrome-extension
     // Host: * or *.<host> or <host>
     // Path: /* or specific path
-    
+
     if pattern == "<all_urls>" {
         return true;
     }
-    
+
     let parts: Vec<&str> = pattern.splitn(2, "://").collect();
     if parts.len() != 2 {
         return false;
     }
-    
+
     let scheme = parts[0];
     let rest = parts[1];
-    
+
     // Validate scheme
-    if !matches!(scheme, "http" | "https" | "file" | "ftp" | "*" | "chrome-extension") {
+    if !matches!(
+        scheme,
+        "http" | "https" | "file" | "ftp" | "*" | "chrome-extension"
+    ) {
         return false;
     }
-    
+
     // Split host and path
     if let Some(slash_pos) = rest.find('/') {
         let host = &rest[..slash_pos];
         let _path = &rest[slash_pos..];
-        
+
         // Validate host
         if host.is_empty() && scheme != "file" {
             return false;
         }
-        
+
         // Host can be * or *.domain or exact domain
         if host != "*" && !host.is_empty() {
             if host.starts_with("*.") {
@@ -493,7 +496,7 @@ fn is_valid_match_pattern(pattern: &str) -> bool {
             }
             // Otherwise exact host - basic validation
         }
-        
+
         true
     } else {
         false
@@ -505,14 +508,14 @@ fn is_valid_match_pattern(pattern: &str) -> bool {
 pub fn parse_manifest(json: &str) -> Result<Manifest, ManifestError> {
     // Simplified parsing - in real impl would use serde_json
     let mut manifest = Manifest::default();
-    
+
     // Very basic parsing for demo
     if json.contains("\"manifest_version\": 2") || json.contains("\"manifest_version\":2") {
         manifest.manifest_version = ManifestVersion::V2;
     } else {
         manifest.manifest_version = ManifestVersion::V3;
     }
-    
+
     // Extract name
     if let Some(start) = json.find("\"name\":") {
         let rest = &json[start + 7..];
@@ -523,7 +526,7 @@ pub fn parse_manifest(json: &str) -> Result<Manifest, ManifestError> {
             }
         }
     }
-    
+
     // Extract version
     if let Some(start) = json.find("\"version\":") {
         let rest = &json[start + 10..];
@@ -534,48 +537,48 @@ pub fn parse_manifest(json: &str) -> Result<Manifest, ManifestError> {
             }
         }
     }
-    
+
     if manifest.name.is_empty() {
         return Err(ManifestError::MissingField("name"));
     }
     if manifest.version.is_empty() {
         return Err(ManifestError::MissingField("version"));
     }
-    
+
     Ok(manifest)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_manifest_creation() {
         let mut manifest = Manifest::new("Test Extension", "1.0.0");
         manifest.add_permission("storage");
         manifest.add_host_permission("https://*.example.com/*");
-        
+
         assert!(manifest.validate().is_ok());
         assert!(manifest.permissions.contains(&"storage".to_string()));
     }
-    
+
     #[test]
     fn test_match_pattern_validation() {
         assert!(is_valid_match_pattern("<all_urls>"));
         assert!(is_valid_match_pattern("https://*.example.com/*"));
         assert!(is_valid_match_pattern("*://*/*"));
         assert!(is_valid_match_pattern("http://example.com/path/*"));
-        
+
         assert!(!is_valid_match_pattern("invalid"));
         assert!(!is_valid_match_pattern("http://"));
     }
-    
+
     #[test]
     fn test_permission_validation() {
         assert!(is_valid_permission("storage"));
         assert!(is_valid_permission("tabs"));
         assert!(is_valid_permission("activeTab"));
-        
+
         assert!(!is_valid_permission("invalid_permission"));
     }
 }

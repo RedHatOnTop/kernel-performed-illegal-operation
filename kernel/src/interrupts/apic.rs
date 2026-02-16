@@ -44,83 +44,83 @@ static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
 mod regs {
     /// Local APIC ID Register (RO for xAPIC, RW for x2APIC).
     pub const ID: u32 = 0x020;
-    
+
     /// Local APIC Version Register (RO).
     pub const VERSION: u32 = 0x030;
-    
+
     /// Task Priority Register (TPR).
     /// Controls which interrupts can be delivered to the processor.
     pub const TPR: u32 = 0x080;
-    
+
     /// Arbitration Priority Register (RO, deprecated in modern CPUs).
     pub const APR: u32 = 0x090;
-    
+
     /// Processor Priority Register (RO).
     pub const PPR: u32 = 0x0A0;
-    
+
     /// End of Interrupt Register (WO).
     /// Write 0 to signal end of interrupt handling.
     pub const EOI: u32 = 0x0B0;
-    
+
     /// Remote Read Register (RO, deprecated).
     pub const RRD: u32 = 0x0C0;
-    
+
     /// Logical Destination Register.
     pub const LDR: u32 = 0x0D0;
-    
+
     /// Destination Format Register.
     pub const DFR: u32 = 0x0E0;
-    
+
     /// Spurious Interrupt Vector Register.
     /// Bit 8: APIC Software Enable/Disable.
     /// Bits 0-7: Spurious interrupt vector number.
     pub const SVR: u32 = 0x0F0;
-    
+
     /// In-Service Register (ISR) - 256 bits across 8 registers.
     pub const ISR_BASE: u32 = 0x100;
-    
+
     /// Trigger Mode Register (TMR) - 256 bits across 8 registers.
     pub const TMR_BASE: u32 = 0x180;
-    
+
     /// Interrupt Request Register (IRR) - 256 bits across 8 registers.
     pub const IRR_BASE: u32 = 0x200;
-    
+
     /// Error Status Register.
     pub const ESR: u32 = 0x280;
-    
+
     /// LVT CMCI Register (Corrected Machine Check Interrupt).
     pub const LVT_CMCI: u32 = 0x2F0;
-    
+
     /// Interrupt Command Register (low 32 bits).
     pub const ICR_LOW: u32 = 0x300;
-    
+
     /// Interrupt Command Register (high 32 bits).
     pub const ICR_HIGH: u32 = 0x310;
-    
+
     /// LVT Timer Register.
     pub const LVT_TIMER: u32 = 0x320;
-    
+
     /// LVT Thermal Sensor Register.
     pub const LVT_THERMAL: u32 = 0x330;
-    
+
     /// LVT Performance Monitoring Counters Register.
     pub const LVT_PMC: u32 = 0x340;
-    
+
     /// LVT LINT0 Register.
     pub const LVT_LINT0: u32 = 0x350;
-    
+
     /// LVT LINT1 Register.
     pub const LVT_LINT1: u32 = 0x360;
-    
+
     /// LVT Error Register.
     pub const LVT_ERROR: u32 = 0x370;
-    
+
     /// Timer Initial Count Register.
     pub const TIMER_INIT: u32 = 0x380;
-    
+
     /// Timer Current Count Register (RO).
     pub const TIMER_CURR: u32 = 0x390;
-    
+
     /// Timer Divide Configuration Register.
     pub const TIMER_DIV: u32 = 0x3E0;
 }
@@ -178,7 +178,7 @@ impl LocalApic {
     pub fn set_physical_memory_offset(offset: u64) {
         PHYS_MEM_OFFSET.store(offset, Ordering::SeqCst);
     }
-    
+
     /// Set the Local APIC base address from ACPI MADT.
     ///
     /// Call this if the MADT contains a Local APIC Address Override.
@@ -186,7 +186,7 @@ impl LocalApic {
         LAPIC_BASE.store(addr, Ordering::SeqCst);
         crate::serial_println!("[APIC] Local APIC base set to {:#x}", addr);
     }
-    
+
     /// Initialize and enable the Local APIC.
     ///
     /// # Safety
@@ -197,35 +197,41 @@ impl LocalApic {
         let base_phys = LAPIC_BASE.load(Ordering::SeqCst);
         let offset = PHYS_MEM_OFFSET.load(Ordering::SeqCst);
         let base_virt = base_phys + offset;
-        
-        let lapic = LocalApic { base_phys, base_virt };
-        
+
+        let lapic = LocalApic {
+            base_phys,
+            base_virt,
+        };
+
         // Enable APIC via MSR (IA32_APIC_BASE, MSR 0x1B).
         // Bit 11: APIC Global Enable.
         let mut apic_base_msr = Msr::new(0x1B);
         let msr_value = unsafe { apic_base_msr.read() };
         unsafe { apic_base_msr.write(msr_value | (1 << 11)) };
-        
+
         // Set Spurious Interrupt Vector Register.
         // Bit 8: APIC Software Enable.
         // Bits 0-7: Spurious interrupt vector (use 0xFF).
         lapic.write(regs::SVR, 0x1FF);
-        
+
         // Set Task Priority to 0 (accept all interrupts).
         lapic.write(regs::TPR, 0);
-        
+
         // Clear any pending errors.
         lapic.write(regs::ESR, 0);
         let _ = lapic.read(regs::ESR);
-        
-        crate::serial_println!("[APIC] Local APIC initialized at {:#x} (virt: {:#x})", 
-            base_phys, base_virt);
+
+        crate::serial_println!(
+            "[APIC] Local APIC initialized at {:#x} (virt: {:#x})",
+            base_phys,
+            base_virt
+        );
         crate::serial_println!("[APIC] APIC ID: {}", lapic.id());
         crate::serial_println!("[APIC] APIC Version: {:#x}", lapic.version());
-        
+
         lapic
     }
-    
+
     /// Read a 32-bit register.
     #[inline]
     fn read(&self, reg: u32) -> u32 {
@@ -234,7 +240,7 @@ impl LocalApic {
             read_volatile(ptr)
         }
     }
-    
+
     /// Write a 32-bit register.
     #[inline]
     fn write(&self, reg: u32, value: u32) {
@@ -243,17 +249,17 @@ impl LocalApic {
             write_volatile(ptr, value);
         }
     }
-    
+
     /// Get the Local APIC ID.
     pub fn id(&self) -> u8 {
         ((self.read(regs::ID) >> 24) & 0xFF) as u8
     }
-    
+
     /// Get the Local APIC version.
     pub fn version(&self) -> u32 {
         self.read(regs::VERSION)
     }
-    
+
     /// Send End of Interrupt signal.
     ///
     /// Must be called at the end of every interrupt handler
@@ -262,7 +268,7 @@ impl LocalApic {
     pub fn end_of_interrupt(&self) {
         self.write(regs::EOI, 0);
     }
-    
+
     /// Set up the APIC timer.
     ///
     /// # Arguments
@@ -280,45 +286,48 @@ impl LocalApic {
     ) {
         // Set divider.
         self.write(regs::TIMER_DIV, divider as u32);
-        
+
         // Configure LVT Timer.
         // Bits 0-7: Vector.
         // Bit 16: Mask (0 = not masked).
         // Bits 17-18: Timer mode.
         let lvt_value = (vector as u32) | ((mode as u32) << 17);
         self.write(regs::LVT_TIMER, lvt_value);
-        
+
         // Set initial count (starts the timer).
         self.write(regs::TIMER_INIT, initial_count);
-        
+
         crate::serial_println!(
             "[APIC] Timer configured: vector={}, count={}, divider={:?}, mode={:?}",
-            vector, initial_count, divider, mode
+            vector,
+            initial_count,
+            divider,
+            mode
         );
     }
-    
+
     /// Stop the APIC timer.
     pub fn stop_timer(&self) {
         self.write(regs::TIMER_INIT, 0);
     }
-    
+
     /// Get current timer count.
     pub fn timer_current(&self) -> u32 {
         self.read(regs::TIMER_CURR)
     }
-    
+
     /// Mask (disable) an LVT entry.
     pub fn mask_lvt(&self, reg: u32) {
         let value = self.read(reg);
         self.write(reg, value | (1 << 16));
     }
-    
+
     /// Unmask (enable) an LVT entry.
     pub fn unmask_lvt(&self, reg: u32) {
         let value = self.read(reg);
         self.write(reg, value & !(1 << 16));
     }
-    
+
     /// Send an Inter-Processor Interrupt (IPI).
     ///
     /// # Arguments
@@ -328,7 +337,7 @@ impl LocalApic {
     pub fn send_ipi(&self, dest_apic_id: u8, vector: u8) {
         // Set destination in ICR high.
         self.write(regs::ICR_HIGH, (dest_apic_id as u32) << 24);
-        
+
         // Send IPI via ICR low.
         // Bits 0-7: Vector.
         // Bits 8-10: Delivery mode (000 = Fixed).
@@ -336,14 +345,14 @@ impl LocalApic {
         // Bit 14: Level (1 = Assert).
         self.write(regs::ICR_LOW, (vector as u32) | (1 << 14));
     }
-    
+
     /// Send INIT IPI to another processor.
     pub fn send_init_ipi(&self, dest_apic_id: u8) {
         self.write(regs::ICR_HIGH, (dest_apic_id as u32) << 24);
         // Delivery mode 101 = INIT, Level = Assert.
         self.write(regs::ICR_LOW, (0b101 << 8) | (1 << 14));
     }
-    
+
     /// Send Startup IPI (SIPI) to another processor.
     ///
     /// # Arguments
@@ -379,9 +388,7 @@ pub unsafe fn init(phys_mem_offset: u64) {
 ///
 /// Panics if the APIC has not been initialized.
 pub fn local_apic() -> &'static LocalApic {
-    unsafe {
-        LOCAL_APIC.as_ref().expect("Local APIC not initialized")
-    }
+    unsafe { LOCAL_APIC.as_ref().expect("Local APIC not initialized") }
 }
 
 /// Send End of Interrupt signal.

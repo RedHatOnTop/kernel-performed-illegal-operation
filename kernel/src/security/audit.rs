@@ -8,10 +8,10 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, RwLock};
 
-use crate::process::ProcessId;
-use crate::browser::coordinator::TabId;
 use super::policy::DomainId;
 use super::sandbox::SandboxId;
+use crate::browser::coordinator::TabId;
+use crate::process::ProcessId;
 
 /// Audit event severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -102,13 +102,9 @@ pub struct AuditEvent {
 
 impl AuditEvent {
     /// Create a new audit event.
-    pub fn new(
-        severity: AuditSeverity,
-        category: AuditCategory,
-        message: &str,
-    ) -> Self {
+    pub fn new(severity: AuditSeverity, category: AuditCategory, message: &str) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-        
+
         AuditEvent {
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             timestamp: 0, // TODO: Get actual timestamp
@@ -123,37 +119,37 @@ impl AuditEvent {
             details: Vec::new(),
         }
     }
-    
+
     /// Set outcome.
     pub fn with_outcome(mut self, outcome: AuditOutcome) -> Self {
         self.outcome = outcome;
         self
     }
-    
+
     /// Set process.
     pub fn with_pid(mut self, pid: ProcessId) -> Self {
         self.pid = Some(pid);
         self
     }
-    
+
     /// Set tab.
     pub fn with_tab(mut self, tab: TabId) -> Self {
         self.tab = Some(tab);
         self
     }
-    
+
     /// Set domain.
     pub fn with_domain(mut self, domain: DomainId) -> Self {
         self.domain = Some(domain);
         self
     }
-    
+
     /// Set sandbox.
     pub fn with_sandbox(mut self, sandbox: SandboxId) -> Self {
         self.sandbox = Some(sandbox);
         self
     }
-    
+
     /// Add detail.
     pub fn with_detail(mut self, key: &str, value: &str) -> Self {
         self.details.push((String::from(key), String::from(value)));
@@ -196,32 +192,32 @@ impl AuditLog {
             ],
         }
     }
-    
+
     /// Log an event.
     pub fn log(&mut self, event: AuditEvent) {
         // Check severity
         if event.severity < self.min_severity {
             return;
         }
-        
+
         // Check category
         if !self.enabled_categories.contains(&event.category) {
             return;
         }
-        
+
         // Print to serial for now
         self.print_event(&event);
-        
+
         // Store event
         if self.events.len() >= self.max_events {
             self.events.pop_front();
             self.dropped_events += 1;
         }
-        
+
         self.events.push_back(event);
         self.total_events += 1;
     }
-    
+
     /// Print event to serial.
     fn print_event(&self, event: &AuditEvent) {
         let severity_str = match event.severity {
@@ -234,14 +230,14 @@ impl AuditLog {
             AuditSeverity::Alert => "ALERT",
             AuditSeverity::Emergency => "EMERG",
         };
-        
+
         let outcome_str = match event.outcome {
             AuditOutcome::Success => "OK",
             AuditOutcome::Failure => "FAIL",
             AuditOutcome::Denied => "DENY",
             AuditOutcome::Unknown => "?",
         };
-        
+
         crate::serial_println!(
             "[AUDIT][{}][{:?}][{}] {}",
             severity_str,
@@ -250,12 +246,12 @@ impl AuditLog {
             event.message
         );
     }
-    
+
     /// Get recent events.
     pub fn recent(&self, count: usize) -> impl Iterator<Item = &AuditEvent> {
         self.events.iter().rev().take(count)
     }
-    
+
     /// Search events.
     pub fn search<F>(&self, predicate: F) -> Vec<&AuditEvent>
     where
@@ -263,61 +259,63 @@ impl AuditLog {
     {
         self.events.iter().filter(|e| predicate(e)).collect()
     }
-    
+
     /// Get events by severity.
     pub fn by_severity(&self, severity: AuditSeverity) -> Vec<&AuditEvent> {
         self.search(|e| e.severity >= severity)
     }
-    
+
     /// Get events by category.
     pub fn by_category(&self, category: AuditCategory) -> Vec<&AuditEvent> {
         self.search(|e| e.category == category)
     }
-    
+
     /// Get events for process.
     pub fn for_process(&self, pid: ProcessId) -> Vec<&AuditEvent> {
         self.search(|e| e.pid == Some(pid))
     }
-    
+
     /// Get events for tab.
     pub fn for_tab(&self, tab: TabId) -> Vec<&AuditEvent> {
         self.search(|e| e.tab == Some(tab))
     }
-    
+
     /// Get denied events.
     pub fn denied(&self) -> Vec<&AuditEvent> {
         self.search(|e| e.outcome == AuditOutcome::Denied)
     }
-    
+
     /// Set minimum severity.
     pub fn set_min_severity(&mut self, severity: AuditSeverity) {
         self.min_severity = severity;
     }
-    
+
     /// Enable category.
     pub fn enable_category(&mut self, category: AuditCategory) {
         if !self.enabled_categories.contains(&category) {
             self.enabled_categories.push(category);
         }
     }
-    
+
     /// Disable category.
     pub fn disable_category(&mut self, category: AuditCategory) {
         self.enabled_categories.retain(|c| *c != category);
     }
-    
+
     /// Get statistics.
     pub fn stats(&self) -> AuditStats {
         AuditStats {
             total_events: self.total_events,
             stored_events: self.events.len() as u64,
             dropped_events: self.dropped_events,
-            denied_events: self.events.iter()
+            denied_events: self
+                .events
+                .iter()
                 .filter(|e| e.outcome == AuditOutcome::Denied)
                 .count() as u64,
         }
     }
-    
+
     /// Clear all events.
     pub fn clear(&mut self) {
         self.events.clear();
@@ -363,21 +361,21 @@ pub fn log_denied(
 ) {
     let mut event = AuditEvent::new(AuditSeverity::Warning, category, message)
         .with_outcome(AuditOutcome::Denied);
-    
+
     if let Some(p) = pid {
         event = event.with_pid(p);
     }
     if let Some(t) = tab {
         event = event.with_tab(t);
     }
-    
+
     log(event);
 }
 
 /// Log success.
 pub fn log_success(category: AuditCategory, message: &str) {
-    let event = AuditEvent::new(AuditSeverity::Info, category, message)
-        .with_outcome(AuditOutcome::Success);
+    let event =
+        AuditEvent::new(AuditSeverity::Info, category, message).with_outcome(AuditOutcome::Success);
     log(event);
 }
 

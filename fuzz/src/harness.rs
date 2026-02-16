@@ -2,15 +2,15 @@
 //!
 //! Main fuzzing harness and orchestration.
 
+use crate::{
+    Corpus, CoverageTracker, CrashInfo, CrashType, FuzzResult, FuzzStats, FuzzTarget, FuzzerConfig,
+    Mutator, StackFrame,
+};
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use crate::{
-    FuzzTarget, FuzzResult, FuzzerConfig, FuzzStats,
-    Mutator, Corpus, CoverageTracker, CrashInfo, CrashType, StackFrame,
-};
 
 /// Main fuzzer harness
 pub struct FuzzHarness {
@@ -47,7 +47,7 @@ impl FuzzHarness {
     /// Create new harness
     pub fn new(config: FuzzerConfig) -> Self {
         let seed = 12345u64; // Would use random in real implementation
-        
+
         Self {
             config,
             targets: Vec::new(),
@@ -113,7 +113,7 @@ impl FuzzHarness {
         // Run against all targets
         for target in &mut self.targets {
             let result = target.fuzz(&input);
-            
+
             match &result {
                 FuzzResult::Crash(info) => {
                     crash_info = Some((info.clone(), String::from(target.name())));
@@ -138,14 +138,18 @@ impl FuzzHarness {
             self.stats.timeouts += 1;
         }
         if is_interesting {
-            if self.corpus.add(input.clone(), self.coverage.total_edges() as u64) {
+            if self
+                .corpus
+                .add(input.clone(), self.coverage.total_edges() as u64)
+            {
                 self.stats.corpus_size = self.corpus.len();
             }
         }
 
         // Check for new coverage
         if self.coverage.has_new_coverage() {
-            self.corpus.add(input.clone(), self.coverage.total_edges() as u64);
+            self.corpus
+                .add(input.clone(), self.coverage.total_edges() as u64);
             self.stats.coverage_edges = self.coverage.total_edges();
         }
     }
@@ -158,7 +162,7 @@ impl FuzzHarness {
         let is_unique = !self.crashes.iter().any(|c| c.hash == hash);
 
         self.stats.crashes += 1;
-        
+
         if is_unique {
             self.stats.unique_crashes += 1;
             self.crashes.push(CrashEntry {
@@ -222,29 +226,33 @@ impl FuzzReport {
     /// Format as text
     pub fn format(&self) -> String {
         let mut output = String::new();
-        
+
         output.push_str("=== Fuzzing Report ===\n\n");
-        
+
         output.push_str("Statistics:\n");
         output.push_str(&format!("  Iterations: {}\n", self.stats.iterations));
         output.push_str(&format!("  Exec/sec: {:.2}\n", self.stats.execs_per_sec));
         output.push_str(&format!("  Runtime: {:.2}s\n", self.stats.runtime_s));
-        output.push_str(&format!("  Crashes: {} ({} unique)\n", 
-            self.stats.crashes, self.stats.unique_crashes));
+        output.push_str(&format!(
+            "  Crashes: {} ({} unique)\n",
+            self.stats.crashes, self.stats.unique_crashes
+        ));
         output.push_str(&format!("  Timeouts: {}\n", self.stats.timeouts));
         output.push_str(&format!("  Corpus: {}\n", self.corpus_size));
         output.push_str(&format!("  Coverage: {} edges\n", self.coverage_edges));
-        
+
         if !self.crashes.is_empty() {
             output.push_str("\nCrashes:\n");
             for crash in &self.crashes {
-                output.push_str(&format!("  - {} in {}: {:?}\n",
+                output.push_str(&format!(
+                    "  - {} in {}: {:?}\n",
                     format!("{:?}", crash.info.crash_type),
                     crash.target,
-                    crash.info.address));
+                    crash.info.address
+                ));
             }
         }
-        
+
         output
     }
 }
@@ -297,36 +305,36 @@ impl<'a> CrashMinimizer<'a> {
 
     fn try_remove_chunks(&mut self, input: &[u8], chunk_size: usize) -> Vec<u8> {
         let mut best = input.to_vec();
-        
+
         for start in (0..input.len()).step_by(chunk_size) {
             let end = (start + chunk_size).min(input.len());
-            
+
             let mut candidate = Vec::new();
             candidate.extend_from_slice(&input[..start]);
             candidate.extend_from_slice(&input[end..]);
-            
+
             if self.still_crashes(&candidate) && candidate.len() < best.len() {
                 best = candidate;
             }
         }
-        
+
         best
     }
 
     fn try_zero_bytes(&mut self, input: &[u8]) -> Vec<u8> {
         let mut result = input.to_vec();
-        
+
         for i in 0..result.len() {
             if result[i] != 0 {
                 let original = result[i];
                 result[i] = 0;
-                
+
                 if !self.still_crashes(&result) {
                     result[i] = original;
                 }
             }
         }
-        
+
         result
     }
 
@@ -341,14 +349,12 @@ pub fn crash_from_panic(message: &str) -> CrashInfo {
     CrashInfo {
         crash_type: CrashType::Panic,
         address: None,
-        stack_trace: vec![
-            StackFrame {
-                function: Some(String::from(message)),
-                address: 0,
-                file: None,
-                line: None,
-            }
-        ],
+        stack_trace: vec![StackFrame {
+            function: Some(String::from(message)),
+            address: 0,
+            file: None,
+            line: None,
+        }],
         registers: Vec::new(),
     }
 }
@@ -373,7 +379,7 @@ pub fn quick_fuzz<T: FuzzTarget>(mut target: T, corpus: Vec<Vec<u8>>, iterations
         mutator.mutate(&mut input);
 
         let result = target.fuzz(&input);
-        
+
         if result.is_crash() {
             crashes = true;
         } else if result.is_interesting() {

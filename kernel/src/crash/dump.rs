@@ -40,7 +40,7 @@ impl CrashDump {
     /// Create new crash dump
     pub fn new(crash_info: CrashInfo, format: DumpFormat) -> Self {
         let header = DumpHeader::new(format);
-        
+
         Self {
             header,
             crash_info,
@@ -59,7 +59,7 @@ impl CrashDump {
     pub fn capture_stack(&mut self, stack_top: u64, size: usize) {
         // Would copy stack memory
         let data = vec![0u8; size.min(0x10000)]; // Max 64KB stack
-        
+
         self.add_memory_region(MemoryRegion {
             address: stack_top.saturating_sub(size as u64),
             size,
@@ -73,7 +73,7 @@ impl CrashDump {
         // Would copy memory around crash address
         let size = 0x1000; // 4KB
         let data = vec![0u8; size];
-        
+
         let aligned = address & !0xFFF;
         self.add_memory_region(MemoryRegion {
             address: aligned,
@@ -91,21 +91,21 @@ impl CrashDump {
     /// Serialize to bytes
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        
+
         // Header
         data.extend_from_slice(&self.header.magic.to_le_bytes());
         data.extend_from_slice(&self.header.version.to_le_bytes());
         data.extend_from_slice(&(self.header.format as u32).to_le_bytes());
         data.extend_from_slice(&self.header.timestamp.to_le_bytes());
-        
+
         // Crash type
         data.extend_from_slice(&(self.crash_info.crash_type as u32).to_le_bytes());
-        
+
         // Message length and data
         let msg_bytes = self.crash_info.message.as_bytes();
         data.extend_from_slice(&(msg_bytes.len() as u32).to_le_bytes());
         data.extend_from_slice(msg_bytes);
-        
+
         // CPU state
         data.extend_from_slice(&self.crash_info.cpu_state.rip.to_le_bytes());
         data.extend_from_slice(&self.crash_info.cpu_state.rsp.to_le_bytes());
@@ -117,13 +117,13 @@ impl CrashDump {
         data.extend_from_slice(&self.crash_info.cpu_state.rflags.to_le_bytes());
         data.extend_from_slice(&self.crash_info.cpu_state.cr2.to_le_bytes());
         data.extend_from_slice(&self.crash_info.cpu_state.error_code.to_le_bytes());
-        
+
         // Backtrace
         data.extend_from_slice(&(self.crash_info.backtrace.len() as u32).to_le_bytes());
         for frame in &self.crash_info.backtrace {
             data.extend_from_slice(&frame.address.to_le_bytes());
         }
-        
+
         // Memory regions
         data.extend_from_slice(&(self.memory_regions.len() as u32).to_le_bytes());
         for region in &self.memory_regions {
@@ -132,7 +132,7 @@ impl CrashDump {
             data.extend_from_slice(&(region.region_type as u32).to_le_bytes());
             data.extend_from_slice(&region.data);
         }
-        
+
         data
     }
 

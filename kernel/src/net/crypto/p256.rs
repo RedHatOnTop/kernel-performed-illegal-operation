@@ -42,8 +42,12 @@ type U256 = [u64; 4];
 
 // ── 256-bit arithmetic ──────────────────────────────────────
 
-fn u256_zero() -> U256 { [0; 4] }
-fn u256_one() -> U256 { [1, 0, 0, 0] }
+fn u256_zero() -> U256 {
+    [0; 4]
+}
+fn u256_one() -> U256 {
+    [1, 0, 0, 0]
+}
 
 fn u256_is_zero(a: &U256) -> bool {
     a[0] == 0 && a[1] == 0 && a[2] == 0 && a[3] == 0
@@ -157,7 +161,12 @@ fn fp_reduce512(t: &[u64; 8]) -> U256 {
     // 2^256 - p = 00000000FFFFFFFE FFFFFFFFFFFFFFFF FFFFFFFF00000000 0000000000000001
     // So 2^256 mod p = [0x1, 0xFFFFFFFF00000000, 0xFFFFFFFFFFFFFFFF, 0x00000000FFFFFFFE]
 
-    let r256_mod_p: U256 = [0x0000000000000001, 0xFFFFFFFF00000000, 0xFFFFFFFFFFFFFFFF, 0x00000000FFFFFFFE];
+    let r256_mod_p: U256 = [
+        0x0000000000000001,
+        0xFFFFFFFF00000000,
+        0xFFFFFFFFFFFFFFFF,
+        0x00000000FFFFFFFE,
+    ];
 
     // Fold: result = (c3,c2,c1,c0) + (c7,c6,c5,c4) * r256_mod_p
     // This produces up to 512+256 bits, so we may need to iterate
@@ -205,7 +214,9 @@ fn fp_reduce512(t: &[u64; 8]) -> U256 {
         let (sub, borrow) = u256_sub(&result, &P);
         if !borrow || extra > 0 {
             result = sub;
-            if extra > 0 { extra -= 1; }
+            if extra > 0 {
+                extra -= 1;
+            }
         } else {
             break;
         }
@@ -243,7 +254,9 @@ fn fp_inv(a: &U256) -> U256 {
 }
 
 fn fp_neg(a: &U256) -> U256 {
-    if u256_is_zero(a) { return u256_zero(); }
+    if u256_is_zero(a) {
+        return u256_zero();
+    }
     let (r, _) = u256_sub(&P, a);
     r
 }
@@ -260,7 +273,11 @@ struct JacobianPoint {
 
 impl JacobianPoint {
     fn infinity() -> Self {
-        JacobianPoint { x: u256_one(), y: u256_one(), z: u256_zero() }
+        JacobianPoint {
+            x: u256_one(),
+            y: u256_one(),
+            z: u256_zero(),
+        }
     }
 
     fn is_infinity(&self) -> bool {
@@ -268,7 +285,11 @@ impl JacobianPoint {
     }
 
     fn from_affine(x: &U256, y: &U256) -> Self {
-        JacobianPoint { x: *x, y: *y, z: u256_one() }
+        JacobianPoint {
+            x: *x,
+            y: *y,
+            z: u256_one(),
+        }
     }
 
     fn to_affine(&self) -> (U256, U256) {
@@ -284,7 +305,9 @@ impl JacobianPoint {
 
 /// Point doubling in Jacobian coordinates.
 fn point_double(p: &JacobianPoint) -> JacobianPoint {
-    if p.is_infinity() { return JacobianPoint::infinity(); }
+    if p.is_infinity() {
+        return JacobianPoint::infinity();
+    }
 
     // a = -3 for P-256
     let xx = fp_sq(&p.x);
@@ -334,13 +357,21 @@ fn point_double(p: &JacobianPoint) -> JacobianPoint {
         fp_sub(&t, &zz)
     };
 
-    JacobianPoint { x: x3, y: y3, z: z3 }
+    JacobianPoint {
+        x: x3,
+        y: y3,
+        z: z3,
+    }
 }
 
 /// Point addition (Jacobian + Jacobian).
 fn point_add(p: &JacobianPoint, q: &JacobianPoint) -> JacobianPoint {
-    if p.is_infinity() { return q.clone(); }
-    if q.is_infinity() { return p.clone(); }
+    if p.is_infinity() {
+        return q.clone();
+    }
+    if q.is_infinity() {
+        return p.clone();
+    }
 
     let z1z1 = fp_sq(&p.z);
     let z2z2 = fp_sq(&q.z);
@@ -382,7 +413,11 @@ fn point_add(p: &JacobianPoint, q: &JacobianPoint) -> JacobianPoint {
         fp_mul(&z1z2, &h)
     };
 
-    JacobianPoint { x: x3, y: y3, z: z3 }
+    JacobianPoint {
+        x: x3,
+        y: y3,
+        z: z3,
+    }
 }
 
 /// Scalar multiplication: k * P using double-and-add.
@@ -407,17 +442,27 @@ fn scalar_mul(k: &U256, p: &JacobianPoint) -> JacobianPoint {
 
 fn u256_from_be_bytes(bytes: &[u8; 32]) -> U256 {
     [
-        u64::from_be_bytes([bytes[24],bytes[25],bytes[26],bytes[27],bytes[28],bytes[29],bytes[30],bytes[31]]),
-        u64::from_be_bytes([bytes[16],bytes[17],bytes[18],bytes[19],bytes[20],bytes[21],bytes[22],bytes[23]]),
-        u64::from_be_bytes([bytes[8],bytes[9],bytes[10],bytes[11],bytes[12],bytes[13],bytes[14],bytes[15]]),
-        u64::from_be_bytes([bytes[0],bytes[1],bytes[2],bytes[3],bytes[4],bytes[5],bytes[6],bytes[7]]),
+        u64::from_be_bytes([
+            bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30], bytes[31],
+        ]),
+        u64::from_be_bytes([
+            bytes[16], bytes[17], bytes[18], bytes[19], bytes[20], bytes[21], bytes[22], bytes[23],
+        ]),
+        u64::from_be_bytes([
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+        ]),
+        u64::from_be_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]),
     ]
 }
 
 fn u256_to_be_bytes(a: &U256) -> [u8; 32] {
     let mut out = [0u8; 32];
-    let b3 = a[3].to_be_bytes(); let b2 = a[2].to_be_bytes();
-    let b1 = a[1].to_be_bytes(); let b0 = a[0].to_be_bytes();
+    let b3 = a[3].to_be_bytes();
+    let b2 = a[2].to_be_bytes();
+    let b1 = a[1].to_be_bytes();
+    let b0 = a[0].to_be_bytes();
     out[0..8].copy_from_slice(&b3);
     out[8..16].copy_from_slice(&b2);
     out[16..24].copy_from_slice(&b1);
@@ -478,11 +523,11 @@ fn fn_mul(a: &U256, b: &U256) -> U256 {
     for i in 0..4 {
         let mut carry = 0u128;
         for j in 0..4 {
-            carry += t[i+j] as u128 + (a[i] as u128) * (b[j] as u128);
-            t[i+j] = carry as u64;
+            carry += t[i + j] as u128 + (a[i] as u128) * (b[j] as u128);
+            t[i + j] = carry as u64;
             carry >>= 64;
         }
-        t[i+4] = carry as u64;
+        t[i + 4] = carry as u64;
     }
     // Reduce mod n (by trial subtraction for simplicity)
     fn_reduce512(&t)
@@ -508,11 +553,11 @@ fn fn_reduce512(t: &[u64; 8]) -> U256 {
         let mut product = [0u128; 8];
         for i in 0..4 {
             for j in 0..4 {
-                product[i+j] += (hi[i] as u128) * (n_comp[j] as u128);
+                product[i + j] += (hi[i] as u128) * (n_comp[j] as u128);
             }
         }
         for i in 0..7 {
-            product[i+1] += product[i] >> 64;
+            product[i + 1] += product[i] >> 64;
             product[i] &= 0xFFFFFFFFFFFFFFFF;
         }
         let mut acc = [0u128; 5];
@@ -520,7 +565,7 @@ fn fn_reduce512(t: &[u64; 8]) -> U256 {
             acc[i] = r[i] as u128 + (product[i] as u64) as u128;
         }
         for i in 0..4 {
-            acc[i+1] += acc[i] >> 64;
+            acc[i + 1] += acc[i] >> 64;
             acc[i] &= 0xFFFFFFFFFFFFFFFF;
         }
         r = [acc[0] as u64, acc[1] as u64, acc[2] as u64, acc[3] as u64];
@@ -568,13 +613,13 @@ pub fn p256_ecdsa_verify(hash: &[u8], signature: &[u8], public_key: &[u8]) -> bo
     if public_key.len() < 65 || public_key[0] != 0x04 {
         return false;
     }
-    let qx = u256_from_be_bytes(public_key[1..33].try_into().unwrap_or(&[0u8;32]));
-    let qy = u256_from_be_bytes(public_key[33..65].try_into().unwrap_or(&[0u8;32]));
+    let qx = u256_from_be_bytes(public_key[1..33].try_into().unwrap_or(&[0u8; 32]));
+    let qy = u256_from_be_bytes(public_key[33..65].try_into().unwrap_or(&[0u8; 32]));
 
     // Parse signature (try raw r||s first, then DER)
     let (r, s) = if signature.len() == 64 {
-        let r = u256_from_be_bytes(signature[..32].try_into().unwrap_or(&[0u8;32]));
-        let s = u256_from_be_bytes(signature[32..64].try_into().unwrap_or(&[0u8;32]));
+        let r = u256_from_be_bytes(signature[..32].try_into().unwrap_or(&[0u8; 32]));
+        let s = u256_from_be_bytes(signature[32..64].try_into().unwrap_or(&[0u8; 32]));
         (r, s)
     } else if let Some((r, s)) = parse_der_signature(signature) {
         (r, s)
@@ -583,9 +628,15 @@ pub fn p256_ecdsa_verify(hash: &[u8], signature: &[u8], public_key: &[u8]) -> bo
     };
 
     // Check r, s in [1, n-1]
-    if u256_is_zero(&r) || u256_is_zero(&s) { return false; }
-    if u256_cmp(&r, &N) != core::cmp::Ordering::Less { return false; }
-    if u256_cmp(&s, &N) != core::cmp::Ordering::Less { return false; }
+    if u256_is_zero(&r) || u256_is_zero(&s) {
+        return false;
+    }
+    if u256_cmp(&r, &N) != core::cmp::Ordering::Less {
+        return false;
+    }
+    if u256_cmp(&s, &N) != core::cmp::Ordering::Less {
+        return false;
+    }
 
     // z = hash (truncated to n bit length if needed)
     let mut z_bytes = [0u8; 32];
@@ -608,7 +659,9 @@ pub fn p256_ecdsa_verify(hash: &[u8], signature: &[u8], public_key: &[u8]) -> bo
     let r2 = scalar_mul(&u2, &q);
     let rr = point_add(&r1, &r2);
 
-    if rr.is_infinity() { return false; }
+    if rr.is_infinity() {
+        return false;
+    }
 
     let (rx, _) = rr.to_affine();
 
@@ -625,14 +678,20 @@ pub fn p256_ecdsa_verify(hash: &[u8], signature: &[u8], public_key: &[u8]) -> bo
 
 /// Parse DER-encoded ECDSA signature into (r, s).
 fn parse_der_signature(der: &[u8]) -> Option<(U256, U256)> {
-    if der.len() < 8 || der[0] != 0x30 { return None; }
+    if der.len() < 8 || der[0] != 0x30 {
+        return None;
+    }
     let total_len = der[1] as usize;
-    if der.len() < 2 + total_len { return None; }
+    if der.len() < 2 + total_len {
+        return None;
+    }
 
     let mut pos = 2;
 
     // Parse r
-    if der[pos] != 0x02 { return None; }
+    if der[pos] != 0x02 {
+        return None;
+    }
     pos += 1;
     let r_len = der[pos] as usize;
     pos += 1;
@@ -640,11 +699,15 @@ fn parse_der_signature(der: &[u8]) -> Option<(U256, U256)> {
     pos += r_len;
 
     // Parse s
-    if pos >= der.len() || der[pos] != 0x02 { return None; }
+    if pos >= der.len() || der[pos] != 0x02 {
+        return None;
+    }
     pos += 1;
     let s_len = der[pos] as usize;
     pos += 1;
-    if pos + s_len > der.len() { return None; }
+    if pos + s_len > der.len() {
+        return None;
+    }
     let s_bytes = &der[pos..pos + s_len];
 
     // Convert to U256 (skip leading zero if present)
@@ -657,7 +720,9 @@ fn bytes_to_u256(bytes: &[u8]) -> Option<U256> {
     // Skip leading zeros
     let start = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len());
     let meaningful = &bytes[start..];
-    if meaningful.len() > 32 { return None; }
+    if meaningful.len() > 32 {
+        return None;
+    }
 
     let mut padded = [0u8; 32];
     padded[32 - meaningful.len()..].copy_from_slice(meaningful);

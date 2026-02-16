@@ -2,11 +2,13 @@
 //!
 //! Driver for Intel integrated graphics (Gen 3+).
 
-use super::{Display, DisplayInfo, DisplayMode, DisplayError, PixelFormat, DisplayConnection,
-            CursorInfo, HardwareCursor};
+use super::{
+    CursorInfo, Display, DisplayConnection, DisplayError, DisplayInfo, DisplayMode, HardwareCursor,
+    PixelFormat,
+};
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// Intel GPU generations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -319,12 +321,12 @@ impl I915Driver {
     fn get_timing_params(&self) -> (u32, u32, u32, u32, u32, u32) {
         match (self.current_mode.width, self.current_mode.height) {
             (1920, 1080) => (
-                (2199 << 16) | 1919,  // HTOTAL: total | active
-                (2112 << 16) | 1919,  // HBLANK
-                (2051 << 16) | 2007,  // HSYNC
-                (1124 << 16) | 1079,  // VTOTAL
-                (1120 << 16) | 1079,  // VBLANK
-                (1088 << 16) | 1083,  // VSYNC
+                (2199 << 16) | 1919, // HTOTAL: total | active
+                (2112 << 16) | 1919, // HBLANK
+                (2051 << 16) | 2007, // HSYNC
+                (1124 << 16) | 1079, // VTOTAL
+                (1120 << 16) | 1079, // VBLANK
+                (1088 << 16) | 1083, // VSYNC
             ),
             (1280, 720) => (
                 (1649 << 16) | 1279,
@@ -355,9 +357,7 @@ impl I915Driver {
 
     /// Read MMIO register
     fn read_reg(&self, offset: u32) -> u32 {
-        unsafe {
-            core::ptr::read_volatile((self.mmio_base + offset as u64) as *const u32)
-        }
+        unsafe { core::ptr::read_volatile((self.mmio_base + offset as u64) as *const u32) }
     }
 
     /// Write MMIO register
@@ -453,7 +453,7 @@ impl Display for I915Driver {
         if self.enabled {
             // Disable plane
             self.write_reg(regs::DSPACNTR, 0);
-            
+
             // Disable pipe
             let pipe_conf = self.read_reg(regs::PIPEA_CONF);
             self.write_reg(regs::PIPEA_CONF, pipe_conf & !pipe_conf::ENABLE);
@@ -470,7 +470,7 @@ impl Display for I915Driver {
     fn wait_vsync(&self) {
         // Clear vsync interrupt
         self.write_reg(regs::IIR, 0x00000002);
-        
+
         // Wait for vsync
         for _ in 0..100000 {
             if self.read_reg(regs::IIR) & 0x00000002 != 0 {
@@ -518,7 +518,7 @@ impl HardwareCursor for I915Driver {
     fn move_cursor(&mut self, x: u32, y: u32) {
         self.cursor_x = x;
         self.cursor_y = y;
-        
+
         // Pack position (can be negative for partial visibility)
         let pos = ((y as i16 as u16 as u32) << 16) | (x as i16 as u16 as u32);
         self.write_reg(regs::CURAPOS, pos);

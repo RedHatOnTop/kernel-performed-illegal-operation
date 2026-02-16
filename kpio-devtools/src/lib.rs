@@ -16,11 +16,11 @@
 
 extern crate alloc;
 
-pub mod inspector;
 pub mod console;
+pub mod debugger;
+pub mod inspector;
 pub mod network;
 pub mod profiler;
-pub mod debugger;
 pub mod protocol;
 
 use alloc::string::String;
@@ -53,29 +53,29 @@ impl DevToolsAgent {
             enabled_domains: Vec::new(),
         }
     }
-    
+
     /// Get session ID.
     pub fn session_id(&self) -> SessionId {
         self.session_id
     }
-    
+
     /// Get target ID.
     pub fn target_id(&self) -> TargetId {
         self.target_id
     }
-    
+
     /// Enable a domain.
     pub fn enable_domain(&mut self, domain: &str) {
         if !self.enabled_domains.iter().any(|d| d == domain) {
             self.enabled_domains.push(domain.into());
         }
     }
-    
+
     /// Disable a domain.
     pub fn disable_domain(&mut self, domain: &str) {
         self.enabled_domains.retain(|d| d != domain);
     }
-    
+
     /// Check if a domain is enabled.
     pub fn is_domain_enabled(&self, domain: &str) -> bool {
         self.enabled_domains.iter().any(|d| d == domain)

@@ -19,7 +19,7 @@ pub enum Icon {
     Home,
     Refresh,
     ExternalLink,
-    
+
     // Browser
     Globe,
     Search,
@@ -34,7 +34,7 @@ pub enum Icon {
     Window,
     WindowNew,
     Incognito,
-    
+
     // Actions
     Plus,
     Minus,
@@ -54,7 +54,7 @@ pub enum Icon {
     ZoomOut,
     Fullscreen,
     ExitFullscreen,
-    
+
     // Media
     Play,
     Pause,
@@ -63,7 +63,7 @@ pub enum Icon {
     VolumeLow,
     VolumeMute,
     VolumeOff,
-    
+
     // Files
     File,
     FileText,
@@ -73,7 +73,7 @@ pub enum Icon {
     Video,
     Audio,
     Archive,
-    
+
     // UI
     Settings,
     SettingsGear,
@@ -90,7 +90,7 @@ pub enum Icon {
     Error,
     Help,
     Question,
-    
+
     // System
     Sun,
     Moon,
@@ -101,7 +101,7 @@ pub enum Icon {
     BatteryLow,
     BatteryCharging,
     Power,
-    
+
     // Profile
     Profile,
     ProfileAdd,
@@ -123,7 +123,7 @@ impl Icon {
             Self::Home => "home",
             Self::Refresh => "refresh",
             Self::ExternalLink => "external-link",
-            
+
             Self::Globe => "globe",
             Self::Search => "search",
             Self::Bookmark => "bookmark",
@@ -137,7 +137,7 @@ impl Icon {
             Self::Window => "window",
             Self::WindowNew => "window-new",
             Self::Incognito => "incognito",
-            
+
             Self::Plus => "plus",
             Self::Minus => "minus",
             Self::Close => "close",
@@ -156,7 +156,7 @@ impl Icon {
             Self::ZoomOut => "zoom-out",
             Self::Fullscreen => "fullscreen",
             Self::ExitFullscreen => "exit-fullscreen",
-            
+
             Self::Play => "play",
             Self::Pause => "pause",
             Self::Stop => "stop",
@@ -164,7 +164,7 @@ impl Icon {
             Self::VolumeLow => "volume-low",
             Self::VolumeMute => "volume-mute",
             Self::VolumeOff => "volume-off",
-            
+
             Self::File => "file",
             Self::FileText => "file-text",
             Self::Folder => "folder",
@@ -173,7 +173,7 @@ impl Icon {
             Self::Video => "video",
             Self::Audio => "audio",
             Self::Archive => "archive",
-            
+
             Self::Settings => "settings",
             Self::SettingsGear => "settings-gear",
             Self::User => "user",
@@ -189,7 +189,7 @@ impl Icon {
             Self::Error => "error",
             Self::Help => "help",
             Self::Question => "question",
-            
+
             Self::Sun => "sun",
             Self::Moon => "moon",
             Self::Monitor => "monitor",
@@ -199,7 +199,7 @@ impl Icon {
             Self::BatteryLow => "battery-low",
             Self::BatteryCharging => "battery-charging",
             Self::Power => "power",
-            
+
             Self::Profile => "profile",
             Self::ProfileAdd => "profile-add",
             Self::ProfileSwitch => "profile-switch",

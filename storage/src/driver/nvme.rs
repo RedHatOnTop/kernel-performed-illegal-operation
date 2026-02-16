@@ -3,8 +3,8 @@
 //! This module provides support for NVMe (Non-Volatile Memory Express) devices,
 //! the standard interface for modern SSDs.
 
-use crate::{BlockDeviceInfo, StorageError};
 use super::BlockDevice;
+use crate::{BlockDeviceInfo, StorageError};
 
 /// NVMe controller capabilities register.
 #[derive(Debug, Clone, Copy)]
@@ -425,9 +425,7 @@ impl NvmeDevice {
     /// Initialize the device.
     pub fn init(&mut self) -> Result<(), StorageError> {
         // Read capabilities
-        let cap = unsafe {
-            core::ptr::read_volatile(self.base_addr as *const u64)
-        };
+        let cap = unsafe { core::ptr::read_volatile(self.base_addr as *const u64) };
         self.caps = NvmeCapabilities::from_raw(cap);
 
         // TODO: Full NVMe initialization sequence
@@ -446,7 +444,13 @@ impl NvmeDevice {
     }
 
     /// Read from namespace.
-    fn read_lba(&self, nsid: u32, lba: u64, count: u16, buffer: &mut [u8]) -> Result<(), StorageError> {
+    fn read_lba(
+        &self,
+        nsid: u32,
+        lba: u64,
+        count: u16,
+        buffer: &mut [u8],
+    ) -> Result<(), StorageError> {
         if !self.initialized {
             return Err(StorageError::NotReady);
         }

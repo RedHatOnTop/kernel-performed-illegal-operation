@@ -33,10 +33,10 @@ lazy_static! {
 
             let stack_start = VirtAddr::from_ptr(unsafe { &raw const STACK });
             let stack_end = stack_start + STACK_SIZE as u64;
-            
+
             // Debug: Print stack addresses
             // Note: This runs during lazy_static initialization
-            
+
             // Stack grows from high to low addresses, so return the end address
             stack_end
         };

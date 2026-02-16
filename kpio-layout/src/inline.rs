@@ -10,10 +10,10 @@
 //! - **Text Run**: A continuous run of text within an inline box
 //! - **Line Breaking**: Wrapping content to new lines
 
+use crate::box_model::{EdgeSizes, Rect};
+use crate::layout_box::{BoxType, ContainingBlock, LayoutBox, LayoutContext};
 use alloc::string::String;
 use alloc::vec::Vec;
-use crate::box_model::{Rect, EdgeSizes};
-use crate::layout_box::{LayoutBox, BoxType, ContainingBlock, LayoutContext};
 
 /// A line box containing inline content
 #[derive(Debug)]
@@ -37,17 +37,17 @@ impl LineBox {
             fragments: Vec::new(),
         }
     }
-    
+
     /// Current width used on this line
     pub fn width(&self) -> f32 {
         self.fragments.iter().map(|f| f.width).sum()
     }
-    
+
     /// Current X position for next fragment
     pub fn current_x(&self, start_x: f32) -> f32 {
         start_x + self.width()
     }
-    
+
     /// Add a fragment to this line
     pub fn add_fragment(&mut self, fragment: LineFragment) {
         // Update line height if needed
@@ -84,17 +84,11 @@ pub enum FragmentContent {
         end_index: usize,
     },
     /// Start of an inline box (opening tag)
-    InlineStart {
-        box_index: usize,
-    },
+    InlineStart { box_index: usize },
     /// End of an inline box (closing tag)
-    InlineEnd {
-        box_index: usize,
-    },
+    InlineEnd { box_index: usize },
     /// Atomic inline (image, inline-block, etc.)
-    Atomic {
-        box_index: usize,
-    },
+    Atomic { box_index: usize },
 }
 
 /// Font metrics for text layout
@@ -145,17 +139,17 @@ impl InlineFormattingContext {
             font_metrics: FontMetrics::default(),
         }
     }
-    
+
     /// Start a new line
     pub fn new_line(&mut self) {
         // Finalize current line if it exists
         if let Some(current_line) = self.lines.last() {
             self.current_y += current_line.height;
         }
-        
+
         self.lines.push(LineBox::new(self.current_y));
     }
-    
+
     /// Get current line, creating one if needed
     pub fn current_line(&mut self) -> &mut LineBox {
         if self.lines.is_empty() {
@@ -163,58 +157,57 @@ impl InlineFormattingContext {
         }
         self.lines.last_mut().unwrap()
     }
-    
+
     /// Get remaining width on current line
     pub fn remaining_width(&self) -> f32 {
-        let used = self.lines.last()
-            .map(|l| l.width())
-            .unwrap_or(0.0);
+        let used = self.lines.last().map(|l| l.width()).unwrap_or(0.0);
         (self.containing_block.width - used).max(0.0)
     }
-    
+
     /// Layout text content
     pub fn layout_text(&mut self, text: &str, start_x: f32) {
         if text.is_empty() {
             return;
         }
-        
+
         let line_height = self.font_metrics.line_height;
         let char_width = self.font_metrics.avg_char_width;
-        
+
         let mut remaining_text = text;
         let mut text_index = 0;
-        
+
         while !remaining_text.is_empty() {
             let line = self.current_line();
             let current_x = line.current_x(start_x);
-            let available_width = self.containing_block.width - (current_x - self.containing_block.x);
-            
+            let available_width =
+                self.containing_block.width - (current_x - self.containing_block.x);
+
             if available_width <= 0.0 {
                 // No space, start new line
                 self.new_line();
                 continue;
             }
-            
+
             // Calculate how many characters fit
             let max_chars = (available_width / char_width) as usize;
             if max_chars == 0 {
                 self.new_line();
                 continue;
             }
-            
+
             // Find break point (word boundary or forced)
             let (break_index, forced_break) = find_break_point(remaining_text, max_chars);
-            
+
             if break_index == 0 {
                 // Can't fit anything, force new line
                 self.new_line();
                 continue;
             }
-            
+
             // Create fragment for this portion
             let fragment_text: String = remaining_text[..break_index].into();
             let fragment_width = fragment_text.chars().count() as f32 * char_width;
-            
+
             let line = self.current_line();
             let fragment = LineFragment {
                 x: line.current_x(start_x),
@@ -228,28 +221,28 @@ impl InlineFormattingContext {
                 },
             };
             line.add_fragment(fragment);
-            
+
             // Advance
             text_index += break_index;
             remaining_text = &remaining_text[break_index..];
-            
+
             // Skip leading whitespace on new line
             if forced_break {
                 remaining_text = remaining_text.trim_start();
             }
-            
+
             // If we filled the line, start a new one
             if self.remaining_width() <= char_width && !remaining_text.is_empty() {
                 self.new_line();
             }
         }
     }
-    
+
     /// Get total height of all lines
     pub fn total_height(&self) -> f32 {
         self.lines.iter().map(|l| l.height).sum()
     }
-    
+
     /// Finalize the context and return final Y position
     pub fn finalize(&mut self) -> f32 {
         let total = self.lines.iter().map(|l| l.height).sum::<f32>();
@@ -260,11 +253,11 @@ impl InlineFormattingContext {
 /// Find a good break point in text
 fn find_break_point(text: &str, max_chars: usize) -> (usize, bool) {
     let chars: Vec<char> = text.chars().collect();
-    
+
     if chars.len() <= max_chars {
         return (text.len(), false);
     }
-    
+
     // Look for whitespace break point
     let mut last_space_char_index = None;
     for (i, &c) in chars.iter().enumerate().take(max_chars + 1) {
@@ -272,13 +265,13 @@ fn find_break_point(text: &str, max_chars: usize) -> (usize, bool) {
             last_space_char_index = Some(i);
         }
     }
-    
+
     if let Some(space_idx) = last_space_char_index {
         // Break at whitespace
         let byte_index = chars[..=space_idx].iter().map(|c| c.len_utf8()).sum();
         return (byte_index, true);
     }
-    
+
     // No whitespace found, force break at max_chars
     let byte_index = chars[..max_chars].iter().map(|c| c.len_utf8()).sum();
     (byte_index, false)
@@ -291,14 +284,14 @@ pub fn layout_inline_children(
     _context: &LayoutContext,
 ) {
     let mut ifc = InlineFormattingContext::new(containing_block);
-    
+
     for child in &mut layout_box.children {
         match child.box_type {
             BoxType::Inline | BoxType::AnonymousInline => {
                 if let Some(ref text) = child.text {
                     ifc.layout_text(text, containing_block.x);
                 }
-                
+
                 // Set child dimensions based on its content
                 let line = ifc.current_line();
                 child.dimensions.content.x = containing_block.x;
@@ -310,7 +303,7 @@ pub fn layout_inline_children(
             }
         }
     }
-    
+
     // Set parent height based on lines
     let total_height = ifc.total_height();
     if layout_box.dimensions.content.height < total_height {
@@ -321,7 +314,7 @@ pub fn layout_inline_children(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_find_break_point() {
         let text = "Hello World";
@@ -329,13 +322,13 @@ mod tests {
         assert_eq!(&text[..idx], "Hello ");
         assert!(forced);
     }
-    
+
     #[test]
     fn test_inline_context_text() {
         let cb = ContainingBlock::new(100.0, 100.0);
         let mut ifc = InlineFormattingContext::new(cb);
         ifc.layout_text("Hello World", 0.0);
-        
+
         assert!(!ifc.lines.is_empty());
         assert!(ifc.total_height() > 0.0);
     }

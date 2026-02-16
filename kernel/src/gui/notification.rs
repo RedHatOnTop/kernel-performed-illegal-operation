@@ -56,8 +56,7 @@ pub struct NotificationCenter {
 // ── Global Instance ─────────────────────────────────────────
 
 /// Global notification center.
-pub static NOTIFICATION_CENTER: Mutex<NotificationCenter> =
-    Mutex::new(NotificationCenter::new());
+pub static NOTIFICATION_CENTER: Mutex<NotificationCenter> = Mutex::new(NotificationCenter::new());
 
 // ── Implementation ──────────────────────────────────────────
 
@@ -268,9 +267,6 @@ mod tests {
             Some(String::from("https://example.com")),
         );
         let notif = nc.get(id).unwrap();
-        assert_eq!(
-            notif.action_url.as_deref(),
-            Some("https://example.com")
-        );
+        assert_eq!(notif.action_url.as_deref(), Some("https://example.com"));
     }
 }

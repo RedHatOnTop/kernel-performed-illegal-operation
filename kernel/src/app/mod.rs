@@ -31,9 +31,7 @@ pub mod window_state;
 pub use error::AppError;
 pub use lifecycle::{AppInstanceId, AppInstanceInfo, AppLifecycle, AppRunState, APP_LIFECYCLE};
 pub use permissions::{AppPermissions, FsScope, NetScope, PermissionChecker};
-pub use registry::{
-    AppRegistry, KernelAppDescriptor, KernelAppId, KernelAppType, APP_REGISTRY,
-};
+pub use registry::{AppRegistry, KernelAppDescriptor, KernelAppId, KernelAppType, APP_REGISTRY};
 
 /// Initialise the app subsystem.
 ///

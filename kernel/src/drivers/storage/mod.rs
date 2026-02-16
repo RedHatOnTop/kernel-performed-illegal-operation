@@ -2,50 +2,56 @@
 //!
 //! Block device drivers for various storage interfaces.
 
-pub mod nvme;
 pub mod ahci;
-pub mod usb_storage;
+pub mod nvme;
 pub mod partition;
+pub mod usb_storage;
 
-use alloc::vec::Vec;
-use alloc::string::String;
 use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Block device trait for storage abstraction
 pub trait BlockDevice: Send + Sync {
     /// Get device name
     fn name(&self) -> &str;
-    
+
     /// Get total size in bytes
     fn size(&self) -> u64;
-    
+
     /// Get block size in bytes
     fn block_size(&self) -> u32;
-    
+
     /// Get number of blocks
     fn block_count(&self) -> u64 {
         self.size() / self.block_size() as u64
     }
-    
+
     /// Read blocks into buffer
-    fn read_blocks(&self, start_block: u64, count: u32, buffer: &mut [u8]) -> Result<(), StorageError>;
-    
+    fn read_blocks(
+        &self,
+        start_block: u64,
+        count: u32,
+        buffer: &mut [u8],
+    ) -> Result<(), StorageError>;
+
     /// Write blocks from buffer
-    fn write_blocks(&self, start_block: u64, count: u32, buffer: &[u8]) -> Result<(), StorageError>;
-    
+    fn write_blocks(&self, start_block: u64, count: u32, buffer: &[u8])
+        -> Result<(), StorageError>;
+
     /// Flush any cached writes
     fn flush(&self) -> Result<(), StorageError>;
-    
+
     /// Check if device is read-only
     fn is_read_only(&self) -> bool {
         false
     }
-    
+
     /// Check if device supports TRIM/discard
     fn supports_trim(&self) -> bool {
         false
     }
-    
+
     /// Perform TRIM/discard operation
     fn trim(&self, _start_block: u64, _count: u64) -> Result<(), StorageError> {
         Err(StorageError::NotSupported)
@@ -138,10 +144,10 @@ impl StorageManager {
     pub fn init(&mut self) {
         // Probe for NVMe controllers
         nvme::probe(self);
-        
+
         // Probe for AHCI/SATA controllers
         ahci::probe(self);
-        
+
         // Probe for USB mass storage
         usb_storage::probe(self);
     }
@@ -169,7 +175,10 @@ impl StorageManager {
 
     /// Find device by name
     pub fn find_by_name(&self, name: &str) -> Option<&dyn BlockDevice> {
-        self.devices.iter().find(|d| d.name() == name).map(|d| d.as_ref())
+        self.devices
+            .iter()
+            .find(|d| d.name() == name)
+            .map(|d| d.as_ref())
     }
 }
 

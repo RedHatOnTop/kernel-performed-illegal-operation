@@ -3,8 +3,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::tokenizer::{Tokenizer, Token, Attribute};
-use crate::tree_builder::{TreeBuilder, TreeSink, NodeId, QuirksMode};
+use crate::tokenizer::{Attribute, Token, Tokenizer};
+use crate::tree_builder::{NodeId, QuirksMode, TreeBuilder, TreeSink};
 use servo_types::QualName;
 
 /// HTML parse error.
@@ -44,14 +44,14 @@ impl<S: TreeSink> HtmlParser<S> {
     /// Parse an HTML string.
     pub fn parse(mut self, html: &str) -> S {
         let tokenizer = Tokenizer::new(html);
-        
+
         for token in tokenizer {
             self.tree_builder.process_token(token);
         }
-        
+
         // Process EOF
         self.tree_builder.process_token(Token::Eof);
-        
+
         self.tree_builder.into_sink()
     }
 
@@ -121,7 +121,10 @@ impl SimpleDocument {
         if let Some(SimpleNode::Document) = self.nodes.get(0) {
             // Find the first element child
             for (i, node) in self.nodes.iter().enumerate() {
-                if let SimpleNode::Element { parent: Some(0), .. } = node {
+                if let SimpleNode::Element {
+                    parent: Some(0), ..
+                } = node
+                {
                     return Some(i);
                 }
             }
@@ -132,18 +135,23 @@ impl SimpleDocument {
     /// Get children of a node.
     pub fn children(&self, id: NodeId) -> Vec<NodeId> {
         match self.get(id) {
-            Some(SimpleNode::Document) => {
-                self.nodes.iter().enumerate()
-                    .filter_map(|(i, n)| {
-                        match n {
-                            SimpleNode::Element { parent: Some(0), .. } => Some(i),
-                            SimpleNode::Text { parent: Some(0), .. } => Some(i),
-                            SimpleNode::Comment { parent: Some(0), .. } => Some(i),
-                            _ => None,
-                        }
-                    })
-                    .collect()
-            }
+            Some(SimpleNode::Document) => self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter_map(|(i, n)| match n {
+                    SimpleNode::Element {
+                        parent: Some(0), ..
+                    } => Some(i),
+                    SimpleNode::Text {
+                        parent: Some(0), ..
+                    } => Some(i),
+                    SimpleNode::Comment {
+                        parent: Some(0), ..
+                    } => Some(i),
+                    _ => None,
+                })
+                .collect(),
             Some(SimpleNode::Element { children, .. }) => children.clone(),
             _ => Vec::new(),
         }
@@ -151,7 +159,9 @@ impl SimpleDocument {
 
     /// Get element by tag name (first match).
     pub fn get_elements_by_tag_name(&self, name: &str) -> Vec<NodeId> {
-        self.nodes.iter().enumerate()
+        self.nodes
+            .iter()
+            .enumerate()
             .filter_map(|(i, n)| {
                 if let SimpleNode::Element { name: n, .. } = n {
                     if n.local.as_str() == name {
@@ -167,12 +177,11 @@ impl SimpleDocument {
     pub fn text_content(&self, id: NodeId) -> String {
         match self.get(id) {
             Some(SimpleNode::Text { content, .. }) => content.clone(),
-            Some(SimpleNode::Element { children, .. }) => {
-                children.iter()
-                    .map(|&c| self.text_content(c))
-                    .collect::<Vec<_>>()
-                    .join("")
-            }
+            Some(SimpleNode::Element { children, .. }) => children
+                .iter()
+                .map(|&c| self.text_content(c))
+                .collect::<Vec<_>>()
+                .join(""),
             _ => String::new(),
         }
     }
@@ -277,13 +286,13 @@ mod tests {
     #[test]
     fn test_parse_simple() {
         let doc = parse_html("<html><head></head><body><p>Hello</p></body></html>");
-        
+
         let html_elements = doc.get_elements_by_tag_name("html");
         assert_eq!(html_elements.len(), 1);
-        
+
         let p_elements = doc.get_elements_by_tag_name("p");
         assert_eq!(p_elements.len(), 1);
-        
+
         let text = doc.text_content(p_elements[0]);
         assert_eq!(text, "Hello");
     }
@@ -291,7 +300,7 @@ mod tests {
     #[test]
     fn test_parse_implicit_tags() {
         let doc = parse_html("<p>Hello</p>");
-        
+
         // Should have html, head, body inserted
         assert!(!doc.get_elements_by_tag_name("html").is_empty());
         assert!(!doc.get_elements_by_tag_name("head").is_empty());

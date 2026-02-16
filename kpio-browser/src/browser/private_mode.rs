@@ -2,9 +2,9 @@
 //!
 //! Incognito/private browsing with enhanced privacy.
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 
 /// Private browsing session
 #[derive(Debug, Clone)]
@@ -57,9 +57,8 @@ impl PrivateSession {
     /// Add cookie
     pub fn add_cookie(&mut self, cookie: PrivateCookie) {
         // Remove existing cookie with same name/domain
-        self.cookies.retain(|c| 
-            !(c.name == cookie.name && c.domain == cookie.domain)
-        );
+        self.cookies
+            .retain(|c| !(c.name == cookie.name && c.domain == cookie.domain));
         self.cookies.push(cookie);
     }
 
@@ -67,23 +66,20 @@ impl PrivateSession {
     pub fn get_cookies(&self, domain: &str) -> Vec<&PrivateCookie> {
         self.cookies
             .iter()
-            .filter(|c| {
-                domain == c.domain 
-                || domain.ends_with(&alloc::format!(".{}", c.domain))
-            })
+            .filter(|c| domain == c.domain || domain.ends_with(&alloc::format!(".{}", c.domain)))
             .collect()
     }
 
     /// Remove cookie
     pub fn remove_cookie(&mut self, name: &str, domain: &str) {
-        self.cookies.retain(|c| !(c.name == name && c.domain == domain));
+        self.cookies
+            .retain(|c| !(c.name == name && c.domain == domain));
     }
 
     /// Clear expired cookies
     pub fn clear_expired_cookies(&mut self, current_time: u64) {
-        self.cookies.retain(|c| {
-            c.expires.map(|e| e > current_time).unwrap_or(true)
-        });
+        self.cookies
+            .retain(|c| c.expires.map(|e| e > current_time).unwrap_or(true));
     }
 
     /// Add window
@@ -394,7 +390,9 @@ impl Default for PrivateModeInfo {
                 String::from("Websites you visited"),
             ],
             tips: alloc::vec![
-                String::from("All data from this session will be deleted when you exit incognito mode"),
+                String::from(
+                    "All data from this session will be deleted when you exit incognito mode"
+                ),
                 String::from("Downloaded files will remain on your computer"),
                 String::from("Extensions are disabled in incognito mode"),
             ],
@@ -405,7 +403,7 @@ impl Default for PrivateModeInfo {
 /// Generate private mode welcome page HTML
 pub fn private_mode_welcome_html() -> String {
     let info = PrivateModeInfo::default();
-    
+
     alloc::format!(
         r#"<!DOCTYPE html>
 <html>
@@ -498,8 +496,20 @@ pub fn private_mode_welcome_html() -> String {
     </div>
 </body>
 </html>"#,
-        info.hidden.iter().map(|s| alloc::format!("<li>{}</li>", s)).collect::<Vec<_>>().join("\n                "),
-        info.not_hidden.iter().map(|s| alloc::format!("<li>{}</li>", s)).collect::<Vec<_>>().join("\n                "),
-        info.tips.iter().map(|s| alloc::format!("<li>{}</li>", s)).collect::<Vec<_>>().join("\n                ")
+        info.hidden
+            .iter()
+            .map(|s| alloc::format!("<li>{}</li>", s))
+            .collect::<Vec<_>>()
+            .join("\n                "),
+        info.not_hidden
+            .iter()
+            .map(|s| alloc::format!("<li>{}</li>", s))
+            .collect::<Vec<_>>()
+            .join("\n                "),
+        info.tips
+            .iter()
+            .map(|s| alloc::format!("<li>{}</li>", s))
+            .collect::<Vec<_>>()
+            .join("\n                ")
     )
 }

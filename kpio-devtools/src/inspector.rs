@@ -6,11 +6,11 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
-use alloc::boxed::Box;
 
 /// Node ID for DevTools protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -81,7 +81,7 @@ impl DomNode {
             .into_iter()
             .flat_map(|(k, v)| vec![k.to_string(), v.to_string()])
             .collect();
-        
+
         Self {
             node_id,
             backend_node_id: BackendNodeId(node_id.0),
@@ -102,7 +102,7 @@ impl DomNode {
             pseudo_elements: None,
         }
     }
-    
+
     /// Create a text node.
     pub fn text(node_id: NodeId, value: &str) -> Self {
         Self {
@@ -125,7 +125,7 @@ impl DomNode {
             pseudo_elements: None,
         }
     }
-    
+
     /// Create a document node.
     pub fn document(node_id: NodeId, url: &str) -> Self {
         Self {
@@ -148,7 +148,7 @@ impl DomNode {
             pseudo_elements: None,
         }
     }
-    
+
     /// Add a child node.
     pub fn add_child(&mut self, child: DomNode) {
         if let Some(ref mut children) = self.children {
@@ -156,7 +156,7 @@ impl DomNode {
             self.child_node_count = children.len() as i32;
         }
     }
-    
+
     /// Set attribute.
     pub fn set_attribute(&mut self, name: &str, value: &str) {
         // Find and update existing attribute
@@ -170,13 +170,13 @@ impl DomNode {
             }
             i += 2;
         }
-        
+
         if !found {
             self.attributes.push(name.to_string());
             self.attributes.push(value.to_string());
         }
     }
-    
+
     /// Remove attribute.
     pub fn remove_attribute(&mut self, name: &str) {
         let mut i = 0;
@@ -189,7 +189,7 @@ impl DomNode {
             i += 2;
         }
     }
-    
+
     /// Get attribute value.
     pub fn get_attribute(&self, name: &str) -> Option<&str> {
         let mut i = 0;
@@ -229,7 +229,7 @@ impl CssStyle {
             range: None,
         }
     }
-    
+
     /// Add a property.
     pub fn add_property(&mut self, name: &str, value: &str) {
         self.css_properties.push(CssProperty {
@@ -478,34 +478,34 @@ impl DomInspector {
             document: None,
         }
     }
-    
+
     /// Generate a new node ID.
     pub fn new_node_id(&mut self) -> NodeId {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         id
     }
-    
+
     /// Set the document.
     pub fn set_document(&mut self, document: DomNode) {
         self.document = Some(document);
     }
-    
+
     /// Get the document.
     pub fn get_document(&self) -> Option<&DomNode> {
         self.document.as_ref()
     }
-    
+
     /// Get node by ID.
     pub fn get_node(&self, node_id: NodeId) -> Option<&DomNode> {
         self.nodes.get(&node_id.0)
     }
-    
+
     /// Register a node.
     pub fn register_node(&mut self, node: DomNode) {
         self.nodes.insert(node.node_id.0, node);
     }
-    
+
     /// Query selector (simplified).
     pub fn query_selector(&self, _node_id: NodeId, selector: &str) -> Option<NodeId> {
         // Simplified implementation - would use CSS selector matching
@@ -520,20 +520,18 @@ impl DomInspector {
         }
         None
     }
-    
+
     /// Query selector all.
     pub fn query_selector_all(&self, _node_id: NodeId, _selector: &str) -> Vec<NodeId> {
         // Simplified implementation
         Vec::new()
     }
-    
+
     /// Get outer HTML.
     pub fn get_outer_html(&self, node_id: NodeId) -> Option<String> {
-        self.get_node(node_id).map(|node| {
-            self.serialize_node(node)
-        })
+        self.get_node(node_id).map(|node| self.serialize_node(node))
     }
-    
+
     /// Serialize node to HTML.
     fn serialize_node(&self, node: &DomNode) -> String {
         match node.node_type {
@@ -541,7 +539,7 @@ impl DomInspector {
                 let mut html = String::new();
                 html.push('<');
                 html.push_str(&node.local_name);
-                
+
                 // Attributes
                 let mut i = 0;
                 while i + 1 < node.attributes.len() {
@@ -552,25 +550,23 @@ impl DomInspector {
                     html.push('"');
                     i += 2;
                 }
-                
+
                 html.push('>');
-                
+
                 // Children
                 if let Some(ref children) = node.children {
                     for child in children {
                         html.push_str(&self.serialize_node(child));
                     }
                 }
-                
+
                 html.push_str("</");
                 html.push_str(&node.local_name);
                 html.push('>');
-                
+
                 html
             }
-            NodeType::Text => {
-                node.node_value.clone().unwrap_or_default()
-            }
+            NodeType::Text => node.node_value.clone().unwrap_or_default(),
             NodeType::Comment => {
                 let mut html = String::from("<!--");
                 if let Some(ref value) = node.node_value {
@@ -582,19 +578,19 @@ impl DomInspector {
             _ => String::new(),
         }
     }
-    
+
     /// Set outer HTML.
     pub fn set_outer_html(&mut self, _node_id: NodeId, _html: &str) -> Result<(), &'static str> {
         // Would parse HTML and replace node
         Ok(())
     }
-    
+
     /// Get computed style.
     pub fn get_computed_style(&self, _node_id: NodeId) -> Vec<ComputedStyleProperty> {
         // Would compute cascaded styles
         Vec::new()
     }
-    
+
     /// Get matched styles.
     pub fn get_matched_styles(&self, _node_id: NodeId) -> MatchedStyles {
         MatchedStyles {
@@ -606,18 +602,18 @@ impl DomInspector {
             css_keyframes_rules: Vec::new(),
         }
     }
-    
+
     /// Get box model.
     pub fn get_box_model(&self, _node_id: NodeId) -> Option<BoxModel> {
         // Would compute layout boxes
         None
     }
-    
+
     /// Highlight node.
     pub fn highlight_node(&self, _node_id: NodeId, _config: &HighlightConfig) {
         // Would draw overlay on the node
     }
-    
+
     /// Hide highlight.
     pub fn hide_highlight(&self) {
         // Would remove overlay
@@ -678,22 +674,22 @@ impl Rgba {
     pub fn new(r: u8, g: u8, b: u8, a: f64) -> Self {
         Self { r, g, b, a }
     }
-    
+
     /// Content highlight color (light blue).
     pub fn content() -> Self {
         Self::new(111, 168, 220, 0.66)
     }
-    
+
     /// Padding highlight color (light green).
     pub fn padding() -> Self {
         Self::new(147, 196, 125, 0.55)
     }
-    
+
     /// Border highlight color (yellow).
     pub fn border() -> Self {
         Self::new(255, 229, 153, 0.66)
     }
-    
+
     /// Margin highlight color (orange).
     pub fn margin() -> Self {
         Self::new(246, 178, 107, 0.66)
@@ -746,7 +742,7 @@ pub struct AXProperty {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_dom_node_creation() {
         let node = DomNode::element(NodeId(1), "div", vec![("class", "container")]);
@@ -754,17 +750,17 @@ mod tests {
         assert_eq!(node.local_name, "div");
         assert_eq!(node.get_attribute("class"), Some("container"));
     }
-    
+
     #[test]
     fn test_dom_inspector() {
         let mut inspector = DomInspector::new();
         let node_id = inspector.new_node_id();
         assert_eq!(node_id.0, 1);
-        
+
         let node_id2 = inspector.new_node_id();
         assert_eq!(node_id2.0, 2);
     }
-    
+
     #[test]
     fn test_css_style() {
         let mut style = CssStyle::new();

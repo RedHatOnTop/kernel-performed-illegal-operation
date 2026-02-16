@@ -45,9 +45,8 @@ pub struct Module {
 impl Module {
     /// Create a module from WASM bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RuntimeError> {
-        let module = WasmParser::parse(bytes).map_err(|e| {
-            RuntimeError::InvalidBinary(alloc::format!("{}", e))
-        })?;
+        let module = WasmParser::parse(bytes)
+            .map_err(|e| RuntimeError::InvalidBinary(alloc::format!("{}", e)))?;
 
         // Validate the parsed module
         module.validate_structure()?;
@@ -70,15 +69,15 @@ impl Module {
         // Check version
         let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
         if version != 1 {
-            return Err(RuntimeError::InvalidBinary(
-                alloc::format!("Unsupported WASM version: {}", version),
-            ));
+            return Err(RuntimeError::InvalidBinary(alloc::format!(
+                "Unsupported WASM version: {}",
+                version
+            )));
         }
 
         // Full parse + validate
-        let module = WasmParser::parse(bytes).map_err(|e| {
-            RuntimeError::InvalidBinary(alloc::format!("{}", e))
-        })?;
+        let module = WasmParser::parse(bytes)
+            .map_err(|e| RuntimeError::InvalidBinary(alloc::format!("{}", e)))?;
         module.validate_structure()?;
 
         Ok(())
@@ -86,9 +85,8 @@ impl Module {
 
     /// Validate structural correctness of the parsed module.
     pub fn validate_structure(&self) -> Result<(), RuntimeError> {
-        ModuleValidator::validate(self).map_err(|e| {
-            RuntimeError::InvalidBinary(alloc::format!("Validation: {}", e))
-        })
+        ModuleValidator::validate(self)
+            .map_err(|e| RuntimeError::InvalidBinary(alloc::format!("Validation: {}", e)))
     }
 
     /// Get the module name.

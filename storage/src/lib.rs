@@ -11,12 +11,12 @@
 
 extern crate alloc;
 
-pub mod vfs;
-pub mod fuse;
+pub mod cache;
 pub mod driver;
 pub mod fs;
-pub mod cache;
+pub mod fuse;
 pub mod partition;
+pub mod vfs;
 
 use alloc::string::String;
 use alloc::vec::Vec;

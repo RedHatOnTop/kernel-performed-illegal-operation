@@ -42,37 +42,37 @@ impl OpenOptions {
     pub fn new() -> Self {
         OpenOptions::default()
     }
-    
+
     pub fn read(&mut self, read: bool) -> &mut Self {
         self.read = read;
         self
     }
-    
+
     pub fn write(&mut self, write: bool) -> &mut Self {
         self.write = write;
         self
     }
-    
+
     pub fn append(&mut self, append: bool) -> &mut Self {
         self.append = append;
         self
     }
-    
+
     pub fn truncate(&mut self, truncate: bool) -> &mut Self {
         self.truncate = truncate;
         self
     }
-    
+
     pub fn create(&mut self, create: bool) -> &mut Self {
         self.create = create;
         self
     }
-    
+
     pub fn create_new(&mut self, create_new: bool) -> &mut Self {
         self.create_new = create_new;
         self
     }
-    
+
     pub fn open(&self, path: &str) -> Result<File> {
         let request = FsRequest::Open {
             path: String::from(path),
@@ -83,19 +83,17 @@ impl OpenOptions {
             create: self.create,
             create_new: self.create_new,
         };
-        
+
         let response = send_fs_request(&request)?;
-        
+
         match response {
-            FsResponse::Opened { handle } => {
-                Ok(File {
-                    handle,
-                    path: String::from(path),
-                    position: 0,
-                    readable: self.read,
-                    writable: self.write || self.append,
-                })
-            }
+            FsResponse::Opened { handle } => Ok(File {
+                handle,
+                path: String::from(path),
+                position: 0,
+                readable: self.read,
+                writable: self.write || self.append,
+            }),
             FsResponse::Error(e) => Err(PlatformError::Io(e)),
             _ => Err(PlatformError::Io(IoError::Other)),
         }
@@ -107,7 +105,7 @@ impl File {
     pub fn open(path: &str) -> Result<File> {
         OpenOptions::new().read(true).open(path)
     }
-    
+
     /// Create file for writing
     pub fn create(path: &str) -> Result<File> {
         OpenOptions::new()
@@ -116,21 +114,21 @@ impl File {
             .truncate(true)
             .open(path)
     }
-    
+
     /// Read from file
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if !self.readable {
             return Err(PlatformError::Io(IoError::PermissionDenied));
         }
-        
+
         let request = FsRequest::Read {
             handle: self.handle,
             offset: self.position,
             len: buf.len(),
         };
-        
+
         let response = send_fs_request(&request)?;
-        
+
         match response {
             FsResponse::Data(data) => {
                 let len = data.len().min(buf.len());
@@ -142,21 +140,21 @@ impl File {
             _ => Err(PlatformError::Io(IoError::Other)),
         }
     }
-    
+
     /// Write to file
     pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if !self.writable {
             return Err(PlatformError::Io(IoError::PermissionDenied));
         }
-        
+
         let request = FsRequest::Write {
             handle: self.handle,
             offset: self.position,
             data: buf.to_vec(),
         };
-        
+
         let response = send_fs_request(&request)?;
-        
+
         match response {
             FsResponse::Written(len) => {
                 self.position += len as u64;
@@ -166,7 +164,7 @@ impl File {
             _ => Err(PlatformError::Io(IoError::Other)),
         }
     }
-    
+
     /// Seek to position
     pub fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         let new_pos = match pos {
@@ -187,29 +185,31 @@ impl File {
                 }
             }
         };
-        
+
         self.position = new_pos;
         Ok(new_pos)
     }
-    
+
     /// Get file metadata
     pub fn metadata(&self) -> Result<Metadata> {
         let request = FsRequest::Metadata {
             path: self.path.clone(),
         };
-        
+
         let response = send_fs_request(&request)?;
-        
+
         match response {
             FsResponse::Metadata(meta) => Ok(meta),
             FsResponse::Error(e) => Err(PlatformError::Io(e)),
             _ => Err(PlatformError::Io(IoError::Other)),
         }
     }
-    
+
     /// Sync all data to disk
     pub fn sync_all(&self) -> Result<()> {
-        let request = FsRequest::Sync { handle: self.handle };
+        let request = FsRequest::Sync {
+            handle: self.handle,
+        };
         let _ = send_fs_request(&request)?;
         Ok(())
     }
@@ -217,7 +217,9 @@ impl File {
 
 impl Drop for File {
     fn drop(&mut self) {
-        let _ = send_fs_request(&FsRequest::Close { handle: self.handle });
+        let _ = send_fs_request(&FsRequest::Close {
+            handle: self.handle,
+        });
     }
 }
 
@@ -254,9 +256,9 @@ pub fn read_dir(path: &str) -> Result<Vec<DirEntry>> {
     let request = FsRequest::ReadDir {
         path: String::from(path),
     };
-    
+
     let response = send_fs_request(&request)?;
-    
+
     match response {
         FsResponse::DirEntries(entries) => Ok(entries),
         FsResponse::Error(e) => Err(PlatformError::Io(e)),
@@ -269,9 +271,9 @@ pub fn create_dir(path: &str) -> Result<()> {
     let request = FsRequest::CreateDir {
         path: String::from(path),
     };
-    
+
     let response = send_fs_request(&request)?;
-    
+
     match response {
         FsResponse::Ok => Ok(()),
         FsResponse::Error(e) => Err(PlatformError::Io(e)),
@@ -284,9 +286,9 @@ pub fn create_dir_all(path: &str) -> Result<()> {
     let request = FsRequest::CreateDirAll {
         path: String::from(path),
     };
-    
+
     let response = send_fs_request(&request)?;
-    
+
     match response {
         FsResponse::Ok => Ok(()),
         FsResponse::Error(e) => Err(PlatformError::Io(e)),
@@ -299,9 +301,9 @@ pub fn remove_file(path: &str) -> Result<()> {
     let request = FsRequest::RemoveFile {
         path: String::from(path),
     };
-    
+
     let response = send_fs_request(&request)?;
-    
+
     match response {
         FsResponse::Ok => Ok(()),
         FsResponse::Error(e) => Err(PlatformError::Io(e)),
@@ -314,9 +316,9 @@ pub fn remove_dir(path: &str) -> Result<()> {
     let request = FsRequest::RemoveDir {
         path: String::from(path),
     };
-    
+
     let response = send_fs_request(&request)?;
-    
+
     match response {
         FsResponse::Ok => Ok(()),
         FsResponse::Error(e) => Err(PlatformError::Io(e)),
@@ -334,9 +336,9 @@ pub fn metadata(path: &str) -> Result<Metadata> {
     let request = FsRequest::Metadata {
         path: String::from(path),
     };
-    
+
     let response = send_fs_request(&request)?;
-    
+
     match response {
         FsResponse::Metadata(meta) => Ok(meta),
         FsResponse::Error(e) => Err(PlatformError::Io(e)),
@@ -359,16 +361,40 @@ enum FsRequest {
         create: bool,
         create_new: bool,
     },
-    Close { handle: u64 },
-    Read { handle: u64, offset: u64, len: usize },
-    Write { handle: u64, offset: u64, data: Vec<u8> },
-    Sync { handle: u64 },
-    Metadata { path: String },
-    ReadDir { path: String },
-    CreateDir { path: String },
-    CreateDirAll { path: String },
-    RemoveFile { path: String },
-    RemoveDir { path: String },
+    Close {
+        handle: u64,
+    },
+    Read {
+        handle: u64,
+        offset: u64,
+        len: usize,
+    },
+    Write {
+        handle: u64,
+        offset: u64,
+        data: Vec<u8>,
+    },
+    Sync {
+        handle: u64,
+    },
+    Metadata {
+        path: String,
+    },
+    ReadDir {
+        path: String,
+    },
+    CreateDir {
+        path: String,
+    },
+    CreateDirAll {
+        path: String,
+    },
+    RemoveFile {
+        path: String,
+    },
+    RemoveDir {
+        path: String,
+    },
 }
 
 #[derive(Debug)]

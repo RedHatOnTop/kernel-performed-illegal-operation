@@ -276,3 +276,59 @@
 - 2026-02-16: `7-2.S8` 완료 (PASS, 100%)
 - 2026-02-16: `7-2.S9` 완료 (PASS, 100%)
 - 상태: `Phase 7-2 Hard-Gate 실행 라운드 완료`
+
+---
+
+## 6) 코드 구현 현황 (Implementation Status)
+
+> 게이트 S0-S9는 **설계 기준 / 검증 체크리스트** 단계를 의미.
+> 아래는 실제 코드 구현 현황을 추적한다.
+
+| 파일 | 라인 수 | 서브 페이즈 | 상태 | 비고 |
+|---|---|---|---|---|
+| `parser.rs` | ~1,795 | A | ✅ 완료 | 13개 섹션, ~170 명령어 디코딩 |
+| `module.rs` | ~324 | A | ✅ 완료 | `from_bytes`, `validate`, `validate_structure` |
+| `opcodes.rs` | ~800 | A | ✅ 완료 | ~170 명령어 열거형 |
+| `interpreter.rs` | ~446 | B | ✅ 완료 | WasmValue, Stack, CallFrame, BlockFrame |
+| `executor.rs` | ~3,400 | B | ✅ 완료 | ~170 명령어 실행, 벌크 메모리/테이블 ops, ElemDrop/DataDrop 구현 |
+| `instance.rs` | ~231 | B | ✅ 완료 | Instance, Imports, Store |
+| `engine.rs` | ~126 | B | ✅ 완료 | Engine 싱글톤 |
+| `memory.rs` | ~257 | B | ✅ 완료 | LinearMemory, fill, copy_within |
+| `wasi.rs` | ~1,801 | C | ✅ 완료 | WASI P1 22개 syscall, 76 errno, VFS |
+| `host.rs` | ~1,600 | C/E | ✅ 완료 | WASI 연결 + kpio IPC/process/capability/GPU 구현 완료 |
+| `sandbox.rs` | ~256 | B | ✅ 완료 | SandboxConfig, 리소스 제한 |
+| `package.rs` | ~542 | F | ✅ 완료 | `.kpioapp` ZIP 파싱, 매니페스트 해석 |
+| `app_launcher.rs` | ~248 | F | ✅ 완료 | WASM 앱 라이프사이클 관리 |
+| `host_gui.rs` | ~526 | E | ✅ 완료 | kpio:gui 윈도우/캔버스/이벤트 API |
+| `host_system.rs` | ~298 | E | ✅ 완료 | kpio:system 시계/클립보드/로깅 API |
+| `host_net.rs` | ~460 | E | ✅ 완료 | kpio:net 소켓 TCP/UDP API |
+| `wit/mod.rs` | ~17 | G | ✅ 완료 | WIT 모듈 루트 |
+| `wit/types.rs` | ~215 | G | ✅ 완료 | WIT AST 타입 시스템 |
+| `wit/parser.rs` | ~899 | G | ✅ 완료 | WIT 텍스트 형식 파서 |
+| `wit/kpio-gui.wit` | | G | ✅ 완료 | GUI 인터페이스 정의 |
+| `wit/kpio-system.wit` | | G | ✅ 완료 | 시스템 인터페이스 정의 |
+| `wit/kpio-net.wit` | | G | ✅ 완료 | 네트워크 인터페이스 정의 |
+| `service_worker/` | ~2,717 | H | ✅ 완료 | SW 라이프사이클, 캐시, Fetch, Sync (7 모듈) |
+| `jit/` | ~4,500+ | D | ✅ 완료 | IR + 프로파일링 + 최적화 패스 5종 + PersistentCache 구현 완료 |
+
+### 테스트 현황
+
+| 모듈 | 테스트 수 | 주요 커버리지 |
+|---|---|---|
+| `parser.rs` | 10 | 섹션 파싱, 매직 넘버, 엣지 케이스 |
+| `executor.rs` | 28+ | B-QG1~B-QG7 품질 게이트, ElemDrop/DataDrop |
+| `host.rs` | 9 | WASI fd_write, args, env, proc_exit |
+| `wasi.rs` | 25 | VFS, fd ops, path ops, preopen, random |
+| `package.rs` | 6 | TOML 파싱, WASM 매직, 권한, 크기 제한 |
+| `app_launcher.rs` | 3 | 기본 설정, 엔트리 탐색, uninstall |
+| `host_gui.rs` | 3 | 윈도우 생성/종료, draw_rect, clear |
+| `host_system.rs` | 5 | monotonic, hostname, locale, clipboard |
+| `host_net.rs` | 4 | 소켓 생성/종료, connect+send, ENOTCONN |
+| `wit/parser.rs` | 8 | 패키지, 인터페이스, 레코드, enum, 세계 |
+| `service_worker/mod.rs` | 12 | 등록, 해제, 중복 방지, scope 매칭 |
+| `service_worker/lifecycle.rs` | 13 | 상태 전이, skip_waiting, claim |
+| `service_worker/registration.rs` | 11 | 등록 생성, preload, sync 태그 |
+| `service_worker/fetch.rs` | 13 | 요청/응답, respond_with, interceptor |
+| `service_worker/cache.rs` | 18 | put/match/delete, CacheStorage, 전략 |
+| `service_worker/events.rs` | 15 | 메시지, Push, EventDispatcher, Clients |
+| `service_worker/sync.rs` | 18 | 등록, 재시도, 주기적 sync |

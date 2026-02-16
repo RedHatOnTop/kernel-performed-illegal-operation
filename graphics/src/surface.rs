@@ -29,7 +29,12 @@ pub struct Surface {
 
 impl Surface {
     /// Create a new surface.
-    pub fn new(id: SurfaceId, width: u32, height: u32, format: PixelFormat) -> Result<Self, GraphicsError> {
+    pub fn new(
+        id: SurfaceId,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+    ) -> Result<Self, GraphicsError> {
         let mut surface = Surface {
             id,
             width,
@@ -38,59 +43,55 @@ impl Surface {
             buffers: Vec::new(),
             current_buffer: 0,
         };
-        
+
         // Create double buffering
         surface.allocate_buffers(2)?;
-        
+
         Ok(surface)
     }
-    
+
     /// Allocate buffers for the surface.
     fn allocate_buffers(&mut self, count: usize) -> Result<(), GraphicsError> {
         self.buffers.clear();
-        
+
         for i in 0..count {
-            let buffer = SurfaceBuffer::new(
-                self.width,
-                self.height,
-                self.format,
-            )?;
+            let buffer = SurfaceBuffer::new(self.width, self.height, self.format)?;
             self.buffers.push(buffer);
         }
-        
+
         Ok(())
     }
-    
+
     /// Get the surface ID.
     pub fn id(&self) -> SurfaceId {
         self.id
     }
-    
+
     /// Get the width.
     pub fn width(&self) -> u32 {
         self.width
     }
-    
+
     /// Get the height.
     pub fn height(&self) -> u32 {
         self.height
     }
-    
+
     /// Get the pixel format.
     pub fn format(&self) -> PixelFormat {
         self.format
     }
-    
+
     /// Get the current buffer for rendering.
     pub fn current_buffer(&mut self) -> &mut SurfaceBuffer {
         &mut self.buffers[self.current_buffer]
     }
-    
+
     /// Swap buffers (for double buffering).
     pub fn swap_buffers(&mut self) {
         self.current_buffer = (self.current_buffer + 1) % self.buffers.len();
     }
-    
+
     /// Resize the surface.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GraphicsError> {
         self.width = width;
@@ -120,7 +121,7 @@ impl SurfaceBuffer {
     /// Create a new surface buffer.
     pub fn new(width: u32, height: u32, format: PixelFormat) -> Result<Self, GraphicsError> {
         let stride = width * format.bytes_per_pixel();
-        
+
         Ok(SurfaceBuffer {
             handle: 0, // Would be allocated from GPU
             width,
@@ -130,37 +131,37 @@ impl SurfaceBuffer {
             state: BufferState::Ready,
         })
     }
-    
+
     /// Get the buffer handle.
     pub fn handle(&self) -> u64 {
         self.handle
     }
-    
+
     /// Get the width.
     pub fn width(&self) -> u32 {
         self.width
     }
-    
+
     /// Get the height.
     pub fn height(&self) -> u32 {
         self.height
     }
-    
+
     /// Get the stride.
     pub fn stride(&self) -> u32 {
         self.stride
     }
-    
+
     /// Get the buffer size in bytes.
     pub fn size(&self) -> usize {
         (self.stride * self.height) as usize
     }
-    
+
     /// Get the buffer state.
     pub fn state(&self) -> BufferState {
         self.state
     }
-    
+
     /// Set the buffer state.
     pub fn set_state(&mut self, state: BufferState) {
         self.state = state;

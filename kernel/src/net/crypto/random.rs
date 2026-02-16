@@ -91,15 +91,15 @@ impl ChaChaRng {
         let mut x = self.state;
         for _ in 0..10 {
             // column rounds
-            quarter_round(&mut x, 0, 4,  8, 12);
-            quarter_round(&mut x, 1, 5,  9, 13);
+            quarter_round(&mut x, 0, 4, 8, 12);
+            quarter_round(&mut x, 1, 5, 9, 13);
             quarter_round(&mut x, 2, 6, 10, 14);
             quarter_round(&mut x, 3, 7, 11, 15);
             // diagonal rounds
             quarter_round(&mut x, 0, 5, 10, 15);
             quarter_round(&mut x, 1, 6, 11, 12);
-            quarter_round(&mut x, 2, 7,  8, 13);
-            quarter_round(&mut x, 3, 4,  9, 14);
+            quarter_round(&mut x, 2, 7, 8, 13);
+            quarter_round(&mut x, 3, 4, 9, 14);
         }
         for i in 0..16 {
             x[i] = x[i].wrapping_add(self.state[i]);
@@ -119,10 +119,18 @@ impl ChaChaRng {
 
 #[inline]
 fn quarter_round(x: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
-    x[a] = x[a].wrapping_add(x[b]); x[d] ^= x[a]; x[d] = x[d].rotate_left(16);
-    x[c] = x[c].wrapping_add(x[d]); x[b] ^= x[c]; x[b] = x[b].rotate_left(12);
-    x[a] = x[a].wrapping_add(x[b]); x[d] ^= x[a]; x[d] = x[d].rotate_left(8);
-    x[c] = x[c].wrapping_add(x[d]); x[b] ^= x[c]; x[b] = x[b].rotate_left(7);
+    x[a] = x[a].wrapping_add(x[b]);
+    x[d] ^= x[a];
+    x[d] = x[d].rotate_left(16);
+    x[c] = x[c].wrapping_add(x[d]);
+    x[b] ^= x[c];
+    x[b] = x[b].rotate_left(12);
+    x[a] = x[a].wrapping_add(x[b]);
+    x[d] ^= x[a];
+    x[d] = x[d].rotate_left(8);
+    x[c] = x[c].wrapping_add(x[d]);
+    x[b] ^= x[c];
+    x[b] = x[b].rotate_left(7);
 }
 
 // ── RDRAND wrapper ──────────────────────────────────────────
@@ -150,7 +158,9 @@ fn rdrand_u32() -> u32 {
     // Fallback: timestamp-seeded LCG
     let tsc = read_tsc();
     let mut s = tsc ^ 0xDEAD_BEEF_CAFE_BABE;
-    s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    s = s
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     (s >> 33) as u32
 }
 
@@ -166,5 +176,7 @@ fn read_tsc() -> u64 {
         ((hi as u64) << 32) | (lo as u64)
     }
     #[cfg(not(target_arch = "x86_64"))]
-    { 0 }
+    {
+        0
+    }
 }

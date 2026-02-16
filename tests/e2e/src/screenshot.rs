@@ -49,12 +49,12 @@ impl Screenshot {
         if x >= self.width || y >= self.height {
             return None;
         }
-        
+
         let offset = ((y * self.width + x) * 4) as usize;
         if offset + 3 >= self.data.len() {
             return None;
         }
-        
+
         Some(Rgba {
             r: self.data[offset],
             g: self.data[offset + 1],
@@ -68,12 +68,12 @@ impl Screenshot {
         if x >= self.width || y >= self.height {
             return;
         }
-        
+
         let offset = ((y * self.width + x) * 4) as usize;
         if offset + 3 >= self.data.len() {
             return;
         }
-        
+
         self.data[offset] = color.r;
         self.data[offset + 1] = color.g;
         self.data[offset + 2] = color.b;
@@ -99,33 +99,37 @@ impl Screenshot {
         if self.width != other.width || self.height != other.height {
             return Err(String::from("Screenshot dimensions don't match"));
         }
-        
+
         let mut diff = Screenshot::new(
             &alloc::format!("{}_diff", self.name),
             self.width,
             self.height,
         );
-        
+
         for y in 0..self.height {
             for x in 0..self.width {
                 let p1 = self.get_pixel(x, y).unwrap_or(Rgba::BLACK);
                 let p2 = other.get_pixel(x, y).unwrap_or(Rgba::BLACK);
-                
+
                 if p1 != p2 {
                     // Highlight differences in red
                     diff.set_pixel(x, y, Rgba::RED);
                 } else {
                     // Dim matching pixels
-                    diff.set_pixel(x, y, Rgba {
-                        r: p1.r / 3,
-                        g: p1.g / 3,
-                        b: p1.b / 3,
-                        a: p1.a,
-                    });
+                    diff.set_pixel(
+                        x,
+                        y,
+                        Rgba {
+                            r: p1.r / 3,
+                            g: p1.g / 3,
+                            b: p1.b / 3,
+                            a: p1.a,
+                        },
+                    );
                 }
             }
         }
-        
+
         Ok(diff)
     }
 
@@ -134,13 +138,9 @@ impl Screenshot {
         if x + width > self.width || y + height > self.height {
             return Err(String::from("Crop region out of bounds"));
         }
-        
-        let mut cropped = Screenshot::new(
-            &alloc::format!("{}_cropped", self.name),
-            width,
-            height,
-        );
-        
+
+        let mut cropped = Screenshot::new(&alloc::format!("{}_cropped", self.name), width, height);
+
         for cy in 0..height {
             for cx in 0..width {
                 if let Some(pixel) = self.get_pixel(x + cx, y + cy) {
@@ -148,7 +148,7 @@ impl Screenshot {
                 }
             }
         }
-        
+
         Ok(cropped)
     }
 }
@@ -163,11 +163,36 @@ pub struct Rgba {
 }
 
 impl Rgba {
-    pub const BLACK: Rgba = Rgba { r: 0, g: 0, b: 0, a: 255 };
-    pub const WHITE: Rgba = Rgba { r: 255, g: 255, b: 255, a: 255 };
-    pub const RED: Rgba = Rgba { r: 255, g: 0, b: 0, a: 255 };
-    pub const GREEN: Rgba = Rgba { r: 0, g: 255, b: 0, a: 255 };
-    pub const BLUE: Rgba = Rgba { r: 0, g: 0, b: 255, a: 255 };
+    pub const BLACK: Rgba = Rgba {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    pub const WHITE: Rgba = Rgba {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    pub const RED: Rgba = Rgba {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    pub const GREEN: Rgba = Rgba {
+        r: 0,
+        g: 255,
+        b: 0,
+        a: 255,
+    };
+    pub const BLUE: Rgba = Rgba {
+        r: 0,
+        g: 0,
+        b: 255,
+        a: 255,
+    };
 
     /// Calculate color distance using simple RGB difference
     pub fn distance(&self, other: &Rgba) -> u32 {
@@ -269,36 +294,37 @@ pub fn compare_screenshots_with_options(
             hot_spots: Vec::new(),
         });
     }
-    
+
     let mut diff_pixels: u64 = 0;
     let total_pixels = (a.width * a.height) as u64;
-    
+
     for y in 0..a.height {
         for x in 0..a.width {
             // Check if in ignore region
-            let in_ignore = options.ignore_regions.iter().any(|(rx, ry, rw, rh)| {
-                x >= *rx && x < rx + rw && y >= *ry && y < ry + rh
-            });
-            
+            let in_ignore = options
+                .ignore_regions
+                .iter()
+                .any(|(rx, ry, rw, rh)| x >= *rx && x < rx + rw && y >= *ry && y < ry + rh);
+
             if in_ignore {
                 continue;
             }
-            
+
             let p1 = a.get_pixel(x, y).unwrap_or(Rgba::BLACK);
             let p2 = b.get_pixel(x, y).unwrap_or(Rgba::BLACK);
-            
+
             if !p1.is_similar(&p2, options.color_threshold) {
                 diff_pixels += 1;
             }
         }
     }
-    
+
     let diff_percentage = if total_pixels > 0 {
         (diff_pixels as f32 / total_pixels as f32) * 100.0
     } else {
         0.0
     };
-    
+
     Ok(ComparisonResult {
         matches: diff_percentage <= options.max_diff_percentage,
         diff_percentage,
@@ -353,20 +379,17 @@ impl ScreenshotManager {
     }
 
     /// Generate diff report
-    pub fn generate_diff_report(
-        &self,
-        screenshot: &Screenshot,
-    ) -> Result<DiffReport, String> {
+    pub fn generate_diff_report(&self, screenshot: &Screenshot) -> Result<DiffReport, String> {
         let baseline_path = alloc::format!("{}/{}.png", self.baseline_dir, screenshot.name);
         let baseline = load_baseline(&baseline_path)?;
         let comparison = compare_screenshots_with_options(screenshot, &baseline, &self.options)?;
-        
+
         let diff_image = if !comparison.matches {
             Some(screenshot.create_diff(&baseline)?)
         } else {
             None
         };
-        
+
         Ok(DiffReport {
             screenshot_name: screenshot.name.clone(),
             comparison,

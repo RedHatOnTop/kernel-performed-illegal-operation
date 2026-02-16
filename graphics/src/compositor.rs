@@ -8,8 +8,8 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use crate::{DisplayMode, GraphicsError, PixelFormat};
 use crate::surface::{Surface, SurfaceId};
+use crate::{DisplayMode, GraphicsError, PixelFormat};
 
 /// Global compositor instance.
 static COMPOSITOR: Mutex<Option<Compositor>> = Mutex::new(None);
@@ -38,22 +38,22 @@ pub fn set_display_mode(mode: DisplayMode) -> Result<(), GraphicsError> {
 pub struct Compositor {
     /// Current display mode.
     display_mode: DisplayMode,
-    
+
     /// All surfaces managed by the compositor.
     surfaces: BTreeMap<SurfaceId, SurfaceState>,
-    
+
     /// Surface stacking order (back to front).
     stacking_order: Vec<SurfaceId>,
-    
+
     /// Focused surface.
     focused_surface: Option<SurfaceId>,
-    
+
     /// Next surface ID.
     next_surface_id: u64,
-    
+
     /// Damage regions for incremental updates.
     damage_regions: Vec<DamageRect>,
-    
+
     /// Whether a frame is pending.
     frame_pending: bool,
 }
@@ -76,7 +76,7 @@ impl Compositor {
             frame_pending: false,
         })
     }
-    
+
     /// Set the display mode.
     pub fn set_display_mode(&mut self, mode: DisplayMode) -> Result<(), GraphicsError> {
         self.display_mode = mode;
@@ -84,12 +84,12 @@ impl Compositor {
         self.damage_full_screen();
         Ok(())
     }
-    
+
     /// Create a new surface.
     pub fn create_surface(&mut self, width: u32, height: u32) -> Result<SurfaceId, GraphicsError> {
         let id = SurfaceId(self.next_surface_id);
         self.next_surface_id += 1;
-        
+
         let state = SurfaceState {
             x: 0,
             y: 0,
@@ -99,32 +99,33 @@ impl Compositor {
             opacity: 1.0,
             buffer: None,
         };
-        
+
         self.surfaces.insert(id, state);
         self.stacking_order.push(id);
-        
+
         Ok(id)
     }
-    
+
     /// Destroy a surface.
     pub fn destroy_surface(&mut self, id: SurfaceId) -> Result<(), GraphicsError> {
         self.surfaces.remove(&id);
         self.stacking_order.retain(|&s| s != id);
-        
+
         if self.focused_surface == Some(id) {
             self.focused_surface = self.stacking_order.last().copied();
         }
-        
+
         Ok(())
     }
-    
+
     /// Move a surface to a new position.
     pub fn move_surface(&mut self, id: SurfaceId, x: i32, y: i32) -> Result<(), GraphicsError> {
         // First, read the old state values
-        let damage_info = self.surfaces.get(&id).map(|state| {
-            (state.x, state.y, state.width, state.height)
-        });
-        
+        let damage_info = self
+            .surfaces
+            .get(&id)
+            .map(|state| (state.x, state.y, state.width, state.height));
+
         if let Some((old_x, old_y, width, height)) = damage_info {
             // Damage old position
             self.add_damage(DamageRect {
@@ -133,13 +134,13 @@ impl Compositor {
                 width,
                 height,
             });
-            
+
             // Update state
             if let Some(state) = self.surfaces.get_mut(&id) {
                 state.x = x;
                 state.y = y;
             }
-            
+
             // Damage new position
             self.add_damage(DamageRect {
                 x,
@@ -148,17 +149,23 @@ impl Compositor {
                 height,
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Resize a surface.
-    pub fn resize_surface(&mut self, id: SurfaceId, width: u32, height: u32) -> Result<(), GraphicsError> {
+    pub fn resize_surface(
+        &mut self,
+        id: SurfaceId,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GraphicsError> {
         // First, read the current state values
-        let damage_info = self.surfaces.get(&id).map(|state| {
-            (state.x, state.y, state.width, state.height)
-        });
-        
+        let damage_info = self
+            .surfaces
+            .get(&id)
+            .map(|state| (state.x, state.y, state.width, state.height));
+
         if let Some((x, y, old_width, old_height)) = damage_info {
             self.add_damage(DamageRect {
                 x,
@@ -166,18 +173,22 @@ impl Compositor {
                 width: old_width.max(width),
                 height: old_height.max(height),
             });
-            
+
             if let Some(state) = self.surfaces.get_mut(&id) {
                 state.width = width;
                 state.height = height;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Set surface visibility.
-    pub fn set_surface_visible(&mut self, id: SurfaceId, visible: bool) -> Result<(), GraphicsError> {
+    pub fn set_surface_visible(
+        &mut self,
+        id: SurfaceId,
+        visible: bool,
+    ) -> Result<(), GraphicsError> {
         // First, read the current state values and update visibility
         let damage_info = if let Some(state) = self.surfaces.get_mut(&id) {
             state.visible = visible;
@@ -185,7 +196,7 @@ impl Compositor {
         } else {
             None
         };
-        
+
         if let Some((x, y, width, height)) = damage_info {
             self.add_damage(DamageRect {
                 x,
@@ -194,15 +205,15 @@ impl Compositor {
                 height,
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Raise a surface to the top.
     pub fn raise_surface(&mut self, id: SurfaceId) -> Result<(), GraphicsError> {
         self.stacking_order.retain(|&s| s != id);
         self.stacking_order.push(id);
-        
+
         if let Some(state) = self.surfaces.get(&id) {
             self.add_damage(DamageRect {
                 x: state.x,
@@ -211,20 +222,20 @@ impl Compositor {
                 height: state.height,
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Set the focused surface.
     pub fn set_focus(&mut self, id: Option<SurfaceId>) {
         self.focused_surface = id;
     }
-    
+
     /// Get the focused surface.
     pub fn focused_surface(&self) -> Option<SurfaceId> {
         self.focused_surface
     }
-    
+
     /// Commit a surface buffer.
     pub fn commit_surface(&mut self, id: SurfaceId, buffer: u64) -> Result<(), GraphicsError> {
         // First, update state and get damage info
@@ -234,7 +245,7 @@ impl Compositor {
         } else {
             None
         };
-        
+
         if let Some((x, y, width, height)) = damage_info {
             self.add_damage(DamageRect {
                 x,
@@ -244,16 +255,16 @@ impl Compositor {
             });
             self.frame_pending = true;
         }
-        
+
         Ok(())
     }
-    
+
     /// Render a frame.
     pub fn render_frame(&mut self) -> Result<(), GraphicsError> {
         if !self.frame_pending {
             return Ok(());
         }
-        
+
         // Composite all visible surfaces
         for &id in &self.stacking_order {
             if let Some(state) = self.surfaces.get(&id) {
@@ -263,20 +274,20 @@ impl Compositor {
                 }
             }
         }
-        
+
         // Clear damage
         self.damage_regions.clear();
         self.frame_pending = false;
-        
+
         Ok(())
     }
-    
+
     /// Add a damage region.
     fn add_damage(&mut self, rect: DamageRect) {
         self.damage_regions.push(rect);
         self.frame_pending = true;
     }
-    
+
     /// Damage the full screen.
     fn damage_full_screen(&mut self) {
         self.damage_regions.clear();

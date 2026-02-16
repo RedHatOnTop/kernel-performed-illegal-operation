@@ -2,7 +2,10 @@
 //!
 //! Driver for PS/2 keyboard input.
 
-use super::{InputDevice, InputDeviceType, InputEvent, InputEventType, InputEventData, KeyEvent, KeyCode, Modifiers};
+use super::{
+    InputDevice, InputDeviceType, InputEvent, InputEventData, InputEventType, KeyCode, KeyEvent,
+    Modifiers,
+};
 use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
@@ -261,7 +264,7 @@ pub fn init() {
     // 5. Enable device
     // 6. Reset device
     // 7. Set scan code set
-    
+
     let mut keyboard = PS2_KEYBOARD.lock();
     *keyboard = Some(Ps2Keyboard::new());
 }
@@ -291,7 +294,7 @@ fn read_scancode() -> u8 {
 fn write_data(data: u8) {
     // Wait for input buffer to be empty
     while (read_status() & 0x02) != 0 {}
-    
+
     unsafe {
         core::arch::asm!(
             "out dx, al",
@@ -318,7 +321,7 @@ fn read_status() -> u8 {
 fn write_command(command: u8) {
     // Wait for input buffer to be empty
     while (read_status() & 0x02) != 0 {}
-    
+
     unsafe {
         core::arch::asm!(
             "out dx, al",
@@ -331,10 +334,16 @@ fn write_command(command: u8) {
 /// Set keyboard LEDs
 pub fn set_leds(scroll_lock: bool, num_lock: bool, caps_lock: bool) {
     let mut led_byte = 0u8;
-    if scroll_lock { led_byte |= 1; }
-    if num_lock { led_byte |= 2; }
-    if caps_lock { led_byte |= 4; }
-    
-    write_data(0xED);  // Set LED command
+    if scroll_lock {
+        led_byte |= 1;
+    }
+    if num_lock {
+        led_byte |= 2;
+    }
+    if caps_lock {
+        led_byte |= 4;
+    }
+
+    write_data(0xED); // Set LED command
     write_data(led_byte);
 }

@@ -2,8 +2,8 @@
 //!
 //! Provides AES-128-GCM and AES-256-GCM with 12-byte nonce, 16-byte tag.
 
+use super::aes::{aes128_encrypt, aes128_key_schedule, aes256_encrypt, aes256_key_schedule};
 use alloc::vec::Vec;
-use super::aes::{aes128_key_schedule, aes256_key_schedule, aes128_encrypt, aes256_encrypt};
 
 // ── GF(2^128) multiplication for GHASH ──────────────────────
 
@@ -18,7 +18,9 @@ fn gf128_mul(a: &[u8; 16], b: &[u8; 16]) -> [u8; 16] {
         let byte_idx = i / 8;
         let bit_idx = 7 - (i % 8);
         if (b[byte_idx] >> bit_idx) & 1 == 1 {
-            for j in 0..16 { z[j] ^= v[j]; }
+            for j in 0..16 {
+                z[j] ^= v[j];
+            }
         }
         // Shift V right by 1, reduce if needed
         let lsb = v[15] & 1;
@@ -50,7 +52,9 @@ fn ghash(h: &[u8; 16], aad: &[u8], ciphertext: &[u8]) -> [u8; 16] {
     let ct_bits = (ciphertext.len() as u64) * 8;
     len_block[..8].copy_from_slice(&aad_bits.to_be_bytes());
     len_block[8..].copy_from_slice(&ct_bits.to_be_bytes());
-    for j in 0..16 { y[j] ^= len_block[j]; }
+    for j in 0..16 {
+        y[j] ^= len_block[j];
+    }
     y = gf128_mul(&y, h);
 
     y
@@ -60,7 +64,9 @@ fn ghash_update(y: &mut [u8; 16], h: &[u8; 16], data: &[u8]) {
     let mut off = 0;
     while off < data.len() {
         let take = (data.len() - off).min(16);
-        for j in 0..take { y[j] ^= data[off + j]; }
+        for j in 0..take {
+            y[j] ^= data[off + j];
+        }
         *y = gf128_mul(y, h);
         off += 16;
     }
@@ -126,7 +132,9 @@ pub fn aes128_gcm_seal(
     let mut tag_mask = j0;
     aes128_encrypt(&mut tag_mask, &rk);
     let mut tag = [0u8; 16];
-    for j in 0..16 { tag[j] = s[j] ^ tag_mask[j]; }
+    for j in 0..16 {
+        tag[j] = s[j] ^ tag_mask[j];
+    }
 
     (ciphertext, tag)
 }
@@ -155,12 +163,18 @@ pub fn aes128_gcm_open(
     let mut tag_mask = j0;
     aes128_encrypt(&mut tag_mask, &rk);
     let mut computed_tag = [0u8; 16];
-    for j in 0..16 { computed_tag[j] = s[j] ^ tag_mask[j]; }
+    for j in 0..16 {
+        computed_tag[j] = s[j] ^ tag_mask[j];
+    }
 
     // Constant-time compare
     let mut diff = 0u8;
-    for j in 0..16 { diff |= computed_tag[j] ^ tag[j]; }
-    if diff != 0 { return None; }
+    for j in 0..16 {
+        diff |= computed_tag[j] ^ tag[j];
+    }
+    if diff != 0 {
+        return None;
+    }
 
     // Decrypt
     let mut ctr = j0;
@@ -219,7 +233,9 @@ pub fn aes256_gcm_seal(
     let mut tag_mask = j0;
     aes256_encrypt(&mut tag_mask, &rk);
     let mut tag = [0u8; 16];
-    for j in 0..16 { tag[j] = s[j] ^ tag_mask[j]; }
+    for j in 0..16 {
+        tag[j] = s[j] ^ tag_mask[j];
+    }
 
     (ciphertext, tag)
 }
@@ -245,11 +261,17 @@ pub fn aes256_gcm_open(
     let mut tag_mask = j0;
     aes256_encrypt(&mut tag_mask, &rk);
     let mut computed_tag = [0u8; 16];
-    for j in 0..16 { computed_tag[j] = s[j] ^ tag_mask[j]; }
+    for j in 0..16 {
+        computed_tag[j] = s[j] ^ tag_mask[j];
+    }
 
     let mut diff = 0u8;
-    for j in 0..16 { diff |= computed_tag[j] ^ tag[j]; }
-    if diff != 0 { return None; }
+    for j in 0..16 {
+        diff |= computed_tag[j] ^ tag[j];
+    }
+    if diff != 0 {
+        return None;
+    }
 
     let mut ctr = j0;
     inc32(&mut ctr);

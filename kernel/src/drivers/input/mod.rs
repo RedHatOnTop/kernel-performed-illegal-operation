@@ -2,15 +2,15 @@
 //!
 //! Keyboard, mouse, touchpad, and touchscreen support.
 
+pub mod hid;
 pub mod keyboard;
 pub mod mouse;
 pub mod touchpad;
-pub mod hid;
 
-use alloc::vec::Vec;
-use alloc::string::String;
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
+use alloc::string::String;
+use alloc::vec::Vec;
 use spin::Mutex;
 
 /// Input event types
@@ -168,9 +168,17 @@ pub enum GestureType {
     /// Long press
     LongPress { x: f32, y: f32 },
     /// Two-finger pinch (zoom)
-    Pinch { scale: f32, center_x: f32, center_y: f32 },
+    Pinch {
+        scale: f32,
+        center_x: f32,
+        center_y: f32,
+    },
     /// Two-finger rotate
-    Rotate { angle: f32, center_x: f32, center_y: f32 },
+    Rotate {
+        angle: f32,
+        center_x: f32,
+        center_y: f32,
+    },
     /// Two-finger scroll/pan
     Pan { dx: f32, dy: f32 },
     /// Three-finger swipe
@@ -207,7 +215,7 @@ pub struct Modifiers {
     pub shift: bool,
     pub ctrl: bool,
     pub alt: bool,
-    pub meta: bool,  // Windows/Command key
+    pub meta: bool, // Windows/Command key
     pub caps_lock: bool,
     pub num_lock: bool,
     pub scroll_lock: bool,
@@ -229,14 +237,56 @@ pub enum MouseButton {
 #[repr(u16)]
 pub enum KeyCode {
     // Letters
-    A = 0x0004, B, C, D, E, F, G, H, I, J, K, L, M,
-    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    
+    A = 0x0004,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+
     // Numbers
-    Num1 = 0x001E, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9, Num0,
-    // Number aliases for HID compatibility  
-    Key1 = 0x011E, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9, Key0,
-    
+    Num1 = 0x001E,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
+    Num0,
+    // Number aliases for HID compatibility
+    Key1 = 0x011E,
+    Key2,
+    Key3,
+    Key4,
+    Key5,
+    Key6,
+    Key7,
+    Key8,
+    Key9,
+    Key0,
+
     // Special keys
     Enter = 0x0028,
     Escape = 0x0029,
@@ -256,10 +306,21 @@ pub enum KeyCode {
     Period = 0x0037,
     Slash = 0x0038,
     CapsLock = 0x0039,
-    
+
     // Function keys
-    F1 = 0x003A, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    
+    F1 = 0x003A,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+
     // Control keys
     PrintScreen = 0x0046,
     ScrollLock = 0x0047,
@@ -275,7 +336,7 @@ pub enum KeyCode {
     Down = 0x0051,
     Up = 0x0052,
     NumLock = 0x0053,
-    
+
     // Numpad
     NumpadDivide = 0x0054,
     NumpadMultiply = 0x0055,
@@ -284,10 +345,18 @@ pub enum KeyCode {
     NumpadPlus = 0x0057,
     NumpadAdd = 0x0157, // Alias
     NumpadEnter = 0x0058,
-    Numpad1 = 0x0059, Numpad2, Numpad3, Numpad4, Numpad5,
-    Numpad6, Numpad7, Numpad8, Numpad9, Numpad0,
+    Numpad1 = 0x0059,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    Numpad0,
     NumpadDecimal = 0x0063,
-    
+
     // Modifiers
     LeftCtrl = 0x00E0,
     LeftShift = 0x00E1,
@@ -299,7 +368,7 @@ pub enum KeyCode {
     RightAlt = 0x00E6,
     RightMeta = 0x00E7,
     RightSuper = 0x01E7, // Alias for RightMeta
-    
+
     // Media keys
     MediaPlayPause = 0x00E8,
     MediaStop = 0x00E9,
@@ -308,7 +377,7 @@ pub enum KeyCode {
     MediaMute = 0x00EC,
     MediaVolUp = 0x00ED,
     MediaVolDown = 0x00EE,
-    
+
     // Unknown
     Unknown = 0xFFFF,
 }
@@ -317,13 +386,13 @@ pub enum KeyCode {
 pub trait InputDevice: Send + Sync {
     /// Get device name
     fn name(&self) -> &str;
-    
+
     /// Get device type
     fn device_type(&self) -> InputDeviceType;
-    
+
     /// Poll for events (returns events since last poll)
     fn poll(&mut self) -> Vec<InputEvent>;
-    
+
     /// Check if device is still connected
     fn is_connected(&self) -> bool;
 }
@@ -418,7 +487,7 @@ impl InputManager {
         // Initialize PS/2 keyboard and mouse
         keyboard::init();
         mouse::init();
-        
+
         // Initialize USB HID devices
         hid::init();
     }
@@ -431,13 +500,13 @@ impl InputManager {
     /// Poll all devices for events
     pub fn poll(&mut self) {
         let mut all_events = Vec::new();
-        
+
         for device in &mut self.devices {
             if device.is_connected() {
                 all_events.extend(device.poll());
             }
         }
-        
+
         for event in all_events {
             self.process_event(&event);
             self.event_queue.lock().push(event);

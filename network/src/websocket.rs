@@ -5,8 +5,8 @@
 
 use alloc::collections::VecDeque;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 use core::fmt;
 
 /// WebSocket protocol version.
@@ -103,7 +103,7 @@ impl CloseCode {
             _ => CloseCode::Normal, // Default for unknown codes
         }
     }
-    
+
     /// Convert to u16.
     pub fn as_u16(self) -> u16 {
         self as u16
@@ -141,12 +141,12 @@ impl Opcode {
             _ => None,
         }
     }
-    
+
     /// Check if this is a control opcode.
     pub fn is_control(self) -> bool {
         matches!(self, Opcode::Close | Opcode::Ping | Opcode::Pong)
     }
-    
+
     /// Check if this is a data opcode.
     pub fn is_data(self) -> bool {
         matches!(self, Opcode::Text | Opcode::Binary | Opcode::Continuation)
@@ -176,27 +176,27 @@ impl Frame {
             payload,
         }
     }
-    
+
     /// Create a text frame.
     pub fn text(data: &str) -> Self {
         Self::new(Opcode::Text, data.as_bytes().to_vec())
     }
-    
+
     /// Create a binary frame.
     pub fn binary(data: Vec<u8>) -> Self {
         Self::new(Opcode::Binary, data)
     }
-    
+
     /// Create a ping frame.
     pub fn ping(data: Vec<u8>) -> Self {
         Self::new(Opcode::Ping, data)
     }
-    
+
     /// Create a pong frame.
     pub fn pong(data: Vec<u8>) -> Self {
         Self::new(Opcode::Pong, data)
     }
-    
+
     /// Create a close frame.
     pub fn close(code: CloseCode, reason: &str) -> Self {
         let mut payload = Vec::with_capacity(2 + reason.len());
@@ -205,17 +205,16 @@ impl Frame {
         payload.extend_from_slice(reason.as_bytes());
         Self::new(Opcode::Close, payload)
     }
-    
+
     /// Encode frame to bytes (client-side, masked).
     pub fn encode(&self, mask_key: [u8; 4]) -> Vec<u8> {
         let mut bytes = Vec::new();
-        
+
         // First byte: FIN + RSV + Opcode
-        let first_byte = (if self.fin { 0x80 } else { 0 })
-            | ((self.rsv & 0x07) << 4)
-            | (self.opcode as u8);
+        let first_byte =
+            (if self.fin { 0x80 } else { 0 }) | ((self.rsv & 0x07) << 4) | (self.opcode as u8);
         bytes.push(first_byte);
-        
+
         // Second byte: MASK + Payload length
         let len = self.payload.len();
         if len < 126 {
@@ -227,36 +226,36 @@ impl Frame {
             bytes.push(0x80 | 127);
             bytes.extend_from_slice(&(len as u64).to_be_bytes());
         }
-        
+
         // Masking key
         bytes.extend_from_slice(&mask_key);
-        
+
         // Masked payload
         for (i, byte) in self.payload.iter().enumerate() {
             bytes.push(byte ^ mask_key[i % 4]);
         }
-        
+
         bytes
     }
-    
+
     /// Decode frame from bytes (server response, unmasked).
     pub fn decode(data: &[u8]) -> Result<(Frame, usize), WebSocketError> {
         if data.len() < 2 {
             return Err(WebSocketError::InvalidFrame("Frame too short".to_string()));
         }
-        
+
         let first_byte = data[0];
         let second_byte = data[1];
-        
+
         let fin = (first_byte & 0x80) != 0;
         let rsv = (first_byte >> 4) & 0x07;
         let opcode = Opcode::from_u8(first_byte)
             .ok_or_else(|| WebSocketError::InvalidFrame("Invalid opcode".to_string()))?;
-        
+
         let masked = (second_byte & 0x80) != 0;
         let mut payload_len = (second_byte & 0x7F) as u64;
         let mut offset = 2;
-        
+
         // Extended payload length
         if payload_len == 126 {
             if data.len() < offset + 2 {
@@ -269,58 +268,79 @@ impl Frame {
                 return Err(WebSocketError::InvalidFrame("Frame too short".to_string()));
             }
             payload_len = u64::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
-                data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
             ]);
             offset += 8;
         }
-        
+
         // Control frames must not be fragmented and payload must be <= 125
         if opcode.is_control() {
             if !fin {
                 return Err(WebSocketError::ProtocolError(
-                    "Control frame must not be fragmented".to_string()
+                    "Control frame must not be fragmented".to_string(),
                 ));
             }
             if payload_len > 125 {
                 return Err(WebSocketError::ProtocolError(
-                    "Control frame payload too large".to_string()
+                    "Control frame payload too large".to_string(),
                 ));
             }
         }
-        
+
         // Masking key (if present)
         let mask_key = if masked {
             if data.len() < offset + 4 {
                 return Err(WebSocketError::InvalidFrame("Frame too short".to_string()));
             }
-            let key = [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]];
+            let key = [
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ];
             offset += 4;
             Some(key)
         } else {
             None
         };
-        
+
         // Payload
         let payload_len = payload_len as usize;
         if data.len() < offset + payload_len {
-            return Err(WebSocketError::InvalidFrame("Incomplete payload".to_string()));
+            return Err(WebSocketError::InvalidFrame(
+                "Incomplete payload".to_string(),
+            ));
         }
-        
+
         let mut payload = data[offset..offset + payload_len].to_vec();
-        
+
         // Unmask if needed
         if let Some(key) = mask_key {
             for (i, byte) in payload.iter_mut().enumerate() {
                 *byte ^= key[i % 4];
             }
         }
-        
+
         let total_len = offset + payload_len;
-        
-        Ok((Frame { fin, rsv, opcode, payload }, total_len))
+
+        Ok((
+            Frame {
+                fin,
+                rsv,
+                opcode,
+                payload,
+            },
+            total_len,
+        ))
     }
-    
+
     /// Get payload as string (for text frames).
     pub fn payload_as_str(&self) -> Result<&str, WebSocketError> {
         core::str::from_utf8(&self.payload)
@@ -393,25 +413,24 @@ impl WebSocketUrl {
             (false, &url[5..])
         } else {
             return Err(WebSocketError::InvalidUrl(
-                "URL must start with ws:// or wss://".to_string()
+                "URL must start with ws:// or wss://".to_string(),
             ));
         };
-        
+
         // Split host:port from path
         let (host_port, path) = match rest.find('/') {
             Some(idx) => (&rest[..idx], &rest[idx..]),
             None => (rest, "/"),
         };
-        
+
         // Parse host and port
         let (host, port) = match host_port.rfind(':') {
             Some(idx) => {
                 let host = &host_port[..idx];
                 let port_str = &host_port[idx + 1..];
-                let port = port_str.parse::<u16>()
-                    .map_err(|_| WebSocketError::InvalidUrl(
-                        "Invalid port number".to_string()
-                    ))?;
+                let port = port_str
+                    .parse::<u16>()
+                    .map_err(|_| WebSocketError::InvalidUrl("Invalid port number".to_string()))?;
                 (host.to_string(), port)
             }
             None => {
@@ -419,11 +438,11 @@ impl WebSocketUrl {
                 (host_port.to_string(), port)
             }
         };
-        
+
         if host.is_empty() {
             return Err(WebSocketError::InvalidUrl("Empty host".to_string()));
         }
-        
+
         Ok(Self {
             secure,
             host,
@@ -443,7 +462,7 @@ impl SimpleRng {
     pub fn new(seed: u64) -> Self {
         Self { state: seed }
     }
-    
+
     /// Generate next random u32.
     pub fn next_u32(&mut self) -> u32 {
         // xorshift64
@@ -452,7 +471,7 @@ impl SimpleRng {
         self.state ^= self.state << 17;
         self.state as u32
     }
-    
+
     /// Generate masking key.
     pub fn mask_key(&mut self) -> [u8; 4] {
         let n = self.next_u32();
@@ -463,59 +482,57 @@ impl SimpleRng {
 /// Base64 encoding for handshake.
 pub fn base64_encode(input: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    
+
     let mut output = String::new();
     let mut i = 0;
-    
+
     while i < input.len() {
         let b0 = input[i];
         let b1 = if i + 1 < input.len() { input[i + 1] } else { 0 };
         let b2 = if i + 2 < input.len() { input[i + 2] } else { 0 };
-        
+
         let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
-        
+
         output.push(ALPHABET[(n >> 18) as usize & 0x3F] as char);
         output.push(ALPHABET[(n >> 12) as usize & 0x3F] as char);
-        
+
         if i + 1 < input.len() {
             output.push(ALPHABET[(n >> 6) as usize & 0x3F] as char);
         } else {
             output.push('=');
         }
-        
+
         if i + 2 < input.len() {
             output.push(ALPHABET[n as usize & 0x3F] as char);
         } else {
             output.push('=');
         }
-        
+
         i += 3;
     }
-    
+
     output
 }
 
 /// Simple SHA-1 implementation for WebSocket handshake.
 pub fn sha1(input: &[u8]) -> [u8; 20] {
-    let mut h: [u32; 5] = [
-        0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0
-    ];
-    
+    let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+
     // Pre-processing: adding padding bits
     let ml = (input.len() as u64) * 8;
     let mut msg = input.to_vec();
     msg.push(0x80);
-    
+
     while (msg.len() % 64) != 56 {
         msg.push(0x00);
     }
-    
+
     msg.extend_from_slice(&ml.to_be_bytes());
-    
+
     // Process each 64-byte chunk
     for chunk in msg.chunks(64) {
         let mut w = [0u32; 80];
-        
+
         // Break chunk into sixteen 32-bit big-endian words
         for i in 0..16 {
             w[i] = u32::from_be_bytes([
@@ -525,18 +542,18 @@ pub fn sha1(input: &[u8]) -> [u8; 20] {
                 chunk[i * 4 + 3],
             ]);
         }
-        
+
         // Extend the sixteen 32-bit words into eighty 32-bit words
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
         }
-        
+
         let mut a = h[0];
         let mut b = h[1];
         let mut c = h[2];
         let mut d = h[3];
         let mut e = h[4];
-        
+
         for i in 0..80 {
             let (f, k) = match i {
                 0..=19 => ((b & c) | ((!b) & d), 0x5A827999u32),
@@ -544,8 +561,9 @@ pub fn sha1(input: &[u8]) -> [u8; 20] {
                 40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDCu32),
                 _ => (b ^ c ^ d, 0xCA62C1D6u32),
             };
-            
-            let temp = a.rotate_left(5)
+
+            let temp = a
+                .rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
                 .wrapping_add(k)
@@ -556,19 +574,19 @@ pub fn sha1(input: &[u8]) -> [u8; 20] {
             b = a;
             a = temp;
         }
-        
+
         h[0] = h[0].wrapping_add(a);
         h[1] = h[1].wrapping_add(b);
         h[2] = h[2].wrapping_add(c);
         h[3] = h[3].wrapping_add(d);
         h[4] = h[4].wrapping_add(e);
     }
-    
+
     let mut result = [0u8; 20];
     for (i, &val) in h.iter().enumerate() {
         result[i * 4..(i + 1) * 4].copy_from_slice(&val.to_be_bytes());
     }
-    
+
     result
 }
 
@@ -577,7 +595,7 @@ pub fn generate_accept_key(client_key: &str) -> String {
     let mut combined = String::with_capacity(client_key.len() + WEBSOCKET_GUID.len());
     combined.push_str(client_key);
     combined.push_str(WEBSOCKET_GUID);
-    
+
     let hash = sha1(combined.as_bytes());
     base64_encode(&hash)
 }
@@ -601,7 +619,7 @@ impl HandshakeBuilder {
             chunk.copy_from_slice(&n.to_be_bytes());
         }
         let key = base64_encode(&key_bytes);
-        
+
         Self {
             url,
             key,
@@ -610,34 +628,34 @@ impl HandshakeBuilder {
             headers: Vec::new(),
         }
     }
-    
+
     /// Add subprotocol.
     pub fn protocol(mut self, protocol: &str) -> Self {
         self.protocols.push(protocol.to_string());
         self
     }
-    
+
     /// Add extension.
     pub fn extension(mut self, extension: &str) -> Self {
         self.extensions.push(extension.to_string());
         self
     }
-    
+
     /// Add custom header.
     pub fn header(mut self, name: &str, value: &str) -> Self {
         self.headers.push((name.to_string(), value.to_string()));
         self
     }
-    
+
     /// Build HTTP upgrade request.
     pub fn build_request(&self) -> Vec<u8> {
         let mut request = String::new();
-        
+
         // Request line
         request.push_str("GET ");
         request.push_str(&self.url.path);
         request.push_str(" HTTP/1.1\r\n");
-        
+
         // Required headers
         request.push_str("Host: ");
         request.push_str(&self.url.host);
@@ -649,7 +667,7 @@ impl HandshakeBuilder {
             request.push_str(port_str);
         }
         request.push_str("\r\n");
-        
+
         request.push_str("Upgrade: websocket\r\n");
         request.push_str("Connection: Upgrade\r\n");
         request.push_str("Sec-WebSocket-Key: ");
@@ -658,21 +676,21 @@ impl HandshakeBuilder {
         request.push_str("Sec-WebSocket-Version: ");
         request.push_str(WEBSOCKET_VERSION);
         request.push_str("\r\n");
-        
+
         // Optional subprotocols
         if !self.protocols.is_empty() {
             request.push_str("Sec-WebSocket-Protocol: ");
             request.push_str(&self.protocols.join(", "));
             request.push_str("\r\n");
         }
-        
+
         // Optional extensions
         if !self.extensions.is_empty() {
             request.push_str("Sec-WebSocket-Extensions: ");
             request.push_str(&self.extensions.join(", "));
             request.push_str("\r\n");
         }
-        
+
         // Custom headers
         for (name, value) in &self.headers {
             request.push_str(name);
@@ -680,17 +698,17 @@ impl HandshakeBuilder {
             request.push_str(value);
             request.push_str("\r\n");
         }
-        
+
         request.push_str("\r\n");
-        
+
         request.into_bytes()
     }
-    
+
     /// Get the expected accept key.
     pub fn expected_accept_key(&self) -> String {
         generate_accept_key(&self.key)
     }
-    
+
     /// Get client key.
     pub fn client_key(&self) -> &str {
         &self.key
@@ -701,18 +719,18 @@ impl HandshakeBuilder {
 fn format_u16(n: u16, buf: &mut [u8; 5]) -> &str {
     let mut n = n;
     let mut i = buf.len();
-    
+
     if n == 0 {
         buf[4] = b'0';
         return core::str::from_utf8(&buf[4..]).unwrap();
     }
-    
+
     while n > 0 {
         i -= 1;
         buf[i] = b'0' + (n % 10) as u8;
         n /= 10;
     }
-    
+
     core::str::from_utf8(&buf[i..]).unwrap()
 }
 
@@ -753,38 +771,38 @@ impl WebSocketClient {
             extensions: Vec::new(),
         }
     }
-    
+
     /// Set maximum message size.
     pub fn max_message_size(mut self, size: usize) -> Self {
         self.max_message_size = size;
         self
     }
-    
+
     /// Get connection state.
     pub fn state(&self) -> ConnectionState {
         self.state
     }
-    
+
     /// Check if connected.
     pub fn is_connected(&self) -> bool {
         self.state == ConnectionState::Open
     }
-    
+
     /// Get negotiated protocol.
     pub fn protocol(&self) -> Option<&str> {
         self.protocol.as_deref()
     }
-    
+
     /// Create handshake for URL.
     pub fn create_handshake(&mut self, url: &str) -> Result<HandshakeBuilder, WebSocketError> {
         let ws_url = WebSocketUrl::parse(url)?;
         self.state = ConnectionState::Connecting;
         Ok(HandshakeBuilder::new(ws_url, &mut self.rng))
     }
-    
+
     /// Process handshake response.
     pub fn process_handshake_response(
-        &mut self, 
+        &mut self,
         response: &[u8],
         expected_accept: &str,
     ) -> Result<bool, WebSocketError> {
@@ -793,31 +811,32 @@ impl WebSocketClient {
         if header_end.is_none() {
             return Ok(false); // Need more data
         }
-        
+
         let header_end = header_end.unwrap();
-        let headers = core::str::from_utf8(&response[..header_end])
-            .map_err(|_| WebSocketError::HandshakeFailed("Invalid UTF-8 in response".to_string()))?;
-        
+        let headers = core::str::from_utf8(&response[..header_end]).map_err(|_| {
+            WebSocketError::HandshakeFailed("Invalid UTF-8 in response".to_string())
+        })?;
+
         // Check status line
-        let first_line = headers.lines().next()
+        let first_line = headers
+            .lines()
+            .next()
             .ok_or_else(|| WebSocketError::HandshakeFailed("Empty response".to_string()))?;
-        
+
         if !first_line.contains("101") {
-            return Err(WebSocketError::HandshakeFailed(
-                first_line.to_string()
-            ));
+            return Err(WebSocketError::HandshakeFailed(first_line.to_string()));
         }
-        
+
         // Validate required headers
         let mut upgrade_ok = false;
         let mut connection_ok = false;
         let mut accept_ok = false;
-        
+
         for line in headers.lines().skip(1) {
             if let Some((name, value)) = line.split_once(':') {
                 let name = name.trim().to_ascii_lowercase();
                 let value = value.trim();
-                
+
                 match name.as_str() {
                     "upgrade" => {
                         upgrade_ok = value.eq_ignore_ascii_case("websocket");
@@ -832,99 +851,98 @@ impl WebSocketClient {
                         self.protocol = Some(value.to_string());
                     }
                     "sec-websocket-extensions" => {
-                        self.extensions = value.split(',')
-                            .map(|s| s.trim().to_string())
-                            .collect();
+                        self.extensions = value.split(',').map(|s| s.trim().to_string()).collect();
                     }
                     _ => {}
                 }
             }
         }
-        
+
         if !upgrade_ok {
             return Err(WebSocketError::HandshakeFailed(
-                "Missing or invalid Upgrade header".to_string()
+                "Missing or invalid Upgrade header".to_string(),
             ));
         }
         if !connection_ok {
             return Err(WebSocketError::HandshakeFailed(
-                "Missing or invalid Connection header".to_string()
+                "Missing or invalid Connection header".to_string(),
             ));
         }
         if !accept_ok {
             return Err(WebSocketError::HandshakeFailed(
-                "Invalid Sec-WebSocket-Accept".to_string()
+                "Invalid Sec-WebSocket-Accept".to_string(),
             ));
         }
-        
+
         self.state = ConnectionState::Open;
-        
+
         // Store remaining data in recv buffer
         if response.len() > header_end + 4 {
-            self.recv_buffer.extend_from_slice(&response[header_end + 4..]);
+            self.recv_buffer
+                .extend_from_slice(&response[header_end + 4..]);
         }
-        
+
         Ok(true)
     }
-    
+
     /// Send a message.
     pub fn send(&mut self, message: Message) -> Result<(), WebSocketError> {
         if self.state != ConnectionState::Open {
             return Err(WebSocketError::ProtocolError(
-                "Connection not open".to_string()
+                "Connection not open".to_string(),
             ));
         }
-        
+
         let frame = message.to_frame();
         let mask_key = self.rng.mask_key();
         let encoded = frame.encode(mask_key);
-        
+
         self.send_queue.push_back(encoded);
         Ok(())
     }
-    
+
     /// Send text message.
     pub fn send_text(&mut self, text: &str) -> Result<(), WebSocketError> {
         self.send(Message::Text(text.to_string()))
     }
-    
+
     /// Send binary message.
     pub fn send_binary(&mut self, data: Vec<u8>) -> Result<(), WebSocketError> {
         self.send(Message::Binary(data))
     }
-    
+
     /// Send ping.
     pub fn ping(&mut self, data: Vec<u8>) -> Result<(), WebSocketError> {
         self.send(Message::Ping(data))
     }
-    
+
     /// Close connection.
     pub fn close(&mut self, code: CloseCode, reason: &str) -> Result<(), WebSocketError> {
         if self.state != ConnectionState::Open && self.state != ConnectionState::Closing {
             return Ok(());
         }
-        
+
         self.state = ConnectionState::Closing;
         self.send(Message::Close(code, reason.to_string()))
     }
-    
+
     /// Get next frame to send.
     pub fn next_outgoing(&mut self) -> Option<Vec<u8>> {
         self.send_queue.pop_front()
     }
-    
+
     /// Feed received data.
     pub fn feed(&mut self, data: &[u8]) {
         self.recv_buffer.extend_from_slice(data);
     }
-    
+
     /// Try to receive a message.
     pub fn recv(&mut self) -> Result<Option<Message>, WebSocketError> {
         loop {
             if self.recv_buffer.is_empty() {
                 return Ok(None);
             }
-            
+
             // Try to decode a frame
             let (frame, consumed) = match Frame::decode(&self.recv_buffer) {
                 Ok(result) => result,
@@ -933,10 +951,10 @@ impl WebSocketClient {
                 }
                 Err(e) => return Err(e),
             };
-            
+
             // Remove consumed bytes
             self.recv_buffer.drain(..consumed);
-            
+
             // Handle control frames immediately
             if frame.opcode.is_control() {
                 match frame.opcode {
@@ -961,7 +979,7 @@ impl WebSocketClient {
                         } else {
                             (CloseCode::Normal, String::new())
                         };
-                        
+
                         // Send close response if we haven't already
                         if self.state == ConnectionState::Open {
                             self.state = ConnectionState::Closing;
@@ -969,23 +987,23 @@ impl WebSocketClient {
                             let mask_key = self.rng.mask_key();
                             self.send_queue.push_back(close_frame.encode(mask_key));
                         }
-                        
+
                         self.state = ConnectionState::Closed;
                         return Ok(Some(Message::Close(code, reason)));
                     }
                     _ => unreachable!(),
                 }
             }
-            
+
             // Handle data frames
             match frame.opcode {
                 Opcode::Text | Opcode::Binary => {
                     if self.fragment_opcode.is_some() {
                         return Err(WebSocketError::ProtocolError(
-                            "Expected continuation frame".to_string()
+                            "Expected continuation frame".to_string(),
                         ));
                     }
-                    
+
                     if frame.fin {
                         // Complete message
                         return self.complete_message(frame.opcode, frame.payload);
@@ -996,20 +1014,19 @@ impl WebSocketClient {
                     }
                 }
                 Opcode::Continuation => {
-                    let opcode = self.fragment_opcode
-                        .ok_or_else(|| WebSocketError::ProtocolError(
-                            "Unexpected continuation frame".to_string()
-                        ))?;
-                    
+                    let opcode = self.fragment_opcode.ok_or_else(|| {
+                        WebSocketError::ProtocolError("Unexpected continuation frame".to_string())
+                    })?;
+
                     // Check size limit
                     if self.fragment_buffer.len() + frame.payload.len() > self.max_message_size {
                         return Err(WebSocketError::MessageTooLarge(
-                            self.fragment_buffer.len() + frame.payload.len()
+                            self.fragment_buffer.len() + frame.payload.len(),
                         ));
                     }
-                    
+
                     self.fragment_buffer.extend_from_slice(&frame.payload);
-                    
+
                     if frame.fin {
                         // Complete fragmented message
                         let payload = core::mem::take(&mut self.fragment_buffer);
@@ -1021,19 +1038,23 @@ impl WebSocketClient {
             }
         }
     }
-    
+
     /// Complete a message from payload.
-    fn complete_message(&self, opcode: Opcode, payload: Vec<u8>) -> Result<Option<Message>, WebSocketError> {
+    fn complete_message(
+        &self,
+        opcode: Opcode,
+        payload: Vec<u8>,
+    ) -> Result<Option<Message>, WebSocketError> {
         match opcode {
             Opcode::Text => {
                 let text = core::str::from_utf8(&payload)
-                    .map_err(|_| WebSocketError::InvalidFrame("Invalid UTF-8 in text message".to_string()))?
+                    .map_err(|_| {
+                        WebSocketError::InvalidFrame("Invalid UTF-8 in text message".to_string())
+                    })?
                     .to_string();
                 Ok(Some(Message::Text(text)))
             }
-            Opcode::Binary => {
-                Ok(Some(Message::Binary(payload)))
-            }
+            Opcode::Binary => Ok(Some(Message::Binary(payload))),
             _ => Ok(None),
         }
     }

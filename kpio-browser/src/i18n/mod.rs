@@ -2,15 +2,15 @@
 //!
 //! Unicode support, RTL text, and localization.
 
+pub mod bidi;
+pub mod formatting;
 pub mod locale;
 pub mod messages;
-pub mod formatting;
-pub mod bidi;
 
+pub use bidi::*;
+pub use formatting::*;
 pub use locale::*;
 pub use messages::*;
-pub use formatting::*;
-pub use bidi::*;
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
@@ -109,8 +109,7 @@ pub struct SupportedLanguages;
 impl SupportedLanguages {
     /// English (US)
     pub fn english() -> LanguageInfo {
-        LanguageInfo::new("en", "English", "English")
-            .with_region("US")
+        LanguageInfo::new("en", "English", "English").with_region("US")
     }
 
     /// Korean
@@ -122,8 +121,7 @@ impl SupportedLanguages {
 
     /// Japanese
     pub fn japanese() -> LanguageInfo {
-        LanguageInfo::new("ja", "日本語", "Japanese")
-            .with_region("JP")
+        LanguageInfo::new("ja", "日本語", "Japanese").with_region("JP")
     }
 
     /// Chinese (Simplified)
@@ -156,20 +154,17 @@ impl SupportedLanguages {
 
     /// German
     pub fn german() -> LanguageInfo {
-        LanguageInfo::new("de", "Deutsch", "German")
-            .with_region("DE")
+        LanguageInfo::new("de", "Deutsch", "German").with_region("DE")
     }
 
     /// French
     pub fn french() -> LanguageInfo {
-        LanguageInfo::new("fr", "Français", "French")
-            .with_region("FR")
+        LanguageInfo::new("fr", "Français", "French").with_region("FR")
     }
 
     /// Spanish
     pub fn spanish() -> LanguageInfo {
-        LanguageInfo::new("es", "Español", "Spanish")
-            .with_region("ES")
+        LanguageInfo::new("es", "Español", "Spanish").with_region("ES")
     }
 
     /// Get all supported languages
@@ -231,7 +226,9 @@ impl I18nManager {
         manager.bundles.insert("en-US".into(), english_bundle());
         manager.bundles.insert("ko-KR".into(), korean_bundle());
         manager.bundles.insert("ja-JP".into(), japanese_bundle());
-        manager.bundles.insert("zh-CN".into(), chinese_simplified_bundle());
+        manager
+            .bundles
+            .insert("zh-CN".into(), chinese_simplified_bundle());
         manager.bundles.insert("es-ES".into(), spanish_bundle());
         manager.bundles.insert("de-DE".into(), german_bundle());
         manager.bundles.insert("fr-FR".into(), french_bundle());
@@ -241,7 +238,9 @@ impl I18nManager {
 
     /// Set current locale
     pub fn set_locale(&mut self, locale: &str) -> Result<(), I18nError> {
-        if self.languages.contains_key(locale) || self.available_locales.contains(&locale.to_string()) {
+        if self.languages.contains_key(locale)
+            || self.available_locales.contains(&locale.to_string())
+        {
             self.current_locale = locale.to_string();
             Ok(())
         } else {
@@ -256,7 +255,8 @@ impl I18nManager {
 
     /// Get current direction
     pub fn direction(&self) -> Direction {
-        self.languages.get(&self.current_locale)
+        self.languages
+            .get(&self.current_locale)
             .map(|l| l.direction)
             .unwrap_or(Direction::Ltr)
     }
@@ -287,9 +287,13 @@ impl I18nManager {
     }
 
     /// Format string with arguments
-    fn format_string(&self, template: &str, args: &BTreeMap<String, String>) -> Result<String, I18nError> {
+    fn format_string(
+        &self,
+        template: &str,
+        args: &BTreeMap<String, String>,
+    ) -> Result<String, I18nError> {
         let mut result = template.to_string();
-        
+
         for (key, value) in args {
             let placeholder = alloc::format!("{{{}}}", key);
             result = result.replace(&placeholder, value);

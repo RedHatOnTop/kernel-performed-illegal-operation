@@ -5,9 +5,9 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use crate::values::{
-    CssValue, Length, Color, Display, Position, BoxSizing, Overflow, Visibility,
-    FlexDirection, FlexWrap, JustifyContent, AlignItems, AlignContent, AlignSelf,
-    TextAlign, TextDecorationLine, FontWeight, FontStyle, WhiteSpace,
+    AlignContent, AlignItems, AlignSelf, BoxSizing, Color, CssValue, Display, FlexDirection,
+    FlexWrap, FontStyle, FontWeight, JustifyContent, Length, Overflow, Position, TextAlign,
+    TextDecorationLine, Visibility, WhiteSpace,
 };
 
 /// CSS property identifier.

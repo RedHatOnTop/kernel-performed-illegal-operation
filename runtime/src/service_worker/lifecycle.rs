@@ -6,7 +6,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::{ServiceWorker, ServiceWorkerId, ServiceWorkerState, ServiceWorkerError};
+use super::{ServiceWorker, ServiceWorkerError, ServiceWorkerId, ServiceWorkerState};
 
 /// Lifecycle event types
 #[derive(Debug, Clone)]
@@ -230,10 +230,7 @@ pub enum UpdateCheckResult {
 }
 
 /// Perform update check for a service worker
-pub fn check_for_update(
-    _script_url: &str,
-    current_hash: Option<[u8; 32]>,
-) -> UpdateCheckResult {
+pub fn check_for_update(_script_url: &str, current_hash: Option<[u8; 32]>) -> UpdateCheckResult {
     // In a real implementation, this would:
     // 1. Fetch the script from the network
     // 2. Compare the hash with current_hash
@@ -247,4 +244,178 @@ pub fn check_for_update(
 pub fn force_update(worker_id: ServiceWorkerId) -> Result<(), ServiceWorkerError> {
     // Would trigger an immediate update bypass cache
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service_worker::{Scope, ScriptUrl, ServiceWorkerConfig, UpdateViaCache};
+
+    fn make_worker() -> ServiceWorker {
+        let config = ServiceWorkerConfig {
+            scope: Scope::new("/"),
+            script_url: ScriptUrl::new("/sw.js"),
+            update_via_cache: UpdateViaCache::default(),
+            navigation_preload: false,
+        };
+        ServiceWorker::new(config)
+    }
+
+    #[test]
+    fn test_valid_transition_parsed_to_installing() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        assert!(manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .is_ok());
+        assert_eq!(worker.state(), ServiceWorkerState::Installing);
+    }
+
+    #[test]
+    fn test_valid_transition_full_lifecycle() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installed)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Activating)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Activated)
+            .unwrap();
+        assert!(worker.is_active());
+    }
+
+    #[test]
+    fn test_invalid_transition_parsed_to_activated() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        let result = manager.transition_state(&mut worker, ServiceWorkerState::Activated);
+        assert!(matches!(
+            result,
+            Err(ServiceWorkerError::InvalidStateTransition)
+        ));
+    }
+
+    #[test]
+    fn test_invalid_transition_installing_to_activating() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .unwrap();
+        // Cannot skip Installed
+        let result = manager.transition_state(&mut worker, ServiceWorkerState::Activating);
+        assert!(matches!(
+            result,
+            Err(ServiceWorkerError::InvalidStateTransition)
+        ));
+    }
+
+    #[test]
+    fn test_transition_to_redundant_from_installing() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Redundant)
+            .unwrap();
+        assert_eq!(worker.state(), ServiceWorkerState::Redundant);
+    }
+
+    #[test]
+    fn test_skip_waiting() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installed)
+            .unwrap();
+        manager.skip_waiting(&mut worker).unwrap();
+        assert_eq!(worker.state(), ServiceWorkerState::Activated);
+    }
+
+    #[test]
+    fn test_skip_waiting_wrong_state() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        // Worker is in Parsed state, skip_waiting should fail
+        let result = manager.skip_waiting(&mut worker);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_claim_activated_worker() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installed)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Activating)
+            .unwrap();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Activated)
+            .unwrap();
+        assert!(manager.claim(&worker).is_ok());
+    }
+
+    #[test]
+    fn test_claim_non_activated_worker() {
+        let mut manager = LifecycleManager::new();
+        let worker = make_worker();
+        let result = manager.claim(&worker);
+        assert!(matches!(
+            result,
+            Err(ServiceWorkerError::InvalidStateTransition)
+        ));
+    }
+
+    #[test]
+    fn test_pending_events_tracked() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .unwrap();
+        // Should have StateChange + Install events
+        assert!(manager.pending_events().len() >= 2);
+    }
+
+    #[test]
+    fn test_clear_pending_events() {
+        let mut manager = LifecycleManager::new();
+        let mut worker = make_worker();
+        manager
+            .transition_state(&mut worker, ServiceWorkerState::Installing)
+            .unwrap();
+        manager.clear_pending();
+        assert!(manager.pending_events().is_empty());
+    }
+
+    #[test]
+    fn test_install_event_wait_until() {
+        let id = ServiceWorkerId::new();
+        let mut event = InstallEvent::new(id);
+        assert!(!event.wait_until);
+        event.wait_until();
+        assert!(event.wait_until);
+    }
+
+    #[test]
+    fn test_check_for_update_returns_no_update() {
+        let result = check_for_update("/sw.js", None);
+        assert!(matches!(result, UpdateCheckResult::NoUpdate));
+    }
 }

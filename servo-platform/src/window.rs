@@ -54,43 +54,43 @@ impl WindowBuilder {
             fullscreen: false,
         }
     }
-    
+
     pub fn title(mut self, title: &str) -> Self {
         self.title = String::from(title);
         self
     }
-    
+
     pub fn size(mut self, width: u32, height: u32) -> Self {
         self.width = width;
         self.height = height;
         self
     }
-    
+
     pub fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
         self
     }
-    
+
     pub fn decorations(mut self, decorations: bool) -> Self {
         self.decorations = decorations;
         self
     }
-    
+
     pub fn transparent(mut self, transparent: bool) -> Self {
         self.transparent = transparent;
         self
     }
-    
+
     pub fn fullscreen(mut self, fullscreen: bool) -> Self {
         self.fullscreen = fullscreen;
         self
     }
-    
+
     pub fn build(self) -> Result<Window> {
         let handle = WindowHandle::new();
-        
+
         // In real implementation, send window creation request to compositor
-        
+
         Ok(Window {
             handle,
             title: self.title,
@@ -127,76 +127,76 @@ impl Window {
     pub fn handle(&self) -> WindowHandle {
         self.handle
     }
-    
+
     /// Get window size
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
     }
-    
+
     /// Get window position
     pub fn position(&self) -> (i32, i32) {
         (self.x, self.y)
     }
-    
+
     /// Set window title
     pub fn set_title(&mut self, title: &str) {
         self.title = String::from(title);
         // Send update to compositor
     }
-    
+
     /// Set window size
     pub fn set_size(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
         // Send update to compositor
     }
-    
+
     /// Set window position
     pub fn set_position(&mut self, x: i32, y: i32) {
         self.x = x;
         self.y = y;
         // Send update to compositor
     }
-    
+
     /// Show window
     pub fn show(&mut self) {
         self.visible = true;
         // Send show request to compositor
     }
-    
+
     /// Hide window
     pub fn hide(&mut self) {
         self.visible = false;
         // Send hide request to compositor
     }
-    
+
     /// Focus window
     pub fn focus(&mut self) {
         self.focused = true;
         // Send focus request to compositor
     }
-    
+
     /// Check if window is visible
     pub fn is_visible(&self) -> bool {
         self.visible
     }
-    
+
     /// Check if window is focused
     pub fn is_focused(&self) -> bool {
         self.focused
     }
-    
+
     /// Request redraw
     pub fn request_redraw(&self) {
         // Send redraw request to compositor
     }
-    
+
     /// Get inner size (excluding decorations)
     pub fn inner_size(&self) -> (u32, u32) {
         // TODO: Account for decorations
         (self.width, self.height)
     }
-    
+
     /// Get scale factor for HiDPI
     pub fn scale_factor(&self) -> f64 {
         // TODO: Get from display settings
@@ -213,32 +213,32 @@ impl EventLoop {
     pub fn new() -> Self {
         EventLoop { running: false }
     }
-    
+
     /// Run the event loop
     pub fn run<F>(mut self, mut callback: F) -> !
     where
         F: FnMut(Event),
     {
         self.running = true;
-        
+
         loop {
             // Poll for events from compositor
             if let Some(event) = poll_event() {
                 callback(event);
             }
-            
+
             // TODO: Add proper blocking/wake mechanism
             crate::thread::yield_now();
         }
     }
-    
+
     /// Run the event loop with return value
     pub fn run_return<F>(&mut self, mut callback: F)
     where
         F: FnMut(Event) -> ControlFlow,
     {
         self.running = true;
-        
+
         while self.running {
             if let Some(event) = poll_event() {
                 match callback(event) {
@@ -248,7 +248,7 @@ impl EventLoop {
                     }
                 }
             }
-            
+
             crate::thread::yield_now();
         }
     }
@@ -313,9 +313,18 @@ pub struct KeyboardEvent {
 /// Mouse event
 #[derive(Debug, Clone)]
 pub enum MouseEvent {
-    Moved { x: f32, y: f32 },
-    Button { button: MouseButton, state: ElementState },
-    Scroll { delta_x: f32, delta_y: f32 },
+    Moved {
+        x: f32,
+        y: f32,
+    },
+    Button {
+        button: MouseButton,
+        state: ElementState,
+    },
+    Scroll {
+        delta_x: f32,
+        delta_y: f32,
+    },
     Entered,
     Left,
 }
@@ -367,20 +376,81 @@ pub struct Modifiers {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyCode {
     // Letters
-    A, B, C, D, E, F, G, H, I, J, K, L, M,
-    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+
     // Numbers
-    Key0, Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9,
-    
+    Key0,
+    Key1,
+    Key2,
+    Key3,
+    Key4,
+    Key5,
+    Key6,
+    Key7,
+    Key8,
+    Key9,
+
     // Function keys
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+
     // Special keys
-    Escape, Tab, CapsLock, Shift, Control, Alt, Meta,
-    Space, Enter, Backspace, Delete, Insert, Home, End,
-    PageUp, PageDown, Left, Right, Up, Down,
-    
+    Escape,
+    Tab,
+    CapsLock,
+    Shift,
+    Control,
+    Alt,
+    Meta,
+    Space,
+    Enter,
+    Backspace,
+    Delete,
+    Insert,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Left,
+    Right,
+    Up,
+    Down,
+
     // Other
     Unknown(u32),
 }

@@ -3,25 +3,25 @@
 //! Built-in system applications for KPIO OS.
 //! These apps provide core desktop functionality.
 
+pub mod app_launcher;
+pub mod calculator;
 pub mod desktop;
-pub mod taskbar;
 pub mod file_explorer;
+pub mod media_viewer;
 pub mod settings;
+pub mod taskbar;
 pub mod terminal;
 pub mod text_editor;
-pub mod media_viewer;
-pub mod calculator;
-pub mod app_launcher;
 
+pub use app_launcher::*;
+pub use calculator::*;
 pub use desktop::*;
-pub use taskbar::*;
 pub use file_explorer::*;
+pub use media_viewer::*;
 pub use settings::*;
+pub use taskbar::*;
 pub use terminal::*;
 pub use text_editor::*;
-pub use media_viewer::*;
-pub use calculator::*;
-pub use app_launcher::*;
 
 use alloc::string::String;
 use alloc::vec::Vec;

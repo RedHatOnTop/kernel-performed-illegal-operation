@@ -2,12 +2,12 @@
 //!
 //! Implements JavaScript runtime values.
 
+use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::fmt;
-use libm::{trunc, fabs};
+use libm::{fabs, trunc};
 
 use crate::error::{JsError, JsResult};
 use crate::object::{JsObject, PropertyKey};
@@ -38,72 +38,72 @@ impl Value {
     pub fn undefined() -> Self {
         Value::Undefined
     }
-    
+
     /// Create null.
     pub fn null() -> Self {
         Value::Null
     }
-    
+
     /// Create a boolean.
     pub fn boolean(b: bool) -> Self {
         Value::Boolean(b)
     }
-    
+
     /// Create a number.
     pub fn number(n: f64) -> Self {
         Value::Number(n)
     }
-    
+
     /// Create a string.
     pub fn string<S: Into<String>>(s: S) -> Self {
         Value::String(s.into())
     }
-    
+
     /// Create an object.
     pub fn object(obj: JsObject) -> Self {
         Value::Object(Rc::new(RefCell::new(obj)))
     }
-    
+
     /// Check if value is undefined.
     pub fn is_undefined(&self) -> bool {
         matches!(self, Value::Undefined)
     }
-    
+
     /// Check if value is null.
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
     }
-    
+
     /// Check if value is nullish (undefined or null).
     pub fn is_nullish(&self) -> bool {
         matches!(self, Value::Undefined | Value::Null)
     }
-    
+
     /// Check if value is a boolean.
     pub fn is_boolean(&self) -> bool {
         matches!(self, Value::Boolean(_))
     }
-    
+
     /// Check if value is a number.
     pub fn is_number(&self) -> bool {
         matches!(self, Value::Number(_))
     }
-    
+
     /// Check if value is a string.
     pub fn is_string(&self) -> bool {
         matches!(self, Value::String(_))
     }
-    
+
     /// Check if value is a symbol.
     pub fn is_symbol(&self) -> bool {
         matches!(self, Value::Symbol(_))
     }
-    
+
     /// Check if value is an object (or function).
     pub fn is_object(&self) -> bool {
         matches!(self, Value::Object(_))
     }
-    
+
     /// Check if value is a function.
     pub fn is_function(&self) -> bool {
         if let Value::Object(obj) = self {
@@ -112,7 +112,7 @@ impl Value {
             false
         }
     }
-    
+
     /// Check if value is an array.
     pub fn is_array(&self) -> bool {
         if let Value::Object(obj) = self {
@@ -121,7 +121,7 @@ impl Value {
             false
         }
     }
-    
+
     /// Get the type of value as a string.
     pub fn type_of(&self) -> &'static str {
         match self {
@@ -141,7 +141,7 @@ impl Value {
             }
         }
     }
-    
+
     /// Convert to boolean (ToBoolean).
     pub fn to_boolean(&self) -> bool {
         match self {
@@ -154,7 +154,7 @@ impl Value {
             Value::Object(_) => true,
         }
     }
-    
+
     /// Convert to number (ToNumber).
     pub fn to_number(&self) -> JsResult<f64> {
         match self {
@@ -178,7 +178,7 @@ impl Value {
             }
         }
     }
-    
+
     /// Convert to integer.
     pub fn to_integer(&self) -> JsResult<i64> {
         let n = self.to_number()?;
@@ -190,7 +190,7 @@ impl Value {
         }
         Ok(trunc(n) as i64)
     }
-    
+
     /// Convert to unsigned 32-bit integer.
     pub fn to_u32(&self) -> JsResult<u32> {
         let n = self.to_number()?;
@@ -199,7 +199,7 @@ impl Value {
         }
         Ok(trunc(n) as i64 as u32)
     }
-    
+
     /// Convert to signed 32-bit integer.
     pub fn to_i32(&self) -> JsResult<i32> {
         let n = self.to_number()?;
@@ -208,7 +208,7 @@ impl Value {
         }
         Ok(trunc(n) as i64 as i32)
     }
-    
+
     /// Convert to string (ToString).
     pub fn to_string(&self) -> JsResult<String> {
         match self {
@@ -225,13 +225,13 @@ impl Value {
             }
         }
     }
-    
+
     /// Convert to object (ToObject).
     pub fn to_object(&self) -> JsResult<Rc<RefCell<JsObject>>> {
         match self {
-            Value::Undefined | Value::Null => {
-                Err(JsError::type_error("Cannot convert null or undefined to object"))
-            }
+            Value::Undefined | Value::Null => Err(JsError::type_error(
+                "Cannot convert null or undefined to object",
+            )),
             Value::Boolean(b) => {
                 let obj = JsObject::boolean_object(*b);
                 Ok(Rc::new(RefCell::new(obj)))
@@ -255,7 +255,7 @@ impl Value {
             Value::Object(obj) => Ok(obj.clone()),
         }
     }
-    
+
     /// Get property from object.
     pub fn get(&self, key: &PropertyKey) -> JsResult<Value> {
         match self {
@@ -280,7 +280,7 @@ impl Value {
             _ => Ok(Value::undefined()),
         }
     }
-    
+
     /// Set property on object.
     pub fn set(&self, key: PropertyKey, value: Value) -> JsResult<()> {
         match self {
@@ -288,7 +288,7 @@ impl Value {
             _ => Err(JsError::type_error("Cannot set property on primitive")),
         }
     }
-    
+
     /// Strict equality (===).
     pub fn strict_equals(&self, other: &Value) -> bool {
         match (self, other) {
@@ -309,20 +309,20 @@ impl Value {
             _ => false,
         }
     }
-    
+
     /// Abstract equality (==).
     pub fn abstract_equals(&self, other: &Value) -> JsResult<bool> {
         // Same type
         if core::mem::discriminant(self) == core::mem::discriminant(other) {
             return Ok(self.strict_equals(other));
         }
-        
+
         // Null and undefined
         match (self, other) {
             (Value::Null, Value::Undefined) | (Value::Undefined, Value::Null) => return Ok(true),
             _ => {}
         }
-        
+
         // Number comparisons
         match (self, other) {
             (Value::Number(a), Value::String(_)) => {
@@ -343,7 +343,7 @@ impl Value {
             }
             _ => {}
         }
-        
+
         Ok(false)
     }
 }
@@ -396,7 +396,7 @@ impl Symbol {
             id: COUNTER.fetch_add(1, core::sync::atomic::Ordering::SeqCst),
         }
     }
-    
+
     /// Get the symbol description.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
@@ -442,7 +442,7 @@ impl WellKnownSymbols {
 /// Parse a number from string.
 fn parse_number(s: &str) -> Option<f64> {
     let s = s.trim();
-    
+
     // Handle special values
     if s == "Infinity" || s == "+Infinity" {
         return Some(f64::INFINITY);
@@ -453,7 +453,7 @@ fn parse_number(s: &str) -> Option<f64> {
     if s == "NaN" {
         return Some(f64::NAN);
     }
-    
+
     // Handle hex
     if s.starts_with("0x") || s.starts_with("0X") {
         let hex = &s[2..];
@@ -464,7 +464,7 @@ fn parse_number(s: &str) -> Option<f64> {
         }
         return Some(result as f64);
     }
-    
+
     // Handle octal
     if s.starts_with("0o") || s.starts_with("0O") {
         let oct = &s[2..];
@@ -475,7 +475,7 @@ fn parse_number(s: &str) -> Option<f64> {
         }
         return Some(result as f64);
     }
-    
+
     // Handle binary
     if s.starts_with("0b") || s.starts_with("0B") {
         let bin = &s[2..];
@@ -486,7 +486,7 @@ fn parse_number(s: &str) -> Option<f64> {
         }
         return Some(result as f64);
     }
-    
+
     // Regular number parsing
     parse_decimal(s)
 }
@@ -496,7 +496,7 @@ fn parse_decimal(s: &str) -> Option<f64> {
     let mut chars = s.chars().peekable();
     let mut result: f64 = 0.0;
     let mut negative = false;
-    
+
     // Sign
     if chars.peek() == Some(&'-') {
         negative = true;
@@ -504,7 +504,7 @@ fn parse_decimal(s: &str) -> Option<f64> {
     } else if chars.peek() == Some(&'+') {
         chars.next();
     }
-    
+
     // Integer part
     let mut has_digits = false;
     while let Some(&c) = chars.peek() {
@@ -516,7 +516,7 @@ fn parse_decimal(s: &str) -> Option<f64> {
             break;
         }
     }
-    
+
     // Decimal part
     if chars.peek() == Some(&'.') {
         chars.next();
@@ -532,11 +532,11 @@ fn parse_decimal(s: &str) -> Option<f64> {
             }
         }
     }
-    
+
     if !has_digits {
         return None;
     }
-    
+
     // Exponent
     if chars.peek() == Some(&'e') || chars.peek() == Some(&'E') {
         chars.next();
@@ -547,7 +547,7 @@ fn parse_decimal(s: &str) -> Option<f64> {
         } else if chars.peek() == Some(&'+') {
             chars.next();
         }
-        
+
         let mut exp: i32 = 0;
         while let Some(&c) = chars.peek() {
             if c.is_ascii_digit() {
@@ -557,11 +557,11 @@ fn parse_decimal(s: &str) -> Option<f64> {
                 break;
             }
         }
-        
+
         if exp_negative {
             exp = -exp;
         }
-        
+
         // Apply exponent
         if exp > 0 {
             for _ in 0..exp {
@@ -573,16 +573,16 @@ fn parse_decimal(s: &str) -> Option<f64> {
             }
         }
     }
-    
+
     // Check for trailing characters
     if chars.peek().is_some() {
         return None;
     }
-    
+
     if negative {
         result = -result;
     }
-    
+
     Some(result)
 }
 
@@ -601,12 +601,12 @@ fn number_to_string(n: f64) -> String {
     if n == 0.0 {
         return "0".into();
     }
-    
+
     // For integers
     if trunc(n) == n && fabs(n) < 1e15 {
         return format_number(n as i64);
     }
-    
+
     // General case - simplified formatting
     let s = alloc::format!("{}", n);
     s
@@ -617,23 +617,23 @@ fn format_number(n: i64) -> String {
     if n == 0 {
         return "0".into();
     }
-    
+
     let mut result = Vec::new();
     let mut n = n;
     let negative = n < 0;
     if negative {
         n = -n;
     }
-    
+
     while n > 0 {
         result.push((b'0' + (n % 10) as u8) as char);
         n /= 10;
     }
-    
+
     if negative {
         result.push('-');
     }
-    
+
     result.reverse();
     result.into_iter().collect()
 }
@@ -658,17 +658,17 @@ impl Completion {
     pub fn normal(value: Value) -> Self {
         Completion::Normal(value)
     }
-    
+
     /// Create an empty normal completion.
     pub fn empty() -> Self {
         Completion::Normal(Value::undefined())
     }
-    
+
     /// Check if this is a normal completion.
     pub fn is_normal(&self) -> bool {
         matches!(self, Completion::Normal(_))
     }
-    
+
     /// Get the value from a normal completion.
     pub fn value(self) -> Value {
         match self {

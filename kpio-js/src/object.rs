@@ -3,14 +3,14 @@
 //! Implements JavaScript objects and their internal slots.
 
 use alloc::boxed::Box;
+use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::rc::Rc;
 use core::cell::RefCell;
 
 use crate::ast::BlockStmt;
 use crate::error::{JsError, JsResult};
-use crate::value::{Value, Symbol};
+use crate::value::{Symbol, Value};
 
 /// Property key (string or symbol).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -28,12 +28,12 @@ impl PropertyKey {
     pub fn string<S: Into<String>>(s: S) -> Self {
         PropertyKey::String(s.into())
     }
-    
+
     /// Create an index key.
     pub fn index(i: u32) -> Self {
         PropertyKey::Index(i)
     }
-    
+
     /// Convert to string.
     pub fn to_string(&self) -> String {
         match self {
@@ -97,9 +97,14 @@ impl PropertyDescriptor {
             configurable: Some(configurable),
         }
     }
-    
+
     /// Create an accessor descriptor.
-    pub fn accessor(get: Option<Value>, set: Option<Value>, enumerable: bool, configurable: bool) -> Self {
+    pub fn accessor(
+        get: Option<Value>,
+        set: Option<Value>,
+        enumerable: bool,
+        configurable: bool,
+    ) -> Self {
         PropertyDescriptor {
             value: None,
             writable: None,
@@ -109,12 +114,12 @@ impl PropertyDescriptor {
             configurable: Some(configurable),
         }
     }
-    
+
     /// Check if this is a data descriptor.
     pub fn is_data(&self) -> bool {
         self.value.is_some() || self.writable.is_some()
     }
-    
+
     /// Check if this is an accessor descriptor.
     pub fn is_accessor(&self) -> bool {
         self.get.is_some() || self.set.is_some()
@@ -218,7 +223,7 @@ impl JsObject {
             elements: Vec::new(),
         }
     }
-    
+
     /// Create an array object.
     pub fn array(elements: Vec<Option<Value>>) -> Self {
         let len = elements.len();
@@ -231,20 +236,20 @@ impl JsObject {
             constructable: false,
             elements,
         };
-        
+
         obj.define_property(
             PropertyKey::string("length"),
             PropertyDescriptor::data(Value::number(len as f64), true, false, false),
         );
-        
+
         obj
     }
-    
+
     /// Create a function object.
     pub fn function(callable: Callable) -> Self {
         let name = callable.name();
         let length = callable.length();
-        
+
         let mut obj = JsObject {
             kind: ObjectKind::Function,
             properties: Vec::new(),
@@ -254,7 +259,7 @@ impl JsObject {
             constructable: true,
             elements: Vec::new(),
         };
-        
+
         obj.define_property(
             PropertyKey::string("name"),
             PropertyDescriptor::data(Value::string(name), false, false, true),
@@ -263,10 +268,10 @@ impl JsObject {
             PropertyKey::string("length"),
             PropertyDescriptor::data(Value::number(length as f64), false, false, true),
         );
-        
+
         obj
     }
-    
+
     /// Create a boolean wrapper object.
     pub fn boolean_object(value: bool) -> Self {
         JsObject {
@@ -279,7 +284,7 @@ impl JsObject {
             elements: Vec::new(),
         }
     }
-    
+
     /// Create a number wrapper object.
     pub fn number_object(value: f64) -> Self {
         JsObject {
@@ -292,7 +297,7 @@ impl JsObject {
             elements: Vec::new(),
         }
     }
-    
+
     /// Create a string wrapper object.
     pub fn string_object(value: String) -> Self {
         let len = value.len();
@@ -305,15 +310,15 @@ impl JsObject {
             constructable: false,
             elements: Vec::new(),
         };
-        
+
         obj.define_property(
             PropertyKey::string("length"),
             PropertyDescriptor::data(Value::number(len as f64), false, false, false),
         );
-        
+
         obj
     }
-    
+
     /// Create a symbol wrapper object.
     pub fn symbol_object(value: Symbol) -> Self {
         JsObject {
@@ -326,7 +331,7 @@ impl JsObject {
             elements: Vec::new(),
         }
     }
-    
+
     /// Create a BigInt wrapper object.
     pub fn bigint_object(value: i64) -> Self {
         JsObject {
@@ -339,11 +344,14 @@ impl JsObject {
             elements: Vec::new(),
         }
     }
-    
+
     /// Create an error object.
     pub fn error(name: String, message: String) -> Self {
         let mut obj = JsObject {
-            kind: ObjectKind::Error { name: name.clone(), message: message.clone() },
+            kind: ObjectKind::Error {
+                name: name.clone(),
+                message: message.clone(),
+            },
             properties: Vec::new(),
             prototype: None,
             extensible: true,
@@ -351,7 +359,7 @@ impl JsObject {
             constructable: false,
             elements: Vec::new(),
         };
-        
+
         obj.define_property(
             PropertyKey::string("name"),
             PropertyDescriptor::data(Value::string(name), true, false, true),
@@ -360,45 +368,45 @@ impl JsObject {
             PropertyKey::string("message"),
             PropertyDescriptor::data(Value::string(message), true, false, true),
         );
-        
+
         obj
     }
-    
+
     /// Get the object kind.
     pub fn kind(&self) -> &ObjectKind {
         &self.kind
     }
-    
+
     /// Check if object is callable.
     pub fn is_callable(&self) -> bool {
         self.callable.is_some()
     }
-    
+
     /// Check if object is constructable.
     pub fn is_constructable(&self) -> bool {
         self.constructable
     }
-    
+
     /// Check if object is an array.
     pub fn is_array(&self) -> bool {
         matches!(self.kind, ObjectKind::Array)
     }
-    
+
     /// Get the callable.
     pub fn callable(&self) -> Option<&Callable> {
         self.callable.as_ref()
     }
-    
+
     /// Set the prototype.
     pub fn set_prototype(&mut self, proto: Option<Rc<RefCell<JsObject>>>) {
         self.prototype = proto;
     }
-    
+
     /// Get the prototype.
     pub fn prototype(&self) -> Option<&Rc<RefCell<JsObject>>> {
         self.prototype.as_ref()
     }
-    
+
     /// Get a property.
     pub fn get(&self, key: &PropertyKey) -> JsResult<Value> {
         // Check array elements first
@@ -407,7 +415,7 @@ impl JsObject {
                 return Ok(v.clone());
             }
         }
-        
+
         // Check own properties
         for prop in &self.properties {
             if &prop.key == key {
@@ -418,15 +426,15 @@ impl JsObject {
                 return Ok(Value::undefined());
             }
         }
-        
+
         // Check prototype chain
         if let Some(proto) = &self.prototype {
             return proto.borrow().get(key);
         }
-        
+
         Ok(Value::undefined())
     }
-    
+
     /// Set a property.
     pub fn set(&mut self, key: PropertyKey, value: Value) -> JsResult<()> {
         // Handle array elements
@@ -438,7 +446,7 @@ impl JsObject {
                     self.elements.push(None);
                 }
                 self.elements[i] = Some(value.clone());
-                
+
                 // Update length if needed
                 let new_len = i + 1;
                 self.define_property(
@@ -448,7 +456,7 @@ impl JsObject {
                 return Ok(());
             }
         }
-        
+
         // Check for existing property
         for prop in &mut self.properties {
             if prop.key == key {
@@ -459,20 +467,22 @@ impl JsObject {
                 return Ok(());
             }
         }
-        
+
         // Add new property
         if !self.extensible {
-            return Err(JsError::type_error("Cannot add property to non-extensible object"));
+            return Err(JsError::type_error(
+                "Cannot add property to non-extensible object",
+            ));
         }
-        
+
         self.properties.push(Property {
             key,
             descriptor: PropertyDescriptor::data(value, true, true, true),
         });
-        
+
         Ok(())
     }
-    
+
     /// Define a property.
     pub fn define_property(&mut self, key: PropertyKey, descriptor: PropertyDescriptor) {
         // Check for existing property
@@ -500,11 +510,11 @@ impl JsObject {
                 return;
             }
         }
-        
+
         // Add new property
         self.properties.push(Property { key, descriptor });
     }
-    
+
     /// Check if object has own property.
     pub fn has_own_property(&self, key: &PropertyKey) -> bool {
         // Check array elements
@@ -513,23 +523,23 @@ impl JsObject {
                 return true;
             }
         }
-        
+
         self.properties.iter().any(|p| &p.key == key)
     }
-    
+
     /// Check if property exists (including prototype chain).
     pub fn has(&self, key: &PropertyKey) -> bool {
         if self.has_own_property(key) {
             return true;
         }
-        
+
         if let Some(proto) = &self.prototype {
             return proto.borrow().has(key);
         }
-        
+
         false
     }
-    
+
     /// Delete a property.
     pub fn delete(&mut self, key: &PropertyKey) -> bool {
         // Check array elements
@@ -539,7 +549,7 @@ impl JsObject {
                 return true;
             }
         }
-        
+
         if let Some(pos) = self.properties.iter().position(|p| &p.key == key) {
             let prop = &self.properties[pos];
             if prop.descriptor.configurable == Some(false) {
@@ -548,42 +558,42 @@ impl JsObject {
             self.properties.remove(pos);
             return true;
         }
-        
+
         true
     }
-    
+
     /// Get own property keys.
     pub fn own_keys(&self) -> Vec<PropertyKey> {
         let mut keys = Vec::new();
-        
+
         // Integer indices first
         for i in 0..self.elements.len() {
             if self.elements[i].is_some() {
                 keys.push(PropertyKey::Index(i as u32));
             }
         }
-        
+
         // String keys
         for prop in &self.properties {
             if !matches!(prop.key, PropertyKey::Index(_)) {
                 keys.push(prop.key.clone());
             }
         }
-        
+
         keys
     }
-    
+
     /// Get own enumerable property keys.
     pub fn own_enumerable_keys(&self) -> Vec<PropertyKey> {
         let mut keys = Vec::new();
-        
+
         // Integer indices first
         for i in 0..self.elements.len() {
             if self.elements[i].is_some() {
                 keys.push(PropertyKey::Index(i as u32));
             }
         }
-        
+
         // String keys
         for prop in &self.properties {
             if prop.descriptor.enumerable == Some(true) {
@@ -592,20 +602,20 @@ impl JsObject {
                 }
             }
         }
-        
+
         keys
     }
-    
+
     /// Prevent extensions.
     pub fn prevent_extensions(&mut self) {
         self.extensible = false;
     }
-    
+
     /// Check if extensible.
     pub fn is_extensible(&self) -> bool {
         self.extensible
     }
-    
+
     /// Get array length.
     pub fn array_length(&self) -> usize {
         if self.is_array() {
@@ -614,7 +624,7 @@ impl JsObject {
             0
         }
     }
-    
+
     /// Push to array.
     pub fn array_push(&mut self, value: Value) {
         if self.is_array() {
@@ -626,7 +636,7 @@ impl JsObject {
             );
         }
     }
-    
+
     /// Pop from array.
     pub fn array_pop(&mut self) -> Option<Value> {
         if self.is_array() && !self.elements.is_empty() {
@@ -669,7 +679,7 @@ impl Callable {
             Callable::Bound(f) => alloc::format!("bound {}", f.target.name()),
         }
     }
-    
+
     /// Get function length (parameter count).
     pub fn length(&self) -> usize {
         match self {
@@ -762,7 +772,7 @@ impl Environment {
             this_binding: Some(Value::undefined()),
         }
     }
-    
+
     /// Create a child environment.
     pub fn child(outer: Rc<RefCell<Environment>>) -> Self {
         Environment {
@@ -771,7 +781,7 @@ impl Environment {
             this_binding: None,
         }
     }
-    
+
     /// Create a function environment.
     pub fn function(outer: Rc<RefCell<Environment>>, this_value: Value) -> Self {
         Environment {
@@ -780,7 +790,7 @@ impl Environment {
             this_binding: Some(this_value),
         }
     }
-    
+
     /// Declare a variable.
     pub fn declare(&mut self, name: String, mutable: bool) -> JsResult<()> {
         // Check for duplicate in this environment
@@ -792,16 +802,19 @@ impl Environment {
                 )));
             }
         }
-        
-        self.bindings.push((name, Binding {
-            value: Value::undefined(),
-            mutable,
-            initialized: false,
-        }));
-        
+
+        self.bindings.push((
+            name,
+            Binding {
+                value: Value::undefined(),
+                mutable,
+                initialized: false,
+            },
+        ));
+
         Ok(())
     }
-    
+
     /// Initialize a variable.
     pub fn initialize(&mut self, name: &str, value: Value) -> JsResult<()> {
         for (n, binding) in &mut self.bindings {
@@ -811,17 +824,20 @@ impl Environment {
                 return Ok(());
             }
         }
-        
+
         // Var hoisting - create if not exists
-        self.bindings.push((name.to_string(), Binding {
-            value,
-            mutable: true,
-            initialized: true,
-        }));
-        
+        self.bindings.push((
+            name.to_string(),
+            Binding {
+                value,
+                mutable: true,
+                initialized: true,
+            },
+        ));
+
         Ok(())
     }
-    
+
     /// Get a variable.
     pub fn get(&self, name: &str) -> JsResult<Value> {
         for (n, binding) in &self.bindings {
@@ -835,14 +851,17 @@ impl Environment {
                 return Ok(binding.value.clone());
             }
         }
-        
+
         if let Some(outer) = &self.outer {
             return outer.borrow().get(name);
         }
-        
-        Err(JsError::reference(alloc::format!("{} is not defined", name)))
+
+        Err(JsError::reference(alloc::format!(
+            "{} is not defined",
+            name
+        )))
     }
-    
+
     /// Set a variable.
     pub fn set(&mut self, name: &str, value: Value) -> JsResult<()> {
         for (n, binding) in &mut self.bindings {
@@ -858,39 +877,42 @@ impl Environment {
                 return Ok(());
             }
         }
-        
+
         if let Some(outer) = &self.outer {
             return outer.borrow_mut().set(name, value);
         }
-        
+
         // Create in global scope (sloppy mode)
-        self.bindings.push((name.to_string(), Binding {
-            value,
-            mutable: true,
-            initialized: true,
-        }));
-        
+        self.bindings.push((
+            name.to_string(),
+            Binding {
+                value,
+                mutable: true,
+                initialized: true,
+            },
+        ));
+
         Ok(())
     }
-    
+
     /// Get this value.
     pub fn get_this(&self) -> Value {
         if let Some(this) = &self.this_binding {
             return this.clone();
         }
-        
+
         if let Some(outer) = &self.outer {
             return outer.borrow().get_this();
         }
-        
+
         Value::undefined()
     }
-    
+
     /// Set this value.
     pub fn set_this(&mut self, value: Value) {
         self.this_binding = Some(value);
     }
-    
+
     /// Check if variable exists.
     pub fn has(&self, name: &str) -> bool {
         for (n, _) in &self.bindings {
@@ -898,11 +920,11 @@ impl Environment {
                 return true;
             }
         }
-        
+
         if let Some(outer) = &self.outer {
             return outer.borrow().has(name);
         }
-        
+
         false
     }
 }

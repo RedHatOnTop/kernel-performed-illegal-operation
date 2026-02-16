@@ -296,7 +296,8 @@ impl AppLifecycle {
     /// Clean up terminated instances to free memory.
     pub fn gc(&mut self) -> usize {
         let before = self.instances.len();
-        self.instances.retain(|_, e| e.state != AppRunState::Terminated);
+        self.instances
+            .retain(|_, e| e.state != AppRunState::Terminated);
         let removed = before - self.instances.len();
         if removed > 0 {
             crate::serial_println!("[KPIO/App] GC: removed {} terminated instances", removed);
@@ -325,8 +326,7 @@ impl AppLifecycle {
     }
 
     fn now() -> u64 {
-        static COUNTER: core::sync::atomic::AtomicU64 =
-            core::sync::atomic::AtomicU64::new(1);
+        static COUNTER: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
         COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
     }
 }
@@ -340,8 +340,8 @@ pub static APP_LIFECYCLE: Mutex<AppLifecycle> = Mutex::new(AppLifecycle::new());
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::registry::{KernelAppType, APP_REGISTRY};
+    use super::*;
     use alloc::string::String;
 
     /// Helper: register a test app and return its ID.

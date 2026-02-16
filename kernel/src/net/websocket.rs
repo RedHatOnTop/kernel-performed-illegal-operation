@@ -13,13 +13,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use super::crypto::random::csprng_fill;
 use super::dns;
+use super::http::parse_url;
 use super::tcp::{self, ConnId};
 use super::tls;
 use super::tls13;
-use super::http::parse_url;
-use super::{Ipv4Addr, SocketAddr, NetError};
-use super::crypto::random::csprng_fill;
+use super::{Ipv4Addr, NetError, SocketAddr};
 
 // ── WebSocket opcodes ───────────────────────────────────────
 
@@ -42,7 +42,10 @@ enum Transport {
 impl Transport {
     fn send(&mut self, data: &[u8]) -> Result<(), NetError> {
         match self {
-            Transport::Plain(id) => { tcp::send(*id, data)?; Ok(()) }
+            Transport::Plain(id) => {
+                tcp::send(*id, data)?;
+                Ok(())
+            }
             Transport::Tls13(conn) => conn.send(data),
             Transport::Tls12(conn) => conn.send(data),
         }
@@ -112,12 +115,17 @@ impl WebSocketConnection {
         // DNS resolve
         let ip = dns::resolve(&parsed.host)
             .map_err(|_| NetError::DnsNotFound)?
-            .addresses.first().copied()
+            .addresses
+            .first()
+            .copied()
             .ok_or(NetError::DnsNotFound)?;
 
         // TCP connect
         let conn = tcp::create();
-        let remote = SocketAddr { ip, port: parsed.port };
+        let remote = SocketAddr {
+            ip,
+            port: parsed.port,
+        };
         tcp::connect(conn, remote)?;
 
         // Establish transport (plain or TLS)
@@ -168,7 +176,9 @@ impl WebSocketConnection {
                     }
                 }
                 _ => {
-                    for _ in 0..50_000 { core::hint::spin_loop(); }
+                    for _ in 0..50_000 {
+                        core::hint::spin_loop();
+                    }
                 }
             }
         }
@@ -176,9 +186,10 @@ impl WebSocketConnection {
         // Verify 101 Switching Protocols
         let resp_str = core::str::from_utf8(&response).unwrap_or("");
         let has_101 = resp_str.contains("101");
-        let has_upgrade = resp_str.as_bytes().windows(7).any(|w| {
-            w.eq_ignore_ascii_case(b"upgrade")
-        });
+        let has_upgrade = resp_str
+            .as_bytes()
+            .windows(7)
+            .any(|w| w.eq_ignore_ascii_case(b"upgrade"));
         if !has_101 || !has_upgrade {
             transport.close().ok();
             return Err(NetError::ConnectionRefused);
@@ -228,23 +239,37 @@ impl WebSocketConnection {
         let mut offset = 2usize;
 
         if payload_len == 126 {
-            if self.recv_buf.len() < 4 { return Err(NetError::WouldBlock); }
+            if self.recv_buf.len() < 4 {
+                return Err(NetError::WouldBlock);
+            }
             payload_len = u16::from_be_bytes([self.recv_buf[2], self.recv_buf[3]]) as u64;
             offset = 4;
         } else if payload_len == 127 {
-            if self.recv_buf.len() < 10 { return Err(NetError::WouldBlock); }
+            if self.recv_buf.len() < 10 {
+                return Err(NetError::WouldBlock);
+            }
             payload_len = u64::from_be_bytes([
-                self.recv_buf[2], self.recv_buf[3], self.recv_buf[4], self.recv_buf[5],
-                self.recv_buf[6], self.recv_buf[7], self.recv_buf[8], self.recv_buf[9],
+                self.recv_buf[2],
+                self.recv_buf[3],
+                self.recv_buf[4],
+                self.recv_buf[5],
+                self.recv_buf[6],
+                self.recv_buf[7],
+                self.recv_buf[8],
+                self.recv_buf[9],
             ]);
             offset = 10;
         }
 
         let mask_key = if masked {
-            if self.recv_buf.len() < offset + 4 { return Err(NetError::WouldBlock); }
+            if self.recv_buf.len() < offset + 4 {
+                return Err(NetError::WouldBlock);
+            }
             let key = [
-                self.recv_buf[offset], self.recv_buf[offset + 1],
-                self.recv_buf[offset + 2], self.recv_buf[offset + 3],
+                self.recv_buf[offset],
+                self.recv_buf[offset + 1],
+                self.recv_buf[offset + 2],
+                self.recv_buf[offset + 3],
             ];
             offset += 4;
             Some(key)
@@ -354,8 +379,16 @@ fn base64_encode(data: &[u8]) -> String {
     let mut i = 0;
     while i < data.len() {
         let b0 = data[i] as u32;
-        let b1 = if i + 1 < data.len() { data[i + 1] as u32 } else { 0 };
-        let b2 = if i + 2 < data.len() { data[i + 2] as u32 } else { 0 };
+        let b1 = if i + 1 < data.len() {
+            data[i + 1] as u32
+        } else {
+            0
+        };
+        let b2 = if i + 2 < data.len() {
+            data[i + 2] as u32
+        } else {
+            0
+        };
         let triple = (b0 << 16) | (b1 << 8) | b2;
 
         result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);

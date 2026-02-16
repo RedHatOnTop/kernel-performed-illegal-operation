@@ -1,186 +1,192 @@
-# Phase 7-1: Tier 1 — 웹 앱 실행 플랫폼 (Web App Platform)
+# Phase 7-1: Tier 1 — Web App Platform
 
-> **상위 Phase:** Phase 7 — App Execution Layer  
-> **목표:** KPIO OS 위에서 PWA(Progressive Web App)를 네이티브 앱과 동등한 수준으로 설치·실행·관리할 수 있는 완전한 웹 앱 플랫폼을 구축한다.  
-> **예상 기간:** 5-6주 (8개 서브페이즈)  
-> **의존성:** Phase 5.1 (커널-브라우저 통합), Phase 5.5 (보안), Phase 6.1-6.2 (네트워크/TLS)  
+> **Parent Phase:** Phase 7 — App Execution Layer  
+> **Goal:** Build a complete web app platform on top of KPIO OS that allows PWAs (Progressive Web Apps) to be installed, launched, and managed at the same level as native apps.  
+> **Estimated Duration:** 5-6 weeks (8 sub-phases)  
+> **Dependencies:** Phase 5.1 (Kernel-Browser Integration), Phase 5.5 (Security), Phase 6.1-6.2 (Network/TLS)  
 
 ---
 
-## 현재 상태 분석 (As-Is)
+## Current State Analysis (As-Is)
 
-Phase 7-1 설계에 앞서 **이미 구현된 인프라**를 정확히 파악한다. 각 서브페이즈는 이 기반 위에 "빠진 연결고리"를 추가하는 방식으로 설계한다.
+Before designing Phase 7-1, we identify the **infrastructure already implemented**. Each sub-phase is designed to add the "missing links" on top of this foundation.
 
-| 컴포넌트 | 위치 | 상태 | 비고 |
+> **Consistency Note (2026-02-15):** This document was originally written as a "pre-implementation plan,"
+> but the current codebase already has a significant portion of Phase 7-1's core components (kernel app module, WebApp window, storage/notifications, etc.) implemented.
+> The table below has been updated to reflect the **current code status**.
+
+| Component | Location | Status | Notes |
 |---------|------|------|------|
-| **PWA Manifest 파서** | `kpio-browser/src/pwa/manifest.rs` (540줄) | ✅ 구현 완료 | W3C 전체 필드 지원 |
-| **PWA 설치 매니저** | `kpio-browser/src/pwa/install.rs` (516줄) | ✅ 구현 완료 | `BeforeInstallPromptEvent`, 설치 흐름 |
-| **PWA 윈도우 모델** | `kpio-browser/src/pwa/window.rs` (452줄) | ✅ 구현 완료 | `PwaWindow`, `DisplayMode`, `TitleBarStyle` |
-| **PWA 매니저** | `kpio-browser/src/pwa/mod.rs` (246줄) | ✅ 구현 완료 | `InstalledApp`, install/uninstall/launch |
-| **Push 알림** | `kpio-browser/src/pwa/push.rs` (495줄) | ✅ 구현 완료 | `PushManager`, 구독/해제 |
-| **앱 모델** | `kpio-browser/src/apps/mod.rs` | ✅ 구현 완료 | `AppId`, `AppInfo`, `AppState`, `AppInstance` |
-| **앱 런처** | `kpio-browser/src/apps/app_launcher.rs` | ✅ 구현 완료 | 검색, 핀, 카테고리, 최근 사용 |
-| **Service Worker 런타임** | `runtime/src/service_worker/` | ✅ 구현 완료 | 전체 라이프사이클, cache, fetch, sync |
-| **VFS** | `kernel/src/vfs/` | ✅ 구현 완료 | read/write/stat/readdir, FD 테이블 |
-| **프로세스 매니저** | `kernel/src/process/manager.rs` | ✅ 구현 완료 | ELF spawn, kill, exit (앱 전용 아님) |
-| **커널 앱 관리 모듈** | `kernel/src/app/` | ❌ 없음 | **Phase 7-1 핵심 대상** |
-| **WindowContent::WebApp** | `kernel/src/gui/window.rs` | ❌ 없음 | Browser variant만 존재 |
-| **동적 데스크톱 아이콘** | `kernel/src/gui/desktop.rs` | ❌ 없음 | 5개 하드코딩 (IconType enum) |
-| **앱 전용 시스콜** | `kernel/src/syscall/mod.rs` | ❌ 없음 | 106-109 미사용 슬롯 가용 |
-| **앱별 VFS 샌드박스** | `kernel/src/vfs/` | ❌ 없음 | 전역 경로 접근 |
-| **localStorage/IndexedDB** | — | ❌ 없음 | 웹 스토리지 API 미구현 |
-| **알림 토스트 렌더링** | `kernel/src/gui/` | ❌ 없음 | 커널 GUI에 알림 시스템 없음 |
+| **PWA Manifest Parser** | `kpio-browser/src/pwa/manifest.rs` | ✅ Implemented | |
+| **PWA Install Manager** | `kpio-browser/src/pwa/install.rs` | ✅ Implemented | |
+| **PWA Window Model** | `kpio-browser/src/pwa/window.rs` | ✅ Implemented | |
+| **PWA Manager** | `kpio-browser/src/pwa/mod.rs` | ✅ Implemented | |
+| **Push Notifications** | `kpio-browser/src/pwa/push.rs` | ✅ Implemented | |
+| **App Model** | `kpio-browser/src/apps/mod.rs` | ✅ Implemented | |
+| **App Launcher** | `kpio-browser/src/apps/app_launcher.rs` | ✅ Implemented | |
+| **Service Worker Runtime** | `runtime/src/service_worker/` | ✅ Implemented | |
+| **VFS** | `kernel/src/vfs/` | ✅ Implemented | |
+| **Kernel App Management Module** | `kernel/src/app/` | ✅ Implemented | Includes registry/lifecycle/permissions/window_state |
+| **App-specific Syscalls (106-111)** | `kernel/src/syscall/mod.rs` | ✅ Implemented | Document's 106-109 notation has been expanded to 106-111 |
+| **Per-app VFS Sandbox** | `kernel/src/vfs/sandbox.rs` | ✅ Implemented | Per-app path isolation |
+| **WindowContent::WebApp** | `kernel/src/gui/window.rs` | ✅ Implemented | `Window::new_webapp()` + `PwaDisplayMode` |
+| **Dynamic Desktop Icons** | `kernel/src/gui/desktop.rs` | ✅ Implemented | `IconType::InstalledApp` |
+| **localStorage / sessionStorage** | `kpio-browser/src/pwa/web_storage.rs` | ✅ Implemented | 5MB quota |
+| **IndexedDB** | `kpio-browser/src/pwa/indexed_db.rs`, `idb_engine.rs` | ✅ Implemented | 50MB quota |
+| **Cache Storage** | `kpio-browser/src/pwa/cache_storage.rs` | ✅ Implemented | 25MB quota |
+| **Notification/Toast Rendering** | `kernel/src/gui/notification.rs`, `toast.rs` | ✅ Implemented | NotificationCenter(50), Toast(3, 5s) |
+| **Notification Panel** | `kernel/src/gui/notification_panel.rs` | ✅ Implemented | |
 
 ---
 
-## 서브페이즈 총괄 로드맵
+## Sub-Phase Overall Roadmap
 
 ```
-주차    1         2         3         4         5         6
+Week    1         2         3         4         5         6
       ├─────────┤─────────┤─────────┤─────────┤─────────┤─────────┤
- A    ██████████                                                    커널 앱 관리 모듈
- B    ██████████                                                    앱 시스콜 & VFS 샌드박스
- C              ██████████                                          PWA ↔ 커널 통합
- D              ██████████                                          윈도우 & 데스크톱 통합
- E                        ██████████                                Service Worker 연동
- F                        ██████████                                웹 스토리지 엔진
- G                                  ██████████                      알림 & 백그라운드 동기화
- H                                  ██████████████████████          종합 검증 & 데모 앱
+ A    ██████████                                                    Kernel App Manager
+ B    ██████████                                                    App Syscalls & VFS Sandbox
+ C              ██████████                                          PWA ↔ Kernel Integration
+ D              ██████████                                          Window & Desktop Integration
+ E                        ██████████                                Service Worker Integration
+ F                        ██████████                                Web Storage Engine
+ G                                  ██████████                      Notifications & Background Sync
+ H                                  ██████████████████████          E2E Validation & Demo Apps
 ```
 
-> A-B는 병렬 가능, C-D는 병렬 가능, E-F는 병렬 가능
+> A-B can be parallelized, C-D can be parallelized, E-F can be parallelized
 
 ---
 
-## Sub-Phase 7-1.A: 커널 앱 관리 모듈 (Kernel App Manager)
+## Sub-Phase 7-1.A: Kernel App Manager
 
-### 목적
+### Purpose
 
-커널 내부에 `kernel/src/app/` 모듈을 신규 생성하여, 모든 앱 유형(웹 앱, WASM 앱, 네이티브 앱)에 공통되는 **앱 등록·라이프사이클·리소스 관리** 기반을 구축한다. `kpio-browser/src/apps/`의 앱 모델을 커널 수준으로 격상시킨다.
+Create a new `kernel/src/app/` module inside the kernel to establish the **app registration, lifecycle, and resource management** foundation common to all app types (web apps, WASM apps, native apps). This elevates the app model from `kpio-browser/src/apps/` to the kernel level.
 
-### 선행 조건
-- Phase 5.1 커널-브라우저 브릿지 동작
-- `kernel/src/process/manager.rs` ProcessManager 정상 동작
+### Prerequisites
+- Phase 5.1 Kernel-Browser bridge operational
+- `kernel/src/process/manager.rs` ProcessManager operational
 
-### 작업
+### Tasks
 
-#### A-1. 앱 레지스트리 (`kernel/src/app/registry.rs`)
-- [ ] `KernelAppId(u64)` 타입 정의 (자동 증가 ID)
-- [ ] `KernelAppDescriptor` 구조체:
+#### A-1. App Registry (`kernel/src/app/registry.rs`)
+- [ ] Define `KernelAppId(u64)` type (auto-incrementing ID)
+- [ ] `KernelAppDescriptor` struct:
   ```rust
   pub struct KernelAppDescriptor {
       pub id: KernelAppId,
       pub app_type: KernelAppType,  // WebApp | WasmApp | NativeApp
       pub name: String,
-      pub icon_data: Option<Vec<u8>>,  // PNG 바이트
-      pub install_path: String,        // VFS 내 앱 데이터 경로
+      pub icon_data: Option<Vec<u8>>,  // PNG bytes
+      pub install_path: String,        // App data path within VFS
       pub permissions: AppPermissions,
-      pub installed_at: u64,           // 타임스탬프
+      pub installed_at: u64,           // Timestamp
       pub last_launched: u64,
   }
   ```
-- [ ] `AppRegistry` 구조체:
+- [ ] `AppRegistry` struct:
   - `register(descriptor) → Result<KernelAppId, AppError>`
   - `unregister(id) → Result<(), AppError>`
   - `get(id) → Option<&KernelAppDescriptor>`
   - `list() → Vec<&KernelAppDescriptor>`
   - `find_by_name(name) → Option<&KernelAppDescriptor>`
   - `find_by_type(app_type) → Vec<&KernelAppDescriptor>`
-- [ ] 글로벌 정적 인스턴스 `APP_REGISTRY: Mutex<AppRegistry>`
-- [ ] VFS 영속화: `/system/apps/registry.json` 에 직렬화/역직렬화
-- [ ] 부팅 시 레지스트리 로드, 종료 시 저장
+- [ ] Global static instance `APP_REGISTRY: Mutex<AppRegistry>`
+- [ ] VFS persistence: Serialize/deserialize to `/system/apps/registry.json`
+- [ ] Load registry on boot, save on shutdown
 
-#### A-2. 앱 라이프사이클 매니저 (`kernel/src/app/lifecycle.rs`)
-- [ ] `AppRunState` 상태 머신:
+#### A-2. App Lifecycle Manager (`kernel/src/app/lifecycle.rs`)
+- [ ] `AppRunState` state machine:
   ```
   Registered → Launching → Running → Suspended → Terminated
                    ↓                      ↑
-                 Failed ──── (자동 재시작 ≤3회)
+                 Failed ──── (auto-restart ≤3 times)
   ```
-- [ ] `AppLifecycle` 구조체:
+- [ ] `AppLifecycle` struct:
   - `launch(id) → Result<AppInstanceId, AppError>`
   - `suspend(instance_id) → Result<(), AppError>`
   - `resume(instance_id) → Result<(), AppError>`
   - `terminate(instance_id) → Result<(), AppError>`
   - `get_state(instance_id) → AppRunState`
   - `list_running() → Vec<AppInstanceInfo>`
-- [ ] `AppInstanceId(u64)` — 동일 앱의 다중 인스턴스 구별
-- [ ] 앱-프로세스 매핑 테이블 (`HashMap<AppInstanceId, ProcessId>`)
-- [ ] 크래시 감지: 프로세스 종료 코드 비정상(≠0) 시 `Failed` 상태 전이
-- [ ] 자동 재시작 정책: `restart_count` ≤ 3, 10초 백오프
-- [ ] 리소스 해제 보장: terminate 시 VFS FD, SHM, IPC 채널 정리
+- [ ] `AppInstanceId(u64)` — Distinguish multiple instances of the same app
+- [ ] App-to-process mapping table (`HashMap<AppInstanceId, ProcessId>`)
+- [ ] Crash detection: Transition to `Failed` state on abnormal process exit code (≠0)
+- [ ] Auto-restart policy: `restart_count` ≤ 3, 10-second backoff
+- [ ] Guaranteed resource cleanup: Clean up VFS FDs, SHM, and IPC channels on terminate
 
-#### A-3. 앱 권한 프레임워크 (`kernel/src/app/permissions.rs`)
-- [ ] `AppPermissions` 구조체:
+#### A-3. App Permission Framework (`kernel/src/app/permissions.rs`)
+- [ ] `AppPermissions` struct:
   ```rust
   pub struct AppPermissions {
-      pub filesystem: FsScope,     // 접근 가능 VFS 경로 목록
+      pub filesystem: FsScope,     // List of accessible VFS paths
       pub network: NetScope,       // None | LocalOnly | AllowList(domains) | Full
       pub notifications: bool,
       pub clipboard: bool,
-      pub background: bool,        // 백그라운드 실행 허용
-      pub max_memory_kb: u32,      // 메모리 상한 (기본 64MB)
+      pub background: bool,        // Allow background execution
+      pub max_memory_kb: u32,      // Memory limit (default 64MB)
   }
   ```
-- [ ] `PermissionChecker` 트레이트:
+- [ ] `PermissionChecker` trait:
   - `check_fs(app_id, path, op) → Result<(), PermissionDenied>`
   - `check_net(app_id, domain) → Result<(), PermissionDenied>`
   - `check_notification(app_id) → bool`
-- [ ] 권한 부여/거부 영속화: `/system/apps/permissions/{app_id}.json`
-- [ ] 기본 권한 프로파일: WebApp → `{fs: app_data_only, net: scope_only, notifications: ask}`
+- [ ] Permission grant/deny persistence: `/system/apps/permissions/{app_id}.json`
+- [ ] Default permission profile: WebApp → `{fs: app_data_only, net: scope_only, notifications: ask}`
 
-#### A-4. 모듈 구조 및 통합
-- [ ] `kernel/src/app/mod.rs` — 서브모듈 export, 에러 타입 정의
+#### A-4. Module Structure and Integration
+- [ ] `kernel/src/app/mod.rs` — Sub-module exports, error type definitions
 - [ ] `kernel/src/app/error.rs` — `AppError` enum (NotFound, AlreadyRegistered, PermissionDenied, LaunchFailed, ResourceExhausted)
-- [ ] `kernel/src/lib.rs` 또는 `main.rs`에 `mod app;` 추가
-- [ ] 부팅 시 `AppRegistry::load_from_vfs()` 호출
+- [ ] Add `mod app;` to `kernel/src/lib.rs` or `main.rs`
+- [ ] Call `AppRegistry::load_from_vfs()` on boot
 
-### 산출물
+### Deliverables
 - `kernel/src/app/mod.rs`
 - `kernel/src/app/registry.rs`
 - `kernel/src/app/lifecycle.rs`
 - `kernel/src/app/permissions.rs`
 - `kernel/src/app/error.rs`
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| A-QG1 | 앱 등록 | `register()` 호출 후 `get()` 으로 동일 데이터 반환 | 유닛 테스트 |
-| A-QG2 | 앱 해제 | `unregister()` 후 `get()` → `None`, `list()` 에서 제거됨 | 유닛 테스트 |
-| A-QG3 | 상태 전이 | `launch → running → suspend → resume → running → terminate` 전이 성공 | 유닛 테스트 (상태 머신) |
-| A-QG4 | 크래시 재시작 | 프로세스 비정상 종료 3회 후 `Failed` 상태 고정, 4회째 재시작 안 됨 | 유닛 테스트 |
-| A-QG5 | 영속화 | `register()` → VFS에 `registry.json` 기록됨. 앱 재부팅 후 로드 성공 | 통합 테스트 |
-| A-QG6 | 권한 검사 | WebApp이 `/system/` 경로 접근 시 `PermissionDenied` 반환 | 유닛 테스트 |
-| A-QG7 | 빌드 | `cargo build --target x86_64-kpio` 에러 없이 통과 | CI |
-| A-QG8 | 테스트 커버리지 | `registry.rs`, `lifecycle.rs`, `permissions.rs` 각각 최소 5개 테스트 | `cargo test` |
+| A-QG1 | App registration | After `register()` call, `get()` returns the same data | Unit test |
+| A-QG2 | App unregistration | After `unregister()`, `get()` → `None`, removed from `list()` | Unit test |
+| A-QG3 | State transitions | `launch → running → suspend → resume → running → terminate` transitions succeed | Unit test (state machine) |
+| A-QG4 | Crash restart | After 3 abnormal process terminations, state fixed to `Failed`; no restart on 4th attempt | Unit test |
+| A-QG5 | Persistence | `register()` → `registry.json` written to VFS. Load succeeds after reboot | Integration test |
+| A-QG6 | Permission check | WebApp accessing `/system/` path returns `PermissionDenied` | Unit test |
+| A-QG7 | Build | `cargo build --target x86_64-kpio` passes without errors | CI |
+| A-QG8 | Test coverage | At least 5 tests each for `registry.rs`, `lifecycle.rs`, `permissions.rs` | `cargo test` |
 
 ---
 
-## Sub-Phase 7-1.B: 앱 시스콜 & VFS 샌드박스 (App Syscalls & VFS Sandbox)
+## Sub-Phase 7-1.B: App Syscalls & VFS Sandbox
 
-### 목적
+### Purpose
 
-커널 앱 관리 모듈(7-1.A)을 유저스페이스/브라우저 크레이트에서 호출할 수 있도록 **전용 시스콜 인터페이스**를 추가하고, 앱별 **VFS 경로 격리**를 구현한다.
+Add a **dedicated syscall interface** so that the userspace/browser crate can invoke the kernel app management module (7-1.A), and implement per-app **VFS path isolation**.
 
-### 선행 조건
-- 7-1.A 커널 앱 관리 모듈 퀄리티 게이트 A-QG1~QG8 전체 통과
+### Prerequisites
+- 7-1.A Kernel App Manager quality gates A-QG1~QG8 all passed
 
-### 작업
+### Tasks
 
-#### B-1. 앱 관리 시스콜 정의 (`kernel/src/syscall/mod.rs` 확장)
-- [ ] 시스콜 106: `AppInstall` — 앱 등록 (app_type, name, entry_point → app_id)
-- [ ] 시스콜 107: `AppLaunch` — 앱 실행 (app_id → instance_id)
-- [ ] 시스콜 108: `AppTerminate` — 앱 종료 (instance_id → exit_code)
-- [ ] 시스콜 109: `AppGetInfo` — 앱 정보 조회 (app_id → AppDescriptor)
-- [ ] 시스콜 110: `AppList` — 설치된 앱 목록 (→ app_ids[])
-- [ ] 시스콜 111: `AppUninstall` — 앱 제거 (app_id)
-- [ ] `dispatch()` 함수에 106-111 라우팅 추가
-- [ ] `SyscallNumber` enum에 6개 항목 추가
-- [ ] 각 시스콜의 인자 레이아웃 문서화 (레지스터 매핑)
+#### B-1. App Management Syscall Definitions (extending `kernel/src/syscall/mod.rs`)
+- [ ] Syscall 106: `AppInstall` — Register app (app_type, name, entry_point → app_id)
+- [ ] Syscall 107: `AppLaunch` — Launch app (app_id → instance_id)
+- [ ] Syscall 108: `AppTerminate` — Terminate app (instance_id → exit_code)
+- [ ] Syscall 109: `AppGetInfo` — Query app info (app_id → AppDescriptor)
+- [ ] Syscall 110: `AppList` — List installed apps (→ app_ids[])
+- [ ] Syscall 111: `AppUninstall` — Remove app (app_id)
+- [ ] Add 106-111 routing to `dispatch()` function
+- [ ] Add 6 entries to `SyscallNumber` enum
+- [ ] Document argument layout for each syscall (register mapping)
 
-#### B-2. userlib 래퍼 (`userlib/src/` 확장)
-- [ ] `userlib/src/app.rs` 모듈 추가:
+#### B-2. userlib Wrappers (extending `userlib/src/`)
+- [ ] Add `userlib/src/app.rs` module:
   ```rust
   pub fn app_install(app_type: u64, name_ptr: *const u8, name_len: u64, entry_ptr: *const u8, entry_len: u64) -> Result<u64, SyscallError>
   pub fn app_launch(app_id: u64) -> Result<u64, SyscallError>
@@ -189,122 +195,122 @@ Phase 7-1 설계에 앞서 **이미 구현된 인프라**를 정확히 파악한
   pub fn app_list(buf: &mut [u64]) -> Result<usize, SyscallError>
   pub fn app_uninstall(app_id: u64) -> Result<(), SyscallError>
   ```
-- [ ] `userlib/src/lib.rs`에 `pub mod app;` 추가
+- [ ] Add `pub mod app;` to `userlib/src/lib.rs`
 
-#### B-3. VFS 앱 샌드박스 (`kernel/src/vfs/sandbox.rs`)
-- [ ] `AppSandbox` 구조체:
+#### B-3. VFS App Sandbox (`kernel/src/vfs/sandbox.rs`)
+- [ ] `AppSandbox` struct:
   - `app_id: KernelAppId`
-  - `home_dir: String` — 앱 전용 경로 (예: `/apps/data/{app_id}/`)
-  - `allowed_paths: Vec<String>` — 추가 허용 경로 (읽기 전용)
+  - `home_dir: String` — App-specific path (e.g., `/apps/data/{app_id}/`)
+  - `allowed_paths: Vec<String>` — Additional allowed paths (read-only)
 - [ ] `resolve_path(app_id, requested_path) → Result<String, VfsError>`:
-  - 상대 경로 → `home_dir + requested_path`
-  - 절대 경로 → `allowed_paths` 내 포함 여부 검사
-  - 경로 트래버설 공격 방어 (`../` 탈출 차단)
-- [ ] VFS API에 앱 컨텍스트 통합:
-  - `read_all_sandboxed(app_id, path)` → 경로 검증 후 `read_all(resolved)` 호출
-  - `write_all_sandboxed(app_id, path, data)` → home_dir 내에서만 기록 허용
-- [ ] 앱 설치 시 자동 디렉토리 생성: `/apps/data/{app_id}/`
-- [ ] 앱 제거 시 디렉토리 삭제: `/apps/data/{app_id}/` 전체 제거
-- [ ] 글로벌 읽기 전용 경로 허용: `/system/fonts/`, `/system/locale/`
+  - Relative path → `home_dir + requested_path`
+  - Absolute path → Check inclusion in `allowed_paths`
+  - Path traversal attack defense (block `../` escape)
+- [ ] Integrate app context into VFS API:
+  - `read_all_sandboxed(app_id, path)` → Call `read_all(resolved)` after path validation
+  - `write_all_sandboxed(app_id, path, data)` → Allow writes only within home_dir
+- [ ] Auto-create directory on app install: `/apps/data/{app_id}/`
+- [ ] Delete directory on app uninstall: Remove entire `/apps/data/{app_id}/`
+- [ ] Allow global read-only paths: `/system/fonts/`, `/system/locale/`
 
-### 산출물
-- `kernel/src/syscall/mod.rs` 수정 (106-111 시스콜)
-- `userlib/src/app.rs` 신규
-- `kernel/src/vfs/sandbox.rs` 신규
+### Deliverables
+- `kernel/src/syscall/mod.rs` modified (syscalls 106-111)
+- `userlib/src/app.rs` new
+- `kernel/src/vfs/sandbox.rs` new
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| B-QG1 | 시스콜 호출 | `AppInstall(106)` → `AppGetInfo(109)` 체인으로 앱 정보 왕복 확인 | 통합 테스트 |
-| B-QG2 | 시스콜 에러 | 미등록 app_id로 `AppLaunch(107)` → `ENOENT` 에러 반환 | 유닛 테스트 |
-| B-QG3 | VFS 격리 | app_id=1 이 `/apps/data/2/secret.txt` 접근 시 `PermissionDenied` | 유닛 테스트 |
-| B-QG4 | 경로 탈출 차단 | `resolve_path(app, "../../etc/passwd")` → 에러 | 유닛 테스트 |
-| B-QG5 | 디렉토리 생명주기 | 설치 시 `/apps/data/{id}/` 생성, 제거 시 삭제 확인 | 통합 테스트 |
-| B-QG6 | userlib 래퍼 | `userlib::app::app_list()` 호출 → 등록된 앱 ID 목록 반환 | 유닛 테스트 |
-| B-QG7 | 빌드 | kernel + userlib 전체 빌드 성공 | CI |
+| B-QG1 | Syscall invocation | `AppInstall(106)` → `AppGetInfo(109)` chain roundtrip confirmed | Integration test |
+| B-QG2 | Syscall error | `AppLaunch(107)` with unregistered app_id → `ENOENT` error returned | Unit test |
+| B-QG3 | VFS isolation | app_id=1 accessing `/apps/data/2/secret.txt` → `PermissionDenied` | Unit test |
+| B-QG4 | Path escape blocked | `resolve_path(app, "../../etc/passwd")` → error | Unit test |
+| B-QG5 | Directory lifecycle | `/apps/data/{id}/` created on install, deleted on uninstall | Integration test |
+| B-QG6 | userlib wrapper | `userlib::app::app_list()` call → returns list of registered app IDs | Unit test |
+| B-QG7 | Build | kernel + userlib full build succeeds | CI |
 
 ---
 
-## Sub-Phase 7-1.C: PWA ↔ 커널 통합 (PWA-Kernel Bridge)
+## Sub-Phase 7-1.C: PWA-Kernel Bridge
 
-### 목적
+### Purpose
 
-`kpio-browser/src/pwa/`에 이미 구현된 PWA 매니페스트 파서·설치 매니저·앱 모델을 **커널 앱 관리 모듈(7-1.A)**과 연결하여, PWA 설치가 커널 레벨 앱 등록으로 이어지도록 한다.
+Connect the PWA manifest parser, install manager, and app model already implemented in `kpio-browser/src/pwa/` with the **kernel app management module (7-1.A)**, so that PWA installation leads to kernel-level app registration.
 
-### 선행 조건
-- 7-1.A 퀄리티 게이트 전체 통과
-- 7-1.B 퀄리티 게이트 B-QG1, B-QG5 통과
+### Prerequisites
+- 7-1.A Quality gates all passed
+- 7-1.B Quality gates B-QG1, B-QG5 passed
 
-### 작업
+### Tasks
 
-#### C-1. PWA 설치 브릿지 (`kpio-browser/src/pwa/kernel_bridge.rs`)
+#### C-1. PWA Install Bridge (`kpio-browser/src/pwa/kernel_bridge.rs`)
 - [ ] `pwa_install_to_kernel(manifest: &WebAppManifest) → Result<KernelAppId>`:
-  1. `manifest.name` + `manifest.start_url` 추출
-  2. 아이콘 데이터 다운로드 (manifest.icons[0].src)
-  3. `AppInstall` 시스콜 호출 → `KernelAppId` 수신
-  4. 매니페스트 전체를 `/apps/data/{id}/manifest.json`에 저장
-  5. 아이콘 바이트를 `/apps/data/{id}/icon.png`에 저장
+  1. Extract `manifest.name` + `manifest.start_url`
+  2. Download icon data (manifest.icons[0].src)
+  3. Invoke `AppInstall` syscall → receive `KernelAppId`
+  4. Save full manifest to `/apps/data/{id}/manifest.json`
+  5. Save icon bytes to `/apps/data/{id}/icon.png`
 - [ ] `pwa_uninstall_from_kernel(app_id: KernelAppId) → Result<()>`:
-  1. `AppUninstall` 시스콜 호출
-  2. `PwaManager::uninstall()` 호출
-- [ ] `PwaManager::install()` 수정: 기존 로직 끝에 `pwa_install_to_kernel()` 추가
-- [ ] `PwaManager::uninstall()` 수정: `pwa_uninstall_from_kernel()` 추가
+  1. Invoke `AppUninstall` syscall
+  2. Call `PwaManager::uninstall()`
+- [ ] Modify `PwaManager::install()`: Add `pwa_install_to_kernel()` at the end of existing logic
+- [ ] Modify `PwaManager::uninstall()`: Add `pwa_uninstall_from_kernel()`
 
-#### C-2. PWA 실행 브릿지
+#### C-2. PWA Launch Bridge
 - [ ] `pwa_launch_from_kernel(app_id: KernelAppId) → Result<String>`:
-  1. `/apps/data/{id}/manifest.json` 로드
-  2. `start_url` 추출
-  3. `AppLaunch` 시스콜 호출 → `instance_id`
-  4. `start_url` 반환 (윈도우 생성은 7-1.D에서)
-- [ ] PWA 종료 시 `AppTerminate` 시스콜 호출
+  1. Load `/apps/data/{id}/manifest.json`
+  2. Extract `start_url`
+  3. Invoke `AppLaunch` syscall → `instance_id`
+  4. Return `start_url` (window creation handled in 7-1.D)
+- [ ] Invoke `AppTerminate` syscall on PWA termination
 
-#### C-3. 기존 `InstalledApp` ↔ `KernelAppDescriptor` 동기화
-- [ ] `InstalledApp`에 `kernel_app_id: Option<KernelAppId>` 필드 추가
-- [ ] 부팅 시 `PwaManager`와 `AppRegistry` 동기화:
-  - 커널에 등록된 WebApp 타입 → `PwaManager`에 로드
-  - 불일치 시 커널 레지스트리 기준으로 복구
-- [ ] 동기화 함수: `sync_pwa_registry() → Result<SyncReport>`
+#### C-3. Synchronize existing `InstalledApp` ↔ `KernelAppDescriptor`
+- [ ] Add `kernel_app_id: Option<KernelAppId>` field to `InstalledApp`
+- [ ] Synchronize `PwaManager` and `AppRegistry` on boot:
+  - WebApp types registered in kernel → load into `PwaManager`
+  - On mismatch, recover based on kernel registry
+- [ ] Synchronization function: `sync_pwa_registry() → Result<SyncReport>`
 
-#### C-4. 설치 가능성 판별 강화
-- [ ] 브라우저 네비게이션 시 `<link rel="manifest">` 감지
-- [ ] 설치 조건 검증:
-  - HTTPS (또는 `kpio://`) 오리진
-  - 유효한 `manifest.json` (name + start_url 필수)
-  - Service Worker 등록 여부 (존재하면 offline_capable = true)
-- [ ] 설치 가능 시 커널 GUI에 "설치" 버튼 활성화 신호 전달
+#### C-4. Enhanced Installability Detection
+- [ ] Detect `<link rel="manifest">` during browser navigation
+- [ ] Install condition verification:
+  - HTTPS (or `kpio://`) origin
+  - Valid `manifest.json` (name + start_url required)
+  - Service Worker registration status (if present, offline_capable = true)
+- [ ] Send "Install" button activation signal to kernel GUI when installable
 
-### 산출물
-- `kpio-browser/src/pwa/kernel_bridge.rs` 신규
-- `kpio-browser/src/pwa/mod.rs` 수정
-- `kpio-browser/src/pwa/install.rs` 수정
+### Deliverables
+- `kpio-browser/src/pwa/kernel_bridge.rs` new
+- `kpio-browser/src/pwa/mod.rs` modified
+- `kpio-browser/src/pwa/install.rs` modified
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| C-QG1 | PWA 설치 → 커널 등록 | `PwaManager::install(manifest)` → `AppRegistry::get(id)` 성공 | 통합 테스트 |
-| C-QG2 | PWA 제거 → 커널 해제 | 제거 후 `AppRegistry::get(id)` → `None` | 통합 테스트 |
-| C-QG3 | 매니페스트 영속화 | 설치 후 `/apps/data/{id}/manifest.json` 존재, JSON 파싱 성공 | 통합 테스트 |
-| C-QG4 | 부팅 시 동기화 | 레지스트리에 WebApp 2개 등록 → 부팅 후 `PwaManager.installed_apps().len() == 2` | 통합 테스트 |
-| C-QG5 | 이중 설치 방지 | 동일 `scope`로 재설치 시도 → `AlreadyRegistered` 에러 | 유닛 테스트 |
-| C-QG6 | 매니페스트 감지 | `<link rel="manifest" href="/app.json">` 포함 HTML → 설치 가능 판별 | 유닛 테스트 |
+| C-QG1 | PWA install → kernel registration | `PwaManager::install(manifest)` → `AppRegistry::get(id)` succeeds | Integration test |
+| C-QG2 | PWA uninstall → kernel deregistration | After removal, `AppRegistry::get(id)` → `None` | Integration test |
+| C-QG3 | Manifest persistence | After install, `/apps/data/{id}/manifest.json` exists and JSON parsing succeeds | Integration test |
+| C-QG4 | Boot synchronization | 2 WebApps registered in registry → after boot, `PwaManager.installed_apps().len() == 2` | Integration test |
+| C-QG5 | Duplicate install prevention | Re-install attempt with same `scope` → `AlreadyRegistered` error | Unit test |
+| C-QG6 | Manifest detection | HTML containing `<link rel="manifest" href="/app.json">` → installability detected | Unit test |
 
 ---
 
-## Sub-Phase 7-1.D: 윈도우 & 데스크톱 통합 (Window & Desktop Integration)
+## Sub-Phase 7-1.D: Window & Desktop Integration
 
-### 목적
+### Purpose
 
-커널 GUI에 **PWA 전용 윈도우 모드**를 추가하고, 데스크톱에 **동적 앱 아이콘**을 렌더링하여, 설치된 웹 앱이 시각적으로 네이티브 앱과 구별 불가능하게 만든다.
+Add a **PWA-specific window mode** to the kernel GUI and render **dynamic app icons** on the desktop, making installed web apps visually indistinguishable from native apps.
 
-### 선행 조건
-- 7-1.C 퀄리티 게이트 C-QG1, C-QG3 통과
+### Prerequisites
+- 7-1.C Quality gates C-QG1, C-QG3 passed
 
-### 작업
+### Tasks
 
-#### D-1. `WindowContent::WebApp` 변형 추가 (`kernel/src/gui/window.rs`)
-- [ ] `WindowContent` enum 확장:
+#### D-1. Add `WindowContent::WebApp` Variant (`kernel/src/gui/window.rs`)
+- [ ] Extend `WindowContent` enum:
   ```rust
   WebApp {
       app_id: KernelAppId,
@@ -313,28 +319,28 @@ Phase 7-1 설계에 앞서 **이미 구현된 인프라**를 정확히 파악한
       rendered: Option<RenderedPage>,
       display_mode: DisplayMode,  // Standalone | MinimalUi | Fullscreen
       theme_color: Option<u32>,   // ARGB
-      scope: String,              // 네비게이션 제한 범위
+      scope: String,              // Navigation restriction scope
   }
   ```
-- [ ] `Window::new_webapp(id, app_id, manifest, x, y)` 팩토리 메서드:
-  - `display_mode` 에 따른 윈도우 크롬 결정:
-    - `Standalone`: 타이틀바만 (주소바 없음), `theme_color` 적용
-    - `MinimalUi`: 타이틀바 + 뒤로/앞으로/새로고침 미니 버튼
-    - `Fullscreen`: 크롬 없음, 전체 화면
-  - 시작 크기: 800×600 (이전 세션 기억 크기 우선)
-- [ ] 윈도우 타이틀 → `manifest.short_name || manifest.name`
-- [ ] 타이틀바 배경색 → `manifest.theme_color`
-- [ ] 스코프 밖 URL 네비게이션 시 → 별도 브라우저 윈도우에서 열기
+- [ ] `Window::new_webapp(id, app_id, manifest, x, y)` factory method:
+  - Determine window chrome based on `display_mode`:
+    - `Standalone`: Title bar only (no address bar), apply `theme_color`
+    - `MinimalUi`: Title bar + back/forward/refresh mini buttons
+    - `Fullscreen`: No chrome, full screen
+  - Initial size: 800×600 (previous session remembered size takes priority)
+- [ ] Window title → `manifest.short_name || manifest.name`
+- [ ] Title bar background color → `manifest.theme_color`
+- [ ] Navigation to URL outside scope → open in separate browser window
 
-#### D-2. PWA 스플래시 스크린 (`kernel/src/gui/splash.rs`)
+#### D-2. PWA Splash Screen (`kernel/src/gui/splash.rs`)
 - [ ] `render_splash(window, manifest)`:
-  - `background_color`로 전체 윈도우 채움
-  - 중앙에 앱 아이콘 렌더링 (비트맵 스케일링)
-  - 아이콘 아래 `manifest.name` 텍스트
-  - `start_url` 로딩 완료 시 자동 닫힘 (최대 3초 타임아웃)
+  - Fill entire window with `background_color`
+  - Render app icon centered (bitmap scaling)
+  - `manifest.name` text below icon
+  - Auto-dismiss when `start_url` finishes loading (max 3-second timeout)
 
-#### D-3. 동적 데스크톱 아이콘 (`kernel/src/gui/desktop.rs`)
-- [ ] `IconType` enum 확장:
+#### D-3. Dynamic Desktop Icons (`kernel/src/gui/desktop.rs`)
+- [ ] Extend `IconType` enum:
   ```rust
   pub enum IconType {
       Files, Browser, Terminal, Settings, Trash,
@@ -342,148 +348,148 @@ Phase 7-1 설계에 앞서 **이미 구현된 인프라**를 정확히 파악한
   }
   ```
 - [ ] `Desktop::refresh_app_icons()`:
-  - `AppRegistry::list()` 에서 WebApp 타입 조회
-  - 시스템 아이콘(5개) 뒤에 설치된 앱 아이콘 동적 배치
-  - 아이콘 그리드 계산 (가로 5열 기준)
-- [ ] 신규 앱 아이콘 렌더링:
-  - `icon_data` 있으면 → PNG 비트맵 디코딩 및 32×32 스케일 렌더링
-  - `icon_data` 없으면 → 이름 첫 글자 + 색상 원형 기본 아이콘
-- [ ] 아이콘 클릭 → `AppLifecycle::launch(app_id)` → PWA 윈도우 생성
-- [ ] 아이콘 우클릭 → 컨텍스트 메뉴 (실행, 제거)
+  - Query WebApp types from `AppRegistry::list()`
+  - Dynamically place installed app icons after system icons (5)
+  - Calculate icon grid (based on 5-column layout)
+- [ ] New app icon rendering:
+  - If `icon_data` exists → decode PNG bitmap and render at 32×32 scale
+  - If no `icon_data` → default icon with first letter of name + colored circle
+- [ ] Icon click → `AppLifecycle::launch(app_id)` → create PWA window
+- [ ] Icon right-click → context menu (Launch, Uninstall)
 
-#### D-4. 태스크바 연동 (`kernel/src/gui/taskbar.rs`)
-- [ ] 실행 중인 WebApp → 태스크바에 아이콘 + 이름 표시
-- [ ] `theme_color` 기반 액센트 색상 태스크바 항목
-- [ ] 태스크바 항목 클릭 → 윈도우 포커스/최소화 토글
-- [ ] 태스크바에 "모든 앱" 버튼 → 앱 런처 열기
+#### D-4. Taskbar Integration (`kernel/src/gui/taskbar.rs`)
+- [ ] Running WebApp → display icon + name on taskbar
+- [ ] `theme_color`-based accent color for taskbar items
+- [ ] Taskbar item click → toggle window focus/minimize
+- [ ] "All Apps" button on taskbar → open app launcher
 
-#### D-5. 창 크기/위치 영속 (`kernel/src/app/window_state.rs`)
+#### D-5. Window Size/Position Persistence (`kernel/src/app/window_state.rs`)
 - [ ] `WindowStateStore`:
   - `save(app_id, x, y, width, height)`
   - `load(app_id) → Option<(i32, i32, u32, u32)>`
-- [ ] VFS 영속: `/apps/data/{app_id}/window_state.json`
-- [ ] 윈도우 이동/리사이즈 종료 시 자동 저장
+- [ ] VFS persistence: `/apps/data/{app_id}/window_state.json`
+- [ ] Auto-save on window move/resize completion
 
-### 산출물
-- `kernel/src/gui/window.rs` 수정
-- `kernel/src/gui/desktop.rs` 수정
-- `kernel/src/gui/taskbar.rs` 수정
-- `kernel/src/gui/splash.rs` 신규
-- `kernel/src/app/window_state.rs` 신규
+### Deliverables
+- `kernel/src/gui/window.rs` modified
+- `kernel/src/gui/desktop.rs` modified
+- `kernel/src/gui/taskbar.rs` modified
+- `kernel/src/gui/splash.rs` new
+- `kernel/src/app/window_state.rs` new
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| D-QG1 | WebApp 윈도우 | `Window::new_webapp()` 생성 → 주소바 없는 독립 윈도우 렌더링 | QEMU 시각 검증 |
-| D-QG2 | theme_color | `#2196F3` 테마 → 타이틀바 파란색 렌더링 | QEMU 시각 검증 |
-| D-QG3 | 동적 아이콘 | 앱 2개 설치 → 데스크톱에 7개 아이콘(시스템5 + 앱2) | QEMU 시각 검증 |
-| D-QG4 | 아이콘 클릭 실행 | 데스크톱 앱 아이콘 클릭 → WebApp 윈도우 생성 | QEMU 기능 검증 |
-| D-QG5 | 앱 제거 후 아이콘 | 앱 제거 → 데스크톱 아이콘 즉시 사라짐 | QEMU 시각 검증 |
-| D-QG6 | 스코프 제한 | WebApp 내 외부 URL 클릭 → 브라우저 윈도우에서 열림 | 기능 테스트 |
-| D-QG7 | 태스크바 표시 | WebApp 실행 → 태스크바에 앱 이름 + 테마 색상 표시 | QEMU 시각 검증 |
-| D-QG8 | 스플래시 | WebApp 실행 즉시 → `background_color` + 아이콘 스플래시 표시 (≤3초 후 전환) | QEMU 시각 검증 |
-| D-QG9 | 윈도우 크기 기억 | 윈도우 리사이즈 → 닫기 → 재실행 → 이전 크기로 복원 | 기능 테스트 |
+| D-QG1 | WebApp window | `Window::new_webapp()` creates → standalone window rendered without address bar | QEMU visual verification |
+| D-QG2 | theme_color | `#2196F3` theme → title bar rendered in blue | QEMU visual verification |
+| D-QG3 | Dynamic icons | 2 apps installed → 7 icons on desktop (5 system + 2 apps) | QEMU visual verification |
+| D-QG4 | Icon click launch | Desktop app icon click → WebApp window created | QEMU functional verification |
+| D-QG5 | Icon after uninstall | App uninstalled → desktop icon disappears immediately | QEMU visual verification |
+| D-QG6 | Scope restriction | External URL clicked within WebApp → opens in browser window | Functional test |
+| D-QG7 | Taskbar display | WebApp running → app name + theme color shown on taskbar | QEMU visual verification |
+| D-QG8 | Splash screen | WebApp launch immediately → `background_color` + icon splash shown (transition after ≤3s) | QEMU visual verification |
+| D-QG9 | Window size memory | Window resize → close → relaunch → restored to previous size | Functional test |
 
 ---
 
-## Sub-Phase 7-1.E: Service Worker 연동 (Service Worker Integration)
+## Sub-Phase 7-1.E: Service Worker Integration
 
-### 목적
+### Purpose
 
-`runtime/src/service_worker/` 모듈을 실제 웹 앱의 **fetch 인터셉트**, **캐시 관리**, **오프라인 동작** 파이프라인에 연결한다.
+Connect the `runtime/src/service_worker/` module to the actual web app's **fetch interception**, **cache management**, and **offline operation** pipeline.
 
-### 선행 조건
-- 7-1.C 퀄리티 게이트 C-QG1 통과 (PWA가 커널에 등록 가능)
-- Phase 6.3 JS 엔진 기본 동작 (또는 캐시 전용 모드로 우회)
+### Prerequisites
+- 7-1.C Quality gate C-QG1 passed (PWA can be registered with kernel)
+- Phase 6.3 JS engine basic operation (or bypass with cache-only mode)
 
-### 작업
+### Tasks
 
-#### E-1. SW ↔ 브라우저 이벤트 파이프라인 (`kpio-browser/src/pwa/sw_bridge.rs`)
-- [ ] `ServiceWorkerBridge` 구조체:
+#### E-1. SW ↔ Browser Event Pipeline (`kpio-browser/src/pwa/sw_bridge.rs`)
+- [ ] `ServiceWorkerBridge` struct:
   - `register(scope: &str, script_url: &str) → Result<ServiceWorkerId>`
   - `unregister(scope: &str) → Result<()>`
   - `get_registration(scope: &str) → Option<ServiceWorkerRegistration>`
-- [ ] `navigator.serviceWorker.register()` JS API → `ServiceWorkerBridge::register()` 매핑
-- [ ] SW 스크립트 다운로드 → VFS `/apps/cache/{app_id}/sw.js`에 저장
-- [ ] SW 상태 변경 이벤트 → 브라우저로 전파 (statechange)
+- [ ] `navigator.serviceWorker.register()` JS API → map to `ServiceWorkerBridge::register()`
+- [ ] Download SW script → save to VFS `/apps/cache/{app_id}/sw.js`
+- [ ] SW state change events → propagate to browser (statechange)
 
-#### E-2. Fetch 인터셉트 파이프라인
+#### E-2. Fetch Intercept Pipeline
 - [ ] `FetchInterceptor`:
-  1. 웹 앱의 네트워크 요청 발생
-  2. 매칭되는 active SW 검색 (`scope` 기준)
-  3. SW에 `FetchEvent` 디스패치
-  4. SW 응답 대기 (타임아웃 5초):
-     - `event.respondWith(response)` → 캐시/커스텀 응답 사용
-     - 타임아웃/미처리 → 네트워크로 직접 요청 (fallback)
-- [ ] **캐시 전용 모드** (JS 엔진 미완 시 폴백):
-  - SW JS 실행 불가 시 → URL 패턴 매칭 기반 캐시 전략
+  1. Web app network request occurs
+  2. Search for matching active SW (by `scope`)
+  3. Dispatch `FetchEvent` to SW
+  4. Wait for SW response (5-second timeout):
+     - `event.respondWith(response)` → use cache/custom response
+     - Timeout/unhandled → direct network request (fallback)
+- [ ] **Cache-only mode** (fallback when JS engine is incomplete):
+  - If SW JS execution is unavailable → URL pattern matching based cache strategy
   - `sw_cache_config.json`: `{ patterns: [{ url: "/**/*.css", strategy: "cache-first" }] }`
-  - 매칭 시 캐시 히트 → 캐시 응답, 미스 → 네트워크 요청
-- [ ] fetch 이벤트 로깅 (디버그용): 요청 URL, 캐시 히트/미스, SW 응답 여부
+  - On match: cache hit → cache response; miss → network request
+- [ ] fetch event logging (for debugging): request URL, cache hit/miss, SW response status
 
-#### E-3. Cache Storage API 구현
-- [ ] `CacheStorage` (글로벌 `caches` 객체):
+#### E-3. Cache Storage API Implementation
+- [ ] `CacheStorage` (global `caches` object):
   - `open(cache_name) → Cache`
   - `has(cache_name) → bool`
   - `delete(cache_name) → bool`
   - `keys() → Vec<String>`
 - [ ] `Cache`:
-  - `put(request, response)` — URL + 응답 바디 저장
-  - `match(request) → Option<Response>` — URL 매칭 조회
+  - `put(request, response)` — Store URL + response body
+  - `match(request) → Option<Response>` — URL matching lookup
   - `delete(request) → bool`
   - `keys() → Vec<Request>`
-- [ ] VFS 기반 영속화:
-  - 저장 경로: `/apps/cache/{app_id}/{cache_name}/`
-  - 메타데이터: `_meta.json` (URL → 파일명 매핑)
-  - 응답 바디: `{hash}.body` (바이너리)
-  - 응답 헤더: `{hash}.headers` (JSON)
-- [ ] 쿼터 관리: 앱당 캐시 용량 상한 25MB (초과 시 LRU 축출)
+- [ ] VFS-based persistence:
+  - Storage path: `/apps/cache/{app_id}/{cache_name}/`
+  - Metadata: `_meta.json` (URL → filename mapping)
+  - Response body: `{hash}.body` (binary)
+  - Response headers: `{hash}.headers` (JSON)
+- [ ] Quota management: 25MB per-app cache size limit (LRU eviction on exceed)
 
-#### E-4. SW 라이프사이클 이벤트 구현
-- [ ] `install` 이벤트:
-  - `event.waitUntil(promise)` — 프리캐시 완료 대기
-  - 프리캐시 목록 다운로드 → Cache Storage에 저장
-- [ ] `activate` 이벤트:
-  - `event.waitUntil(promise)` — 이전 캐시 정리
-  - `caches.delete(old_cache_name)` 처리
-- [ ] SW 업데이트:
-  - 바이트 비교: 기존 SW ≠ 새 SW → 업데이트 발동
-  - `waiting` 상태 → `skipWaiting()` 호출 시 즉시 활성화
-  - `clients.claim()` → 기존 클라이언트 즉시 제어
+#### E-4. SW Lifecycle Event Implementation
+- [ ] `install` event:
+  - `event.waitUntil(promise)` — Wait for pre-cache completion
+  - Download pre-cache list → save to Cache Storage
+- [ ] `activate` event:
+  - `event.waitUntil(promise)` — Clean up previous caches
+  - Process `caches.delete(old_cache_name)`
+- [ ] SW update:
+  - Byte comparison: existing SW ≠ new SW → trigger update
+  - `waiting` state → immediate activation on `skipWaiting()` call
+  - `clients.claim()` → immediately control existing clients
 
-### 산출물
-- `kpio-browser/src/pwa/sw_bridge.rs` 신규
-- `kpio-browser/src/pwa/cache_storage.rs` 신규
-- `kpio-browser/src/pwa/fetch_interceptor.rs` 신규
+### Deliverables
+- `kpio-browser/src/pwa/sw_bridge.rs` new
+- `kpio-browser/src/pwa/cache_storage.rs` new
+- `kpio-browser/src/pwa/fetch_interceptor.rs` new
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| E-QG1 | SW 등록 | `register("/", "/sw.js")` → `ServiceWorkerId` 반환. 상태 `Activated` 도달 | 유닛 테스트 |
-| E-QG2 | 캐시 저장/조회 | `cache.put("/style.css", body)` → `cache.match("/style.css")` → 동일 바디 | 유닛 테스트 |
-| E-QG3 | 캐시 VFS 영속 | 캐시 put → VFS에 파일 생성 확인 → 재부팅 후 `cache.match()` 성공 | 통합 테스트 |
-| E-QG4 | 캐시 전용 모드 | 캐시에 `/index.html` 저장 → 네트워크 차단 → 캐시 응답 반환 | 통합 테스트 |
-| E-QG5 | 쿼터 강제 | 25MB 초과 캐시 put → LRU 축출 후 총량 ≤ 25MB | 유닛 테스트 |
-| E-QG6 | SW 업데이트 | SW 스크립트 변경 → 새 SW installed → skipWaiting → active 전이 | 유닛 테스트 |
-| E-QG7 | Fetch 폴백 | SW 응답 없음(타임아웃) → 네트워크 직접 요청으로 폴백 | 통합 테스트 |
+| E-QG1 | SW registration | `register("/", "/sw.js")` → `ServiceWorkerId` returned. State reaches `Activated` | Unit test |
+| E-QG2 | Cache store/retrieve | `cache.put("/style.css", body)` → `cache.match("/style.css")` → same body | Unit test |
+| E-QG3 | Cache VFS persistence | Cache put → file created in VFS → `cache.match()` succeeds after reboot | Integration test |
+| E-QG4 | Cache-only mode | `/index.html` saved in cache → network blocked → cache response returned | Integration test |
+| E-QG5 | Quota enforcement | Cache put exceeding 25MB → LRU eviction, total ≤ 25MB | Unit test |
+| E-QG6 | SW update | SW script changed → new SW installed → skipWaiting → transition to active | Unit test |
+| E-QG7 | Fetch fallback | No SW response (timeout) → fallback to direct network request | Integration test |
 
 ---
 
-## Sub-Phase 7-1.F: 웹 스토리지 엔진 (Web Storage Engine)
+## Sub-Phase 7-1.F: Web Storage Engine
 
-### 목적
+### Purpose
 
-PWA의 데이터 영속화를 위한 **Web Storage API** (localStorage, sessionStorage) 및 **IndexedDB** 기본 구현을 제공한다.
+Provide **Web Storage API** (localStorage, sessionStorage) and basic **IndexedDB** implementation for PWA data persistence.
 
-### 선행 조건
-- 7-1.B 퀄리티 게이트 B-QG3 통과 (VFS 샌드박스 동작)
+### Prerequisites
+- 7-1.B Quality gate B-QG3 passed (VFS sandbox operational)
 
-### 작업
+### Tasks
 
 #### F-1. Web Storage API (`kpio-browser/src/pwa/web_storage.rs`)
-- [ ] `WebStorage` 구조체:
+- [ ] `WebStorage` struct:
   ```rust
   pub struct WebStorage {
       origin: String,
@@ -500,10 +506,10 @@ PWA의 데이터 영속화를 위한 **Web Storage API** (localStorage, sessionS
   - `clear()`
   - `key(index) → Option<String>`
   - `length() → usize`
-- [ ] `localStorage`: VFS 영속 (`/apps/storage/{app_id}/local_storage.json`)
-- [ ] `sessionStorage`: 메모리 전용, 앱 종료 시 소멸
-- [ ] 용량 제한: 키+값 합계 5MB 초과 시 `QuotaExceededError`
-- [ ] `storage` 이벤트: 다른 탭/윈도우에 변경 알림 (`StorageEvent`)
+- [ ] `localStorage`: VFS persistence (`/apps/storage/{app_id}/local_storage.json`)
+- [ ] `sessionStorage`: Memory-only, destroyed on app termination
+- [ ] Size limit: `QuotaExceededError` when key+value total exceeds 5MB
+- [ ] `storage` event: Notify changes to other tabs/windows (`StorageEvent`)
 
 #### F-2. IndexedDB Core (`kpio-browser/src/pwa/indexed_db.rs`)
 - [ ] `IDBFactory`:
@@ -528,7 +534,7 @@ PWA의 데이터 영속화를 위한 **Web Storage API** (localStorage, sessionS
   - `mode`: Readonly | Readwrite | Versionchange
   - `object_store(name) → IDBObjectStore`
   - `commit()` / `abort()`
-  - `oncomplete`, `onerror`, `onabort` 이벤트
+  - `oncomplete`, `onerror`, `onabort` events
 - [ ] `IDBIndex`:
   - `get(key) → IDBRequest`
   - `get_all(query?, count?) → IDBRequest`
@@ -538,57 +544,57 @@ PWA의 데이터 영속화를 위한 **Web Storage API** (localStorage, sessionS
   - `update(value)`, `delete()`
   - `direction`: Next | Prev | NextUnique | PrevUnique
 
-#### F-3. IndexedDB 저장소 엔진 (`kpio-browser/src/pwa/idb_engine.rs`)
-- [ ] B-Tree 기반 키-값 저장소:
-  - 키: 정렬 가능한 `IDBKey` (Number | String | Date | Binary | Array)
-  - 값: JSON 직렬화된 JS 값
-  - 인덱스: key_path 기반 보조 B-Tree
-- [ ] VFS 영속화:
-  - 데이터베이스 경로: `/apps/storage/{app_id}/idb/{db_name}/`
-  - 오브젝트 스토어: `{store_name}.kvidb` (커스텀 바이너리 포맷)
-  - 메타데이터: `_schema.json` (스토어 목록, 인덱스 정보, 버전)
-- [ ] 트랜잭션 격리:
-  - Readwrite: 스토어 단위 `Mutex` 잠금
-  - Readonly: 동시 다중 접근 허용
-  - Versionchange: 전체 DB 배타 잠금
-- [ ] 앱당 쿼터: 50MB (localStorage 5MB + IndexedDB 45MB)
+#### F-3. IndexedDB Storage Engine (`kpio-browser/src/pwa/idb_engine.rs`)
+- [ ] B-Tree based key-value store:
+  - Key: Sortable `IDBKey` (Number | String | Date | Binary | Array)
+  - Value: JSON-serialized JS values
+  - Index: Secondary B-Tree based on key_path
+- [ ] VFS persistence:
+  - Database path: `/apps/storage/{app_id}/idb/{db_name}/`
+  - Object store: `{store_name}.kvidb` (custom binary format)
+  - Metadata: `_schema.json` (store list, index info, version)
+- [ ] Transaction isolation:
+  - Readwrite: Store-level `Mutex` locking
+  - Readonly: Multiple concurrent access allowed
+  - Versionchange: Exclusive lock on entire DB
+- [ ] Per-app quota: 50MB (localStorage 5MB + IndexedDB 45MB)
 
-### 산출물
-- `kpio-browser/src/pwa/web_storage.rs` 신규
-- `kpio-browser/src/pwa/indexed_db.rs` 신규
-- `kpio-browser/src/pwa/idb_engine.rs` 신규
+### Deliverables
+- `kpio-browser/src/pwa/web_storage.rs` new
+- `kpio-browser/src/pwa/indexed_db.rs` new
+- `kpio-browser/src/pwa/idb_engine.rs` new
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| F-QG1 | localStorage CRUD | `setItem("k","v")` → `getItem("k")` = `"v"` → `removeItem("k")` → `getItem("k")` = None | 유닛 테스트 |
-| F-QG2 | localStorage 영속 | `setItem` → 앱 종료 → 앱 재실행 → `getItem` 동일 값 | 통합 테스트 |
-| F-QG3 | sessionStorage 비영속 | `setItem` → 앱 종료 → 앱 재실행 → `getItem` = None | 통합 테스트 |
-| F-QG4 | 용량 제한 | 5MB 초과 `setItem` → `QuotaExceededError` | 유닛 테스트 |
-| F-QG5 | IDB 기본 CRUD | `objectStore.put({name:"test"}, 1)` → `get(1)` → `{name:"test"}` | 유닛 테스트 |
-| F-QG6 | IDB 트랜잭션 | readwrite 트랜잭션 내 `put` 2회 → `commit` → `getAll` = 2건 | 유닛 테스트 |
-| F-QG7 | IDB abort | 트랜잭션 내 `put` → `abort` → `get` = None (롤백됨) | 유닛 테스트 |
-| F-QG8 | IDB 인덱스 | `createIndex("byName", "name")` → 인덱스 기반 `get("test")` 성공 | 유닛 테스트 |
-| F-QG9 | IDB 영속 | `put` → 앱 종료 → 재실행 → `get` 동일 데이터 | 통합 테스트 |
-| F-QG10 | 쿼터 통합 | localStorage 3MB + IDB 47MB → 다음 write 시 QuotaExceeded | 통합 테스트 |
+| F-QG1 | localStorage CRUD | `setItem("k","v")` → `getItem("k")` = `"v"` → `removeItem("k")` → `getItem("k")` = None | Unit test |
+| F-QG2 | localStorage persistence | `setItem` → app exit → app relaunch → `getItem` returns same value | Integration test |
+| F-QG3 | sessionStorage non-persistence | `setItem` → app exit → app relaunch → `getItem` = None | Integration test |
+| F-QG4 | Size limit | `setItem` exceeding 5MB → `QuotaExceededError` | Unit test |
+| F-QG5 | IDB basic CRUD | `objectStore.put({name:"test"}, 1)` → `get(1)` → `{name:"test"}` | Unit test |
+| F-QG6 | IDB transaction | 2x `put` within readwrite transaction → `commit` → `getAll` = 2 records | Unit test |
+| F-QG7 | IDB abort | `put` within transaction → `abort` → `get` = None (rolled back) | Unit test |
+| F-QG8 | IDB index | `createIndex("byName", "name")` → index-based `get("test")` succeeds | Unit test |
+| F-QG9 | IDB persistence | `put` → app exit → relaunch → `get` returns same data | Integration test |
+| F-QG10 | Combined quota | localStorage 3MB + IDB 47MB → next write triggers QuotaExceeded | Integration test |
 
 ---
 
-## Sub-Phase 7-1.G: 알림 & 백그라운드 동기화 (Notifications & Background Sync)
+## Sub-Phase 7-1.G: Notifications & Background Sync
 
-### 목적
+### Purpose
 
-PWA의 사용자 참여(engagement) 기능인 **푸시 알림**과 **백그라운드 동기화**를 커널 GUI에 통합한다.
+Integrate PWA user engagement features — **push notifications** and **background sync** — into the kernel GUI.
 
-### 선행 조건
-- 7-1.D 퀄리티 게이트 D-QG1 통과 (WebApp 윈도우 존재)
-- 7-1.B 퀄리티 게이트 B-QG1 통과 (앱 시스콜 동작)
+### Prerequisites
+- 7-1.D Quality gate D-QG1 passed (WebApp window exists)
+- 7-1.B Quality gate B-QG1 passed (app syscalls operational)
 
-### 작업
+### Tasks
 
-#### G-1. 커널 알림 센터 (`kernel/src/gui/notification.rs`)
-- [ ] `Notification` 구조체:
+#### G-1. Kernel Notification Center (`kernel/src/gui/notification.rs`)
+- [ ] `Notification` struct:
   ```rust
   pub struct Notification {
       pub id: u64,
@@ -599,105 +605,105 @@ PWA의 사용자 참여(engagement) 기능인 **푸시 알림**과 **백그라�
       pub icon_data: Option<Vec<u8>>,
       pub timestamp: u64,
       pub read: bool,
-      pub action_url: Option<String>,  // 클릭 시 이동할 URL
+      pub action_url: Option<String>,  // URL to navigate to on click
   }
   ```
 - [ ] `NotificationCenter`:
-  - `show(notification) → NotificationId` — 토스트 표시 큐
-  - `dismiss(id)` — 토스트 닫기
+  - `show(notification) → NotificationId` — Queue for toast display
+  - `dismiss(id)` — Close toast
   - `list_unread() → Vec<&Notification>`
   - `mark_read(id)`
   - `clear_all()`
-- [ ] 글로벌 인스턴스: `NOTIFICATION_CENTER: Mutex<NotificationCenter>`
-- [ ] 알림 이력: 최근 50건 보관, FIFO 축출
+- [ ] Global instance: `NOTIFICATION_CENTER: Mutex<NotificationCenter>`
+- [ ] Notification history: Retain latest 50 entries, FIFO eviction
 
-#### G-2. 토스트 렌더링 (`kernel/src/gui/toast.rs`)
-- [ ] 토스트 위치: 화면 우상단, 위에서 아래로 큐잉 (최대 3개 동시)
-- [ ] 토스트 레이아웃:
+#### G-2. Toast Rendering (`kernel/src/gui/toast.rs`)
+- [ ] Toast position: Top-right of screen, queued top to bottom (max 3 simultaneous)
+- [ ] Toast layout:
   ```
   ┌────────────────────────────────┐
-  │ [앱 아이콘] 앱 이름    ✕ (닫기) │
-  │ 알림 제목 (볼드)                │
-  │ 본문 텍스트 (최대 2줄)          │
+  │ [App Icon] App Name    ✕ (close) │
+  │ Notification Title (bold)        │
+  │ Body text (max 2 lines)          │
   └────────────────────────────────┘
   ```
-- [ ] 자동 사라짐: 5초 후 페이드 아웃 (또는 닫기 클릭)
-- [ ] 클릭 시 동작:
-  - `action_url` 있으면 → 해당 앱 윈도우 포커스 + URL 네비게이션
-  - 없으면 → 앱 윈도우 단순 포커스
-- [ ] 렌더링 z-order: 모든 윈도우 위 (항상 최상위)
+- [ ] Auto-dismiss: Fade out after 5 seconds (or on close click)
+- [ ] Click behavior:
+  - If `action_url` exists → focus app window + navigate to URL
+  - Otherwise → simply focus app window
+- [ ] Rendering z-order: Above all windows (always topmost)
 
-#### G-3. Notification API 연동 (`kpio-browser/src/pwa/notification_bridge.rs`)
-- [ ] `Notification.requestPermission()` → 사용자 승인 다이얼로그:
-  - "앱이름이(가) 알림을 보내려고 합니다" + [허용] [차단] 버튼
-  - 결과 영속화 → `/system/apps/permissions/{app_id}.json`
-- [ ] `new Notification(title, { body, icon })` → `NotificationCenter::show()` 호출
-- [ ] `notification.onclick` → `action_url` 기반 이벤트 디스패치
-- [ ] `notification.close()` → `NotificationCenter::dismiss()` 호출
+#### G-3. Notification API Bridge (`kpio-browser/src/pwa/notification_bridge.rs`)
+- [ ] `Notification.requestPermission()` → User approval dialog:
+  - "[App name] wants to send notifications" + [Allow] [Block] buttons
+  - Persist result → `/system/apps/permissions/{app_id}.json`
+- [ ] `new Notification(title, { body, icon })` → invoke `NotificationCenter::show()`
+- [ ] `notification.onclick` → event dispatch based on `action_url`
+- [ ] `notification.close()` → invoke `NotificationCenter::dismiss()`
 
-#### G-4. 백그라운드 동기화 (`kpio-browser/src/pwa/background_sync.rs`)
+#### G-4. Background Sync (`kpio-browser/src/pwa/background_sync.rs`)
 - [ ] `SyncManager`:
-  - `register(tag) → Result<()>` — 동기화 태스크 등록
-  - `get_tags() → Vec<String>` — 등록된 태그 목록
-- [ ] 네트워크 상태 감시:
-  - `kernel/src/net/` 네트워크 연결 상태 폴링 (5초 간격)
-  - 오프라인 → 온라인 전환 감지
-- [ ] 온라인 복귀 시:
-  - 등록된 `sync` 태스크 → SW에 `sync` 이벤트 디스패치
-  - 이벤트 처리 실패 시 → 백오프 재시도 (30초, 60초, 300초)
-  - 최대 3회 재시도 후 폐기
-- [ ] 태스크 영속화: `/apps/data/{app_id}/sync_tasks.json`
+  - `register(tag) → Result<()>` — Register sync task
+  - `get_tags() → Vec<String>` — List registered tags
+- [ ] Network state monitoring:
+  - Poll `kernel/src/net/` network connection status (5-second interval)
+  - Detect offline → online transition
+- [ ] On return to online:
+  - Dispatch `sync` event to SW for registered `sync` tasks
+  - On event processing failure → backoff retry (30s, 60s, 300s)
+  - Discard after max 3 retries
+- [ ] Task persistence: `/apps/data/{app_id}/sync_tasks.json`
 
-#### G-5. 알림 관리 UI (`kernel/src/gui/notification_panel.rs`)
-- [ ] 태스크바 알림 아이콘 (벨 모양):
-  - 미읽은 알림 있으면 → 빨간 뱃지 (숫자)
-  - 클릭 → 알림 패널 토글
-- [ ] 알림 패널:
-  - 최근 알림 목록 (앱별 그룹핑)
-  - 각 알림: 제목 + 본문 + 시간 + 앱 이름
-  - "모두 읽음" 버튼
-  - "앱별 알림 설정" 링크 → 설정 앱
+#### G-5. Notification Management UI (`kernel/src/gui/notification_panel.rs`)
+- [ ] Taskbar notification icon (bell shape):
+  - If unread notifications exist → red badge (with count)
+  - Click → toggle notification panel
+- [ ] Notification panel:
+  - Recent notification list (grouped by app)
+  - Each notification: title + body + time + app name
+  - "Mark all read" button
+  - "Per-app notification settings" link → settings app
 
-### 산출물
-- `kernel/src/gui/notification.rs` 신규
-- `kernel/src/gui/toast.rs` 신규
-- `kernel/src/gui/notification_panel.rs` 신규
-- `kpio-browser/src/pwa/notification_bridge.rs` 신규
-- `kpio-browser/src/pwa/background_sync.rs` 신규
+### Deliverables
+- `kernel/src/gui/notification.rs` new
+- `kernel/src/gui/toast.rs` new
+- `kernel/src/gui/notification_panel.rs` new
+- `kpio-browser/src/pwa/notification_bridge.rs` new
+- `kpio-browser/src/pwa/background_sync.rs` new
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| G-QG1 | 토스트 렌더링 | `NotificationCenter::show()` → 우상단에 토스트 표시 (제목+본문) | QEMU 시각 검증 |
-| G-QG2 | 자동 사라짐 | 토스트 표시 → 5초 후 자동 제거 | QEMU 시각 검증 (타이머) |
-| G-QG3 | 동시 큐잉 | 3건 연속 show → 3개 토스트 수직 배치 | QEMU 시각 검증 |
-| G-QG4 | 토스트 클릭 | 토스트 클릭 → 해당 앱 윈도우 포커스 | QEMU 기능 검증 |
-| G-QG5 | 권한 요청 | 미허용 앱의 알림 → 승인 다이얼로그 표시 | QEMU 시각 검증 |
-| G-QG6 | 권한 차단 | 차단된 앱의 `Notification()` → 무시 (토스트 없음) | 기능 테스트 |
-| G-QG7 | 알림 이력 | 10건 show → `list_unread().len() == 10` | 유닛 테스트 |
-| G-QG8 | 알림 패널 | 벨 아이콘 클릭 → 알림 패널에 알림 목록 표시 | QEMU 시각 검증 |
-| G-QG9 | 백그라운드 동기화 | sync 등록 → 네트워크 차단 → 복구 → `sync` 이벤트 발생 | 통합 테스트 |
-| G-QG10 | 재시도 제한 | sync 이벤트 처리 실패 3회 → 태스크 폐기 | 유닛 테스트 |
+| G-QG1 | Toast rendering | `NotificationCenter::show()` → toast displayed at top-right (title + body) | QEMU visual verification |
+| G-QG2 | Auto-dismiss | Toast displayed → auto-removed after 5 seconds | QEMU visual verification (timer) |
+| G-QG3 | Simultaneous queuing | 3 consecutive shows → 3 toasts vertically stacked | QEMU visual verification |
+| G-QG4 | Toast click | Toast click → corresponding app window focused | QEMU functional verification |
+| G-QG5 | Permission request | Notification from unauthorized app → approval dialog displayed | QEMU visual verification |
+| G-QG6 | Permission blocked | `Notification()` from blocked app → ignored (no toast) | Functional test |
+| G-QG7 | Notification history | 10x show → `list_unread().len() == 10` | Unit test |
+| G-QG8 | Notification panel | Bell icon click → notification list displayed in panel | QEMU visual verification |
+| G-QG9 | Background sync | Sync registered → network blocked → restored → `sync` event fired | Integration test |
+| G-QG10 | Retry limit | Sync event processing fails 3 times → task discarded | Unit test |
 
 ---
 
-## Sub-Phase 7-1.H: 종합 검증 & 데모 앱 (E2E Validation & Demo Apps)
+## Sub-Phase 7-1.H: E2E Validation & Demo Apps
 
-### 목적
+### Purpose
 
-Phase 7-1 전체 파이프라인을 **엔드투엔드로 검증**하고, 실제 동작하는 **데모 PWA 2개**를 제작하여 웹 앱 플랫폼의 완성도를 증명한다.
+Perform **end-to-end validation** of the entire Phase 7-1 pipeline and build **2 working demo PWAs** to prove the completeness of the web app platform.
 
-### 선행 조건
-- 7-1.A ~ 7-1.G 전체 퀄리티 게이트 통과
+### Prerequisites
+- 7-1.A through 7-1.G all quality gates passed
 
-### 작업
+### Tasks
 
-#### H-1. 데모 PWA #1: KPIO Notes (메모 앱)
-- [ ] 단일 페이지 웹 앱:
-  - HTML: 텍스트 에어리어 + 저장 버튼 + 메모 목록
-  - CSS: 미니멀 디자인, `theme_color: #4CAF50` (녹색)
-  - JS: localStorage 기반 메모 CRUD
+#### H-1. Demo PWA #1: KPIO Notes (Memo App)
+- [ ] Single-page web app:
+  - HTML: Text area + save button + memo list
+  - CSS: Minimal design, `theme_color: #4CAF50` (green)
+  - JS: localStorage-based memo CRUD
 - [ ] `manifest.json`:
   ```json
   {
@@ -710,120 +716,121 @@ Phase 7-1 전체 파이프라인을 **엔드투엔드로 검증**하고, 실제 
     "icons": [{ "src": "/notes/icon.png", "sizes": "192x192" }]
   }
   ```
-- [ ] Service Worker: Cache First 전략 (HTML/CSS/JS 오프라인 가용)
-- [ ] 검증 시나리오:
-  1. 브라우저에서 `/notes/` 접속
-  2. "설치" 버튼 → 설치 완료
-  3. 데스크톱에 녹색 Notes 아이콘 출현
-  4. 아이콘 클릭 → standalone 윈도우 열림 (주소바 없음, 녹색 타이틀바)
-  5. 메모 작성 → localStorage 저장
-  6. 앱 종료 → 재실행 → 메모 유지
-  7. 네트워크 차단 → 앱 정상 동작 (오프라인)
+- [ ] Service Worker: Cache First strategy (HTML/CSS/JS available offline)
+- [ ] Verification scenario:
+  1. Navigate to `/notes/` in browser
+  2. "Install" button → installation complete
+  3. Green Notes icon appears on desktop
+  4. Icon click → standalone window opens (no address bar, green title bar)
+  5. Write memo → saved to localStorage
+  6. Close app → relaunch → memo persisted
+  7. Network blocked → app works normally (offline)
 
-#### H-2. 데모 PWA #2: KPIO Weather (날씨 앱)
-- [ ] 단일 페이지 웹 앱:
-  - HTML: 날씨 카드 + 도시 선택
-  - CSS: 그라데이션 배경, `theme_color: #2196F3` (파란색)
-  - JS: fetch API로 날씨 데이터 요청 (모의 API)
-- [ ] Service Worker: Network First 전략 (최신 데이터 우선, 오프라인 시 캐시)
-- [ ] 알림: "기온 변화 알림" 데모 (Notification API)
-- [ ] Background Sync: 오프라인 중 "도시 추가" → 온라인 복귀 시 자동 동기화
-- [ ] 검증 시나리오:
-  1. 설치 → 파란색 Weather 아이콘 출현
-  2. 날씨 데이터 로드 → 캐시
-  3. "기온 알림" 허용 → 토스트 알림 수신
-  4. 네트워크 차단 → 캐시된 날씨 표시
-  5. 네트워크 복귀 → 자동 갱신 + sync 이벤트 처리
+#### H-2. Demo PWA #2: KPIO Weather (Weather App)
+- [ ] Single-page web app:
+  - HTML: Weather card + city selector
+  - CSS: Gradient background, `theme_color: #2196F3` (blue)
+  - JS: Fetch API for weather data requests (mock API)
+- [ ] Service Worker: Network First strategy (prefer latest data, cache on offline)
+- [ ] Notifications: "Temperature change notification" demo (Notification API)
+- [ ] Background Sync: "Add city" while offline → auto-sync on return to online
+- [ ] Verification scenario:
+  1. Install → blue Weather icon appears
+  2. Weather data loaded → cached
+  3. "Temperature notification" allowed → toast notification received
+  4. Network blocked → cached weather displayed
+  5. Network restored → auto-refresh + sync event processed
 
-#### H-3. E2E 테스트 스위트 (`tests/e2e/pwa/`)
+#### H-3. E2E Test Suite (`tests/e2e/pwa/`)
 - [ ] `test_pwa_install_uninstall.rs`:
-  - PWA 설치 → 커널 레지스트리 확인 → 데스크톱 아이콘 확인 → 제거 → 정리 확인
+  - PWA install → kernel registry check → desktop icon check → uninstall → cleanup verified
 - [ ] `test_pwa_offline.rs`:
-  - SW 등록 → 리소스 캐시 → 네트워크 차단 → 페이지 로드 성공
+  - SW registration → resource caching → network blocked → page loads successfully
 - [ ] `test_pwa_storage.rs`:
-  - localStorage CRUD → 앱 재시작 → 데이터 영속 확인
-  - IndexedDB CRUD → 트랜잭션 커밋/롤백 → 영속 확인
+  - localStorage CRUD → app restart → data persistence verified
+  - IndexedDB CRUD → transaction commit/rollback → persistence verified
 - [ ] `test_pwa_notification.rs`:
-  - 권한 요청 → 허용 → 알림 표시 → 클릭 → 앱 포커스
+  - Permission request → allowed → notification displayed → click → app focused
 - [ ] `test_pwa_lifecycle.rs`:
-  - launch → running → suspend → resume → terminate 전체 주기
+  - launch → running → suspend → resume → terminate full cycle
 - [ ] `test_pwa_multi_instance.rs`:
-  - 동일 앱 2회 실행 → 별도 윈도우 → 별도 instance_id → 1개 종료 시 다른 것 유지
+  - Same app launched twice → separate windows → separate instance_ids → terminating one keeps the other
 
-#### H-4. 성능 벤치마크
-- [ ] PWA 설치 소요 시간: **목표 < 2초** (매니페스트 파싱 + 아이콘 저장 + 레지스트리 기록)
-- [ ] PWA 실행 소요 시간 (콜드 스타트): **목표 < 1초** (윈도우 생성 + 스플래시 + start_url 로드)
-- [ ] localStorage `setItem` 지연: **목표 < 5ms** (키 100바이트 + 값 1KB)
-- [ ] Cache API `match` 지연: **목표 < 10ms** (1MB 캐시 엔트리)
-- [ ] 알림 토스트 렌더링 지연: **목표 < 16ms** (1프레임 이내)
+#### H-4. Performance Benchmarks
+- [ ] PWA install time: **Target < 2 seconds** (manifest parsing + icon saving + registry write)
+- [ ] PWA launch time (cold start): **Target < 1 second** (window creation + splash + start_url load)
+- [ ] localStorage `setItem` latency: **Target < 5ms** (100-byte key + 1KB value)
+- [ ] Cache API `match` latency: **Target < 10ms** (1MB cache entry)
+- [ ] Notification toast rendering latency: **Target < 16ms** (within 1 frame)
 
-#### H-5. 문서화
+#### H-5. Documentation
 - [ ] `docs/phase7/WEB_APP_DEVELOPER_GUIDE.md`:
-  - KPIO에서 PWA 개발하기 (매니페스트 작성, SW 등록, 오프라인 전략)
-  - 지원/미지원 Web API 목록
-  - 제한 사항 (쿼터, 권한)
+  - Developing PWAs for KPIO (manifest authoring, SW registration, offline strategies)
+  - Supported/unsupported Web API list
+  - Limitations (quotas, permissions)
 - [ ] `docs/phase7/WEB_APP_ARCHITECTURE.md`:
-  - 내부 아키텍처 다이어그램
-  - 컴포넌트 간 데이터 흐름
-  - VFS 디렉토리 레이아웃
+  - Internal architecture diagram
+  - Data flow between components
+  - VFS directory layout
 
-### 산출물
-- `examples/pwa-notes/` — Notes 데모 앱 (HTML/CSS/JS/manifest/SW)
-- `examples/pwa-weather/` — Weather 데모 앱
-- `tests/e2e/pwa/` — 6개 E2E 테스트
+### Deliverables
+- `examples/pwa-notes/` — Notes demo app (HTML/CSS/JS/manifest/SW)
+- `examples/pwa-weather/` — Weather demo app
+- `tests/e2e/pwa/` — 6 E2E tests
 - `docs/phase7/WEB_APP_DEVELOPER_GUIDE.md`
 - `docs/phase7/WEB_APP_ARCHITECTURE.md`
 
-### 퀄리티 게이트
+### Quality Gates
 
-| # | 검증 항목 | 통과 기준 | 검증 방법 |
+| # | Verification Item | Pass Criteria | Verification Method |
 |---|----------|----------|----------|
-| H-QG1 | Notes 전체 흐름 | 설치 → 데스크톱 아이콘 → standalone 실행 → 메모 저장 → 오프라인 동작 | QEMU E2E 수동 검증 |
-| H-QG2 | Weather 전체 흐름 | 설치 → 날씨 로드 → 알림 → 오프라인 캐시 → 온라인 복귀 동기화 | QEMU E2E 수동 검증 |
-| H-QG3 | E2E 테스트 통과 | 6개 E2E 테스트 전부 통과 (0 failures) | `cargo test --test e2e` |
-| H-QG4 | 설치 성능 | PWA 설치 < 2초 (3회 평균) | 벤치마크 |
-| H-QG5 | 콜드 스타트 성능 | PWA 실행 < 1초 (3회 평균) | 벤치마크 |
-| H-QG6 | localStorage 성능 | setItem (1KB) < 5ms (100회 평균) | 벤치마크 |
-| H-QG7 | 다중 인스턴스 | 동일 PWA 2개 윈도우 독립 동작 | E2E 테스트 |
-| H-QG8 | 개발자 문서 | 가이드 문서 기반으로 신규 데모 PWA 작성 가능 (self-contained) | 문서 리뷰 |
-| H-QG9 | 0 panic | QEMU에서 30분 연속 사용 시 커널 패닉 없음 | 안정성 테스트 |
+| H-QG1 | Notes full flow | Install → desktop icon → standalone launch → save memo → offline operation | QEMU E2E manual verification |
+| H-QG2 | Weather full flow | Install → weather load → notification → offline cache → online restore sync | QEMU E2E manual verification |
+| H-QG3 | E2E tests pass | All 6 E2E tests pass (0 failures) | `cargo test --test e2e` |
+| H-QG4 | Install performance | PWA install < 2 seconds (3-run average) | Benchmark |
+| H-QG5 | Cold start performance | PWA launch < 1 second (3-run average) | Benchmark |
+| H-QG6 | localStorage performance | setItem (1KB) < 5ms (100-run average) | Benchmark |
+| H-QG7 | Multi-instance | 2 windows of same PWA operate independently | E2E test |
+| H-QG8 | Developer docs | Guide document enables writing a new demo PWA from scratch (self-contained) | Document review |
+| H-QG9 | 0 panic | No kernel panic during 30 minutes of continuous use in QEMU | Stability test |
 
 ---
 
-## Phase 7-1 전체 완료 기준 (Exit Criteria)
+## Phase 7-1 Overall Exit Criteria
 
-Phase 7-1이 완료되었다고 선언하려면 아래 **모든 조건**이 충족되어야 한다:
+To declare Phase 7-1 complete, **all of the following conditions** must be met:
 
-### 필수 (Must Pass)
-1. ✅ 서브페이즈 A~H의 모든 퀄리티 게이트 통과 (**56개 항목**)
-2. ✅ 데모 PWA 2개 (Notes, Weather) 설치→실행→오프라인→알림 전체 동작
-3. ✅ `cargo build --target x86_64-kpio` 경고 0건으로 빌드 성공
-4. ✅ `cargo test` (호스트) 전체 통과
-5. ✅ E2E 테스트 6건 전체 통과
-6. ✅ QEMU에서 30분 연속 사용 시 커널 패닉 없음
+### Required (Must Pass)
+1. ✅ All quality gates for sub-phases A through H passed (**56 items**)
+2. ✅ 2 demo PWAs (Notes, Weather) fully operational: install → launch → offline → notifications
+3. ✅ `cargo build --target x86_64-kpio` builds successfully with 0 warnings
+4. ✅ `cargo test` (host) all pass
+5. ✅ All 6 E2E tests pass
+6. ✅ No kernel panic during 30 minutes of continuous use in QEMU
 
-### 바람직 (Should Pass)
-7. 🔶 성능 벤치마크 5개 항목 중 4개 이상 목표치 충족
-8. 🔶 개발자 가이드 문서 작성 완료
-9. 🔶 RELEASE_NOTES.md에 Phase 7-1 변경 사항 기록
+### Desirable (Should Pass)
+7. 🔶 At least 4 out of 5 performance benchmark items meet targets
+8. 🔶 Developer guide documentation complete
+9. 🔶 Phase 7-1 changes recorded in RELEASE_NOTES.md
 
-### 선택 (Nice to Have)
-10. ⬜ 서드파티 PWA (예: 간단한 Todo MVC 앱) KPIO에서 설치·실행 성공
-11. ⬜ IndexedDB 커서(cursor) 순방향/역방향 이터레이션 완전 동작
+### Optional (Nice to Have)
+10. ⬜ Third-party PWA (e.g., simple Todo MVC app) installs and runs successfully on KPIO
+11. ⬜ IndexedDB cursor forward/backward iteration fully operational
 
 ---
 
-## 아키텍처 다이어그램: 전체 데이터 흐름
+## Architecture Diagram: Overall Data Flow
 
 ```
-사용자 (클릭/키보드)
+User (click/keyboard)
     │
     ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  kernel/src/gui/                                             │
 │  ┌──────────┐  ┌──────────┐  ┌─────────────┐  ┌──────────┐ │
 │  │ Desktop  │  │ Taskbar  │  │ Notification │  │  Toast   │ │
-│  │ (아이콘)  │  │ (실행 앱) │  │   Panel     │  │ (알림)   │ │
+│  │ (icons)  │  │(running  │  │   Panel     │  │(alerts)  │ │
+│  │          │  │  apps)   │  │             │  │          │ │
 │  └────┬─────┘  └────┬─────┘  └──────┬──────┘  └────┬─────┘ │
 │       ▼              ▼               ▼               ▼       │
 │  ┌──────────────────────────────────────────────────────┐    │
@@ -831,12 +838,13 @@ Phase 7-1이 완료되었다고 선언하려면 아래 **모든 조건**이 충�
 │  │  display_mode | theme_color | scope | splashscreen   │    │
 │  └───────────────────────┬──────────────────────────────┘    │
 └──────────────────────────┼───────────────────────────────────┘
-                           │ 시스콜 (106-111)
+                           │ Syscalls (106-111)
 ┌──────────────────────────┼───────────────────────────────────┐
 │  kernel/src/app/         ▼                                    │
 │  ┌──────────┐  ┌──────────────┐  ┌────────────────┐         │
 │  │ Registry │  │  Lifecycle   │  │  Permissions   │         │
-│  │ (등록/조회)│  │ (실행/종료)  │  │ (권한 검사)    │         │
+│  │(register/│  │(launch/      │  │(permission     │         │
+│  │  query)  │  │ terminate)   │  │  checks)       │         │
 │  └────┬─────┘  └──────┬───────┘  └───────┬────────┘         │
 │       │               │                  │                    │
 │  ┌────┴───────────────┴──────────────────┴────────────┐      │
@@ -873,47 +881,44 @@ Phase 7-1이 완료되었다고 선언하려면 아래 **모든 조건**이 충�
 
 ---
 
-## 신규/수정 파일 총목록
+## File Status (Based on Current Codebase)
 
-### 신규 파일 (20개)
-| 파일 | 서브페이즈 |
-|------|-----------|
-| `kernel/src/app/mod.rs` | A |
-| `kernel/src/app/registry.rs` | A |
-| `kernel/src/app/lifecycle.rs` | A |
-| `kernel/src/app/permissions.rs` | A |
-| `kernel/src/app/error.rs` | A |
-| `kernel/src/app/window_state.rs` | D |
-| `kernel/src/vfs/sandbox.rs` | B |
-| `kernel/src/gui/splash.rs` | D |
-| `kernel/src/gui/notification.rs` | G |
-| `kernel/src/gui/toast.rs` | G |
-| `kernel/src/gui/notification_panel.rs` | G |
-| `userlib/src/app.rs` | B |
-| `kpio-browser/src/pwa/kernel_bridge.rs` | C |
-| `kpio-browser/src/pwa/sw_bridge.rs` | E |
-| `kpio-browser/src/pwa/cache_storage.rs` | E |
-| `kpio-browser/src/pwa/fetch_interceptor.rs` | E |
-| `kpio-browser/src/pwa/web_storage.rs` | F |
-| `kpio-browser/src/pwa/indexed_db.rs` | F |
-| `kpio-browser/src/pwa/idb_engine.rs` | F |
-| `kpio-browser/src/pwa/notification_bridge.rs` | G |
-| `kpio-browser/src/pwa/background_sync.rs` | G |
+This section is organized based on **files that actually exist in the current repository**, not "planned new/modified files at the time of writing."
 
-### 수정 파일 (10개)
-| 파일 | 서브페이즈 | 변경 내용 |
-|------|-----------|----------|
-| `kernel/src/lib.rs` (또는 main.rs) | A | `mod app;` 추가 |
-| `kernel/src/syscall/mod.rs` | B | 시스콜 106-111 추가 |
-| `kernel/src/gui/window.rs` | D | `WindowContent::WebApp` variant |
-| `kernel/src/gui/desktop.rs` | D | `IconType::InstalledApp`, 동적 아이콘 |
-| `kernel/src/gui/taskbar.rs` | D | WebApp 태스크바 항목 |
-| `kernel/src/gui/mod.rs` | D, G | 신규 서브모듈 export |
-| `userlib/src/lib.rs` | B | `pub mod app;` 추가 |
-| `kpio-browser/src/pwa/mod.rs` | C | kernel_bridge 연동 |
-| `kpio-browser/src/pwa/install.rs` | C | kernel 등록 호출 추가 |
-| `kernel/src/vfs/mod.rs` | B | sandbox 모듈 export |
+### Already Existing/Implemented (Phase 7-1 Core)
+
+| File | Status | Notes |
+|------|------|------|
+| `kernel/src/app/mod.rs` | ✅ Exists | App module entry |
+| `kernel/src/app/registry.rs` | ✅ Exists | App registry |
+| `kernel/src/app/lifecycle.rs` | ✅ Exists | App lifecycle |
+| `kernel/src/app/permissions.rs` | ✅ Exists | Permission model |
+| `kernel/src/app/error.rs` | ✅ Exists | `AppError` definition |
+| `kernel/src/app/window_state.rs` | ✅ Exists | Window state persistence |
+| `kernel/src/vfs/sandbox.rs` | ✅ Exists | Per-app sandbox |
+| `kernel/src/gui/window.rs` | ✅ Exists | `WindowContent::WebApp`, `new_webapp()` |
+| `kernel/src/gui/desktop.rs` | ✅ Exists | Installed app icon integration |
+| `kernel/src/gui/taskbar.rs` | ✅ Exists | WebApp taskbar items |
+| `kernel/src/gui/splash.rs` | ✅ Exists | Splash rendering |
+| `kernel/src/gui/notification.rs` | ✅ Exists | NotificationCenter (50-entry history) |
+| `kernel/src/gui/toast.rs` | ✅ Exists | ToastManager (3 simultaneous, 5s) |
+| `kernel/src/gui/notification_panel.rs` | ✅ Exists | Notification panel |
+| `kpio-browser/src/pwa/kernel_bridge.rs` | ✅ Exists | Browser↔Kernel bridge |
+| `kpio-browser/src/pwa/sw_bridge.rs` | ✅ Exists | SW registration/state management |
+| `kpio-browser/src/pwa/cache_storage.rs` | ✅ Exists | Cache Storage |
+| `kpio-browser/src/pwa/fetch_interceptor.rs` | ✅ Exists | Fetch interception |
+| `kpio-browser/src/pwa/web_storage.rs` | ✅ Exists | local/session storage |
+| `kpio-browser/src/pwa/indexed_db.rs` | ✅ Exists | IndexedDB API |
+| `kpio-browser/src/pwa/idb_engine.rs` | ✅ Exists | IDB engine |
+| `kpio-browser/src/pwa/notification_bridge.rs` | ✅ Exists | Notification bridge |
+| `kpio-browser/src/pwa/background_sync.rs` | ✅ Exists | Background Sync |
+
+### Planned Items in Document Currently Not Present
+
+| Item | Status |
+|------|------|
+| `userlib/src/app.rs` | ❌ Not present (based on current repo) |
 
 ---
 
-*Phase 7-1 완료 시 KPIO OS는 PWA를 설치·실행·오프라인 캐시·알림·백그라운드 동기화까지 지원하는 완전한 웹 앱 플랫폼을 갖추게 된다.*
+*Upon completion of Phase 7-1, KPIO OS provides a web app platform that supports PWA installation, execution, offline caching, notifications, and background sync. This document is a planning document and checklists/status will be continuously updated as implementation progresses.*

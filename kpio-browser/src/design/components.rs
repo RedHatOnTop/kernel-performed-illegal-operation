@@ -2,10 +2,10 @@
 //!
 //! Reusable UI components for KPIO Browser.
 
+use super::theme::Theme;
+use super::tokens::{radius, spacing, Color, Typography};
 use alloc::string::String;
 use alloc::vec::Vec;
-use super::tokens::{Color, spacing, radius, Typography};
-use super::theme::Theme;
 
 /// Component size variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -420,7 +420,8 @@ impl Avatar {
     /// Get initials from alt text
     pub fn initials(&self) -> String {
         let words: Vec<&str> = self.alt.split_whitespace().take(2).collect();
-        words.iter()
+        words
+            .iter()
             .filter_map(|w| w.chars().next())
             .map(|c| c.to_uppercase().next().unwrap_or(c))
             .collect()

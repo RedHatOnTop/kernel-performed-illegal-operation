@@ -35,33 +35,33 @@
 
 extern crate alloc;
 
-pub mod net;
-pub mod gpu;
+pub mod error;
 pub mod fs;
+pub mod gpu;
+pub mod ipc;
+pub mod net;
 pub mod thread;
 pub mod time;
 pub mod window;
-pub mod ipc;
-pub mod error;
 
 // Re-exports for convenience
 pub use error::{PlatformError, Result};
-pub use net::{TcpStream, TcpListener, SocketAddr, IpAddr};
-pub use gpu::{Device as GpuDevice, BufferHandle, TextureHandle};
 pub use fs::{File, OpenOptions};
-pub use thread::{Mutex, RwLock, spawn as spawn_thread};
-pub use time::{Instant, SystemTime};
-pub use window::{Window, WindowBuilder, EventLoop, Event};
+pub use gpu::{BufferHandle, Device as GpuDevice, TextureHandle};
 pub use ipc::{ServiceChannel, SharedMemory};
+pub use net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+pub use thread::{spawn as spawn_thread, Mutex, RwLock};
+pub use time::{Instant, SystemTime};
+pub use window::{Event, EventLoop, Window, WindowBuilder};
 
 /// Platform initialization
 pub fn init() {
     // Initialize platform subsystems
     log::info!("[KPIO Platform] Initializing...");
-    
+
     // Initialize IPC first (other subsystems depend on it)
     ipc::init();
-    
+
     // These will connect to kernel services via IPC
     net::init();
     gpu::init();
@@ -69,7 +69,7 @@ pub fn init() {
     thread::init();
     time::init();
     window::init();
-    
+
     log::info!("[KPIO Platform] Initialized");
 }
 

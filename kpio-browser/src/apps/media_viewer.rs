@@ -56,7 +56,7 @@ impl MediaViewer {
     /// Open media file
     pub fn open(&mut self, path: &str) {
         let media_type = MediaType::from_path(path);
-        
+
         self.current = Some(Media {
             path: path.to_string(),
             media_type,
@@ -76,7 +76,7 @@ impl MediaViewer {
     /// Open multiple files
     pub fn open_multiple(&mut self, paths: &[String]) {
         self.playlist.clear();
-        
+
         for path in paths {
             let media_type = MediaType::from_path(path);
             self.playlist.push(MediaItem {
@@ -252,17 +252,13 @@ impl MediaType {
     /// Detect from path
     pub fn from_path(path: &str) -> Self {
         let ext = path.rsplit('.').next().map(|s| s.to_lowercase());
-        
+
         match ext.as_deref() {
             Some("jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "ico" | "tiff") => {
                 Self::Image
             }
-            Some("mp4" | "mkv" | "avi" | "mov" | "webm" | "wmv" | "flv" | "m4v") => {
-                Self::Video
-            }
-            Some("mp3" | "wav" | "ogg" | "flac" | "aac" | "m4a" | "wma") => {
-                Self::Audio
-            }
+            Some("mp4" | "mkv" | "avi" | "mov" | "webm" | "wmv" | "flv" | "m4v") => Self::Video,
+            Some("mp3" | "wav" | "ogg" | "flac" | "aac" | "m4a" | "wma") => Self::Audio,
             _ => Self::Image, // Default
         }
     }

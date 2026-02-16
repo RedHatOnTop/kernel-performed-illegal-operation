@@ -34,7 +34,7 @@ pub enum SyscallNumber {
     Exec = 8,
     /// Wait for child process.
     Wait = 9,
-    
+
     // ==========================================
     // IPC (10-19)
     // ==========================================
@@ -52,7 +52,7 @@ pub enum SyscallNumber {
     ShmMap = 15,
     /// Unmap shared memory.
     ShmUnmap = 16,
-    
+
     // ==========================================
     // Process Info & Control (20-29)
     // ==========================================
@@ -70,7 +70,7 @@ pub enum SyscallNumber {
     GetPpid = 25,
     /// Set process break (heap).
     Brk = 26,
-    
+
     // ==========================================
     // Sockets (30-39)
     // ==========================================
@@ -88,7 +88,7 @@ pub enum SyscallNumber {
     SocketSend = 35,
     /// Receive data on a socket.
     SocketRecv = 36,
-    
+
     // ==========================================
     // GPU (40-49)
     // ==========================================
@@ -102,7 +102,7 @@ pub enum SyscallNumber {
     GpuSetPriority = 43,
     /// Wait for GPU fence.
     GpuWait = 44,
-    
+
     // ==========================================
     // Threading (50-59)
     // ==========================================
@@ -116,7 +116,7 @@ pub enum SyscallNumber {
     FutexWait = 53,
     /// Futex wake.
     FutexWake = 54,
-    
+
     // ==========================================
     // Epoll (60-69)
     // ==========================================
@@ -126,7 +126,7 @@ pub enum SyscallNumber {
     EpollCtl = 61,
     /// Wait for epoll events.
     EpollWait = 62,
-    
+
     // ==========================================
     // KPIO Extensions - Browser (100-109)
     // ==========================================
@@ -142,7 +142,7 @@ pub enum SyscallNumber {
     WasmCacheGet = 104,
     /// WASM cache store.
     WasmCachePut = 105,
-    
+
     // ==========================================
     // KPIO Extensions - App Management (106-111)
     // ==========================================
@@ -174,7 +174,7 @@ pub enum SyscallNumber {
 
 impl TryFrom<u64> for SyscallNumber {
     type Error = ();
-    
+
     fn try_from(value: u64) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(SyscallNumber::Exit),
@@ -282,32 +282,32 @@ pub fn init() {
 /// Set up the SYSCALL/SYSRET MSRs.
 fn setup_syscall_msr() {
     use x86_64::registers::model_specific::{Efer, EferFlags, Msr};
-    
+
     // Enable SYSCALL/SYSRET
     unsafe {
         let mut efer = Efer::read();
         efer |= EferFlags::SYSTEM_CALL_EXTENSIONS;
         Efer::write(efer);
     }
-    
+
     // Set up STAR MSR (segments for SYSCALL/SYSRET)
     // SYSCALL: CS = STAR[47:32], SS = STAR[47:32] + 8
     // SYSRET:  CS = STAR[63:48] + 16, SS = STAR[63:48] + 8
     const STAR_MSR: u32 = 0xC0000081;
     const LSTAR_MSR: u32 = 0xC0000082;
     const SFMASK_MSR: u32 = 0xC0000084;
-    
+
     // Kernel CS = 0x08, Kernel SS = 0x10
     // User CS = 0x1B (0x18 + 3), User SS = 0x23 (0x20 + 3)
     let star_value: u64 = (0x001B_0008u64) << 32;
-    
+
     unsafe {
         // Set STAR
         Msr::new(STAR_MSR).write(star_value);
-        
+
         // Set LSTAR (syscall entry point)
         Msr::new(LSTAR_MSR).write(syscall_entry as u64);
-        
+
         // Set SFMASK (flags to clear on SYSCALL)
         // Clear IF (interrupt flag) and TF (trap flag)
         Msr::new(SFMASK_MSR).write(0x200 | 0x100);
@@ -331,8 +331,12 @@ extern "C" fn syscall_entry() {
     // Build context on stack and dispatch
     let ctx = SyscallContext {
         syscall_num: 0,
-        arg1: 0, arg2: 0, arg3: 0,
-        arg4: 0, arg5: 0, arg6: 0,
+        arg1: 0,
+        arg2: 0,
+        arg3: 0,
+        arg4: 0,
+        arg5: 0,
+        arg6: 0,
     };
     let _result = dispatch(&ctx);
     // Return value goes into RAX (handled by ABI)
@@ -344,7 +348,7 @@ pub fn dispatch(ctx: &SyscallContext) -> i64 {
         Ok(syscall) => handlers::handle(syscall, ctx),
         Err(_) => Err(SyscallError::InvalidSyscall),
     };
-    
+
     match result {
         Ok(value) => value as i64,
         Err(err) => err as i64,

@@ -78,9 +78,7 @@ impl CrashReporter {
             message: crash.message.clone(),
             kernel_version: crash.kernel_version.clone(),
             timestamp: crash.timestamp,
-            backtrace: crash.backtrace.iter()
-                .map(|f| f.address)
-                .collect(),
+            backtrace: crash.backtrace.iter().map(|f| f.address).collect(),
             system_info: None,
             user_id: None,
             additional_data: Vec::new(),
@@ -103,10 +101,10 @@ impl CrashReporter {
     /// Queue report for later submission
     pub fn queue(&self, crash: &CrashInfo) -> Result<(), ReportError> {
         let report = self.build_report(crash);
-        
+
         // Would save to disk for later
         let _data = report.serialize();
-        
+
         Ok(())
     }
 
@@ -178,34 +176,34 @@ impl CrashReport {
     pub fn serialize(&self) -> Vec<u8> {
         // Would use proper serialization
         let mut data = Vec::new();
-        
+
         // ID
         let id_bytes = self.id.as_bytes();
         data.extend_from_slice(&(id_bytes.len() as u32).to_le_bytes());
         data.extend_from_slice(id_bytes);
-        
+
         // Crash type
         data.extend_from_slice(&self.crash_type.to_le_bytes());
-        
+
         // Message
         let msg_bytes = self.message.as_bytes();
         data.extend_from_slice(&(msg_bytes.len() as u32).to_le_bytes());
         data.extend_from_slice(msg_bytes);
-        
+
         // Version
         let ver_bytes = self.kernel_version.as_bytes();
         data.extend_from_slice(&(ver_bytes.len() as u32).to_le_bytes());
         data.extend_from_slice(ver_bytes);
-        
+
         // Timestamp
         data.extend_from_slice(&self.timestamp.to_le_bytes());
-        
+
         // Backtrace
         data.extend_from_slice(&(self.backtrace.len() as u32).to_le_bytes());
         for addr in &self.backtrace {
             data.extend_from_slice(&addr.to_le_bytes());
         }
-        
+
         data
     }
 }

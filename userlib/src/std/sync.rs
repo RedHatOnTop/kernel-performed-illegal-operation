@@ -25,36 +25,44 @@ impl<T> Mutex<T> {
             data: UnsafeCell::new(value),
         }
     }
-    
+
     /// Acquires the mutex, blocking until available.
     pub fn lock(&self) -> MutexGuard<'_, T> {
         loop {
             // Try to acquire lock
-            if self.futex.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+            if self
+                .futex
+                .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
                 return MutexGuard { mutex: self };
             }
-            
+
             // Mark as contended and wait
             if self.futex.swap(2, Ordering::Acquire) != 0 {
                 let _ = syscall::futex_wait(&self.futex as *const _ as usize, 2);
             }
         }
     }
-    
+
     /// Tries to acquire the mutex without blocking.
     pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
-        if self.futex.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+        if self
+            .futex
+            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
             Some(MutexGuard { mutex: self })
         } else {
             None
         }
     }
-    
+
     /// Returns a mutable reference to the underlying data.
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
-    
+
     /// Consumes the mutex, returning the underlying data.
     pub fn into_inner(self) -> T {
         self.data.into_inner()
@@ -68,7 +76,7 @@ pub struct MutexGuard<'a, T: ?Sized> {
 
 impl<T: ?Sized> Deref for MutexGuard<'_, T> {
     type Target = T;
-    
+
     fn deref(&self) -> &T {
         unsafe { &*self.mutex.data.get() }
     }
@@ -106,18 +114,17 @@ impl<T> RwLock<T> {
             data: UnsafeCell::new(value),
         }
     }
-    
+
     /// Acquires a read lock.
     pub fn read(&self) -> RwLockReadGuard<'_, T> {
         loop {
             let state = self.state.load(Ordering::Relaxed);
             if state != u32::MAX {
-                if self.state.compare_exchange_weak(
-                    state,
-                    state + 1,
-                    Ordering::Acquire,
-                    Ordering::Relaxed,
-                ).is_ok() {
+                if self
+                    .state
+                    .compare_exchange_weak(state, state + 1, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+                {
                     return RwLockReadGuard { lock: self };
                 }
             } else {
@@ -125,51 +132,53 @@ impl<T> RwLock<T> {
             }
         }
     }
-    
+
     /// Acquires a write lock.
     pub fn write(&self) -> RwLockWriteGuard<'_, T> {
-        while self.state.compare_exchange_weak(
-            0,
-            u32::MAX,
-            Ordering::Acquire,
-            Ordering::Relaxed,
-        ).is_err() {
+        while self
+            .state
+            .compare_exchange_weak(0, u32::MAX, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             core::hint::spin_loop();
         }
-        
+
         RwLockWriteGuard { lock: self }
     }
-    
+
     /// Tries to acquire a read lock.
     pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T>> {
         let state = self.state.load(Ordering::Relaxed);
         if state != u32::MAX {
-            if self.state.compare_exchange(
-                state,
-                state + 1,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            ).is_ok() {
+            if self
+                .state
+                .compare_exchange(state, state + 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
                 return Some(RwLockReadGuard { lock: self });
             }
         }
         None
     }
-    
+
     /// Tries to acquire a write lock.
     pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T>> {
-        if self.state.compare_exchange(0, u32::MAX, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+        if self
+            .state
+            .compare_exchange(0, u32::MAX, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
             Some(RwLockWriteGuard { lock: self })
         } else {
             None
         }
     }
-    
+
     /// Returns a mutable reference to the underlying data.
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
-    
+
     /// Consumes the lock, returning the underlying data.
     pub fn into_inner(self) -> T {
         self.data.into_inner()
@@ -182,7 +191,7 @@ pub struct RwLockReadGuard<'a, T: ?Sized> {
 
 impl<T: ?Sized> Deref for RwLockReadGuard<'_, T> {
     type Target = T;
-    
+
     fn deref(&self) -> &T {
         unsafe { &*self.lock.data.get() }
     }
@@ -200,7 +209,7 @@ pub struct RwLockWriteGuard<'a, T: ?Sized> {
 
 impl<T: ?Sized> Deref for RwLockWriteGuard<'_, T> {
     type Target = T;
-    
+
     fn deref(&self) -> &T {
         unsafe { &*self.lock.data.get() }
     }
@@ -230,28 +239,28 @@ impl Condvar {
             futex: AtomicU32::new(0),
         }
     }
-    
+
     /// Waits on the condition variable.
     pub fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
         let mutex = guard.mutex;
         let key = self.futex.load(Ordering::Relaxed);
-        
+
         // Release the mutex
         drop(guard);
-        
+
         // Wait for notification
         let _ = syscall::futex_wait(&self.futex as *const _ as usize, key);
-        
+
         // Re-acquire the mutex
         mutex.lock()
     }
-    
+
     /// Wakes one waiting thread.
     pub fn notify_one(&self) {
         self.futex.fetch_add(1, Ordering::SeqCst);
         let _ = syscall::futex_wake(&self.futex as *const _ as usize, 1);
     }
-    
+
     /// Wakes all waiting threads.
     pub fn notify_all(&self) {
         self.futex.fetch_add(1, Ordering::SeqCst);
@@ -277,14 +286,18 @@ impl Once {
             state: AtomicU32::new(0),
         }
     }
-    
+
     /// Calls the function only once.
     pub fn call_once<F: FnOnce()>(&self, f: F) {
         if self.state.load(Ordering::Acquire) == 2 {
             return;
         }
-        
-        if self.state.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+
+        if self
+            .state
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
             f();
             self.state.store(2, Ordering::Release);
         } else {
@@ -293,7 +306,7 @@ impl Once {
             }
         }
     }
-    
+
     /// Returns true if call_once has completed.
     pub fn is_completed(&self) -> bool {
         self.state.load(Ordering::Acquire) == 2
@@ -322,12 +335,12 @@ impl Barrier {
             generation: AtomicU32::new(0),
         }
     }
-    
+
     /// Waits at the barrier.
     pub fn wait(&self) -> BarrierWaitResult {
         let gen = self.generation.load(Ordering::SeqCst);
         let old = self.state.fetch_add(1, Ordering::SeqCst);
-        
+
         if old + 1 == self.count {
             // Last thread
             self.state.store(0, Ordering::SeqCst);

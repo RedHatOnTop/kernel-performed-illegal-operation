@@ -45,7 +45,11 @@ impl fmt::Display for AppError {
             AppError::InvalidDescriptor(msg) => write!(f, "invalid descriptor: {}", msg),
             AppError::IoError => write!(f, "I/O error"),
             AppError::InvalidState { current, expected } => {
-                write!(f, "invalid state: current={}, expected={}", current, expected)
+                write!(
+                    f,
+                    "invalid state: current={}, expected={}",
+                    current, expected
+                )
             }
             AppError::TooManyInstances => write!(f, "too many app instances"),
         }

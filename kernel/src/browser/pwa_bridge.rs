@@ -11,8 +11,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::app::registry::{KernelAppId, KernelAppType, APP_REGISTRY};
 use crate::app::lifecycle::{AppInstanceId, APP_LIFECYCLE};
+use crate::app::registry::{KernelAppId, KernelAppType, APP_REGISTRY};
 use crate::vfs;
 use crate::vfs::sandbox;
 
@@ -115,7 +115,8 @@ pub fn bridge_load_manifest(app_id: u64) -> Result<Vec<u8>, &'static str> {
 /// List all WebApp-type registered apps.
 pub fn bridge_list_apps() -> Vec<(u64, String)> {
     let registry = APP_REGISTRY.lock();
-    registry.web_apps()
+    registry
+        .web_apps()
         .iter()
         .map(|desc| (desc.id.0, desc.name.clone()))
         .collect()

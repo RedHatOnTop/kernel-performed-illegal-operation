@@ -6,10 +6,10 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use alloc::vec;
 use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 use spin::RwLock;
 
 /// Print job ID.
@@ -45,10 +45,13 @@ impl PaperSize {
             Self::Letter => (216, 279),
             Self::Legal => (216, 356),
             Self::Tabloid => (279, 432),
-            Self::Custom { width_mm, height_mm } => (*width_mm, *height_mm),
+            Self::Custom {
+                width_mm,
+                height_mm,
+            } => (*width_mm, *height_mm),
         }
     }
-    
+
     /// Get dimensions in points (1/72 inch).
     pub fn dimensions_pt(&self) -> (u32, u32) {
         let (w_mm, h_mm) = self.dimensions_mm();
@@ -57,7 +60,7 @@ impl PaperSize {
         let h_pt = (h_mm as f64 * 72.0 / 25.4) as u32;
         (w_pt, h_pt)
     }
-    
+
     /// Get display name.
     pub fn name(&self) -> &str {
         match self {
@@ -104,27 +107,52 @@ impl Default for Margins {
 impl Margins {
     /// No margins.
     pub fn none() -> Self {
-        Self { top: 0, right: 0, bottom: 0, left: 0 }
+        Self {
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+        }
     }
-    
+
     /// Minimal margins.
     pub fn minimum() -> Self {
-        Self { top: 5, right: 5, bottom: 5, left: 5 }
+        Self {
+            top: 5,
+            right: 5,
+            bottom: 5,
+            left: 5,
+        }
     }
-    
+
     /// Normal margins (default).
     pub fn normal() -> Self {
-        Self { top: 20, right: 20, bottom: 20, left: 20 }
+        Self {
+            top: 20,
+            right: 20,
+            bottom: 20,
+            left: 20,
+        }
     }
-    
+
     /// Wide margins.
     pub fn wide() -> Self {
-        Self { top: 25, right: 50, bottom: 25, left: 50 }
+        Self {
+            top: 25,
+            right: 50,
+            bottom: 25,
+            left: 50,
+        }
     }
-    
+
     /// Custom margins.
     pub fn custom(top: u32, right: u32, bottom: u32, left: u32) -> Self {
-        Self { top, right, bottom, left }
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
     }
 }
 
@@ -235,16 +263,18 @@ impl PageRange {
     pub fn single(page: u32) -> Self {
         Self { pages: vec![page] }
     }
-    
+
     /// Range of pages.
     pub fn range(start: u32, end: u32) -> Self {
-        Self { pages: (start..=end).collect() }
+        Self {
+            pages: (start..=end).collect(),
+        }
     }
-    
+
     /// Parse from string (e.g., "1-3, 5, 7-9").
     pub fn parse(s: &str) -> Option<Self> {
         let mut pages = Vec::new();
-        
+
         for part in s.split(',') {
             let part = part.trim();
             if part.contains('-') {
@@ -257,17 +287,17 @@ impl PageRange {
                 pages.push(page);
             }
         }
-        
+
         pages.sort();
         pages.dedup();
-        
+
         if pages.is_empty() {
             None
         } else {
             Some(Self { pages })
         }
     }
-    
+
     /// Contains page.
     pub fn contains(&self, page: u32) -> bool {
         self.pages.contains(&page)
@@ -376,7 +406,7 @@ impl PrintManager {
     pub fn new() -> Self {
         let mut printers = Vec::new();
         printers.push(Printer::save_as_pdf());
-        
+
         Self {
             printers: RwLock::new(printers),
             default_printer_id: RwLock::new(Some("save-as-pdf".to_string())),
@@ -385,52 +415,60 @@ impl PrintManager {
             default_settings: RwLock::new(PrintSettings::default()),
         }
     }
-    
+
     /// Get available printers.
     pub fn printers(&self) -> Vec<Printer> {
         self.printers.read().clone()
     }
-    
+
     /// Get default printer.
     pub fn default_printer(&self) -> Option<Printer> {
         let default_id = self.default_printer_id.read().clone()?;
-        self.printers.read().iter()
+        self.printers
+            .read()
+            .iter()
             .find(|p| p.id == default_id)
             .cloned()
     }
-    
+
     /// Set default printer.
     pub fn set_default_printer(&self, printer_id: &str) {
         *self.default_printer_id.write() = Some(printer_id.to_string());
     }
-    
+
     /// Add printer.
     pub fn add_printer(&self, printer: Printer) {
         self.printers.write().push(printer);
     }
-    
+
     /// Get default settings.
     pub fn default_settings(&self) -> PrintSettings {
         self.default_settings.read().clone()
     }
-    
+
     /// Set default settings.
     pub fn set_default_settings(&self, settings: PrintSettings) {
         *self.default_settings.write() = settings;
     }
-    
+
     /// Create print job.
-    pub fn create_job(&self, printer_id: &str, title: &str, url: &str, settings: PrintSettings) -> Option<PrintJobId> {
+    pub fn create_job(
+        &self,
+        printer_id: &str,
+        title: &str,
+        url: &str,
+        settings: PrintSettings,
+    ) -> Option<PrintJobId> {
         // Verify printer exists
         if !self.printers.read().iter().any(|p| p.id == printer_id) {
             return None;
         }
-        
+
         let mut next_id = self.next_job_id.write();
         let id = *next_id;
         *next_id += 1;
         drop(next_id);
-        
+
         let job = PrintJob {
             id,
             printer_id: printer_id.to_string(),
@@ -442,11 +480,11 @@ impl PrintManager {
             settings,
             created_time: 0,
         };
-        
+
         self.jobs.write().push(job);
         Some(id)
     }
-    
+
     /// Update job status.
     pub fn update_job_status(&self, id: PrintJobId, status: PrintJobStatus, pages_printed: u32) {
         if let Some(job) = self.jobs.write().iter_mut().find(|j| j.id == id) {
@@ -454,46 +492,61 @@ impl PrintManager {
             job.pages_printed = pages_printed;
         }
     }
-    
+
     /// Set total pages.
     pub fn set_total_pages(&self, id: PrintJobId, total: u32) {
         if let Some(job) = self.jobs.write().iter_mut().find(|j| j.id == id) {
             job.total_pages = total;
         }
     }
-    
+
     /// Cancel job.
     pub fn cancel_job(&self, id: PrintJobId) -> bool {
         if let Some(job) = self.jobs.write().iter_mut().find(|j| j.id == id) {
-            if matches!(job.status, PrintJobStatus::Pending | PrintJobStatus::Processing) {
+            if matches!(
+                job.status,
+                PrintJobStatus::Pending | PrintJobStatus::Processing
+            ) {
                 job.status = PrintJobStatus::Cancelled;
                 return true;
             }
         }
         false
     }
-    
+
     /// Get job.
     pub fn get_job(&self, id: PrintJobId) -> Option<PrintJob> {
         self.jobs.read().iter().find(|j| j.id == id).cloned()
     }
-    
+
     /// Get all jobs.
     pub fn jobs(&self) -> Vec<PrintJob> {
         self.jobs.read().clone()
     }
-    
+
     /// Get active jobs.
     pub fn active_jobs(&self) -> Vec<PrintJob> {
-        self.jobs.read().iter()
-            .filter(|j| matches!(j.status, PrintJobStatus::Pending | PrintJobStatus::Processing | PrintJobStatus::Printing))
+        self.jobs
+            .read()
+            .iter()
+            .filter(|j| {
+                matches!(
+                    j.status,
+                    PrintJobStatus::Pending | PrintJobStatus::Processing | PrintJobStatus::Printing
+                )
+            })
             .cloned()
             .collect()
     }
-    
+
     /// Clear completed jobs.
     pub fn clear_completed(&self) {
-        self.jobs.write().retain(|j| !matches!(j.status, PrintJobStatus::Completed | PrintJobStatus::Failed | PrintJobStatus::Cancelled));
+        self.jobs.write().retain(|j| {
+            !matches!(
+                j.status,
+                PrintJobStatus::Completed | PrintJobStatus::Failed | PrintJobStatus::Cancelled
+            )
+        });
     }
 }
 
@@ -522,29 +575,29 @@ impl PdfGenerator {
         } else {
             (width, height)
         };
-        
+
         Self {
             page_width: width,
             page_height: height,
             content: Vec::new(),
         }
     }
-    
+
     /// Begin new page.
     pub fn new_page(&mut self) {
         // Would add PDF page commands
     }
-    
+
     /// Draw text.
     pub fn draw_text(&mut self, _x: f64, _y: f64, _text: &str, _font_size: f64) {
         // Would add PDF text commands
     }
-    
+
     /// Draw rectangle.
     pub fn draw_rect(&mut self, _x: f64, _y: f64, _width: f64, _height: f64) {
         // Would add PDF graphics commands
     }
-    
+
     /// Finish and get PDF bytes.
     pub fn finish(self) -> Vec<u8> {
         // Would generate complete PDF
@@ -555,7 +608,7 @@ impl PdfGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_paper_size() {
         let a4 = PaperSize::A4;
@@ -563,7 +616,7 @@ mod tests {
         assert_eq!(w, 210);
         assert_eq!(h, 297);
     }
-    
+
     #[test]
     fn test_page_range() {
         let range = PageRange::parse("1-3, 5, 7-9").unwrap();
@@ -577,16 +630,23 @@ mod tests {
         assert!(range.contains(8));
         assert!(range.contains(9));
     }
-    
+
     #[test]
     fn test_print_manager() {
         let manager = PrintManager::new();
-        
+
         let printers = manager.printers();
         assert!(!printers.is_empty());
-        
-        let job_id = manager.create_job("save-as-pdf", "Test", "https://example.com", PrintSettings::default()).unwrap();
-        
+
+        let job_id = manager
+            .create_job(
+                "save-as-pdf",
+                "Test",
+                "https://example.com",
+                PrintSettings::default(),
+            )
+            .unwrap();
+
         let job = manager.get_job(job_id).unwrap();
         assert_eq!(job.status, PrintJobStatus::Pending);
     }

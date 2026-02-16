@@ -4,10 +4,10 @@
 //! Uses mmap syscall to request memory from the kernel.
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::sync::atomic::{AtomicUsize, Ordering};
 use core::ptr;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::mem::{mmap, munmap, map, prot};
+use crate::mem::{map, mmap, munmap, prot};
 
 /// Page size (4KB)
 const PAGE_SIZE: usize = 4096;
@@ -44,7 +44,11 @@ impl UserAllocator {
     /// Initialize the allocator by mapping initial heap
     fn init(&self) {
         // Use compare_exchange to ensure only one thread initializes
-        if self.initialized.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        if self
+            .initialized
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             // Already initialized or being initialized, spin until done
             while self.initialized.load(Ordering::SeqCst) != 2 {
                 core::hint::spin_loop();
@@ -58,7 +62,8 @@ impl UserAllocator {
 
         if let Ok(addr) = mmap(0, INITIAL_HEAP_SIZE, protection, flags) {
             self.heap_start.store(addr as usize, Ordering::SeqCst);
-            self.heap_end.store(addr as usize + INITIAL_HEAP_SIZE, Ordering::SeqCst);
+            self.heap_end
+                .store(addr as usize + INITIAL_HEAP_SIZE, Ordering::SeqCst);
             self.next.store(addr as usize, Ordering::SeqCst);
         }
 
@@ -82,7 +87,7 @@ impl UserAllocator {
 
         // Calculate new size (double or add min_size, whichever is larger)
         let expand_size = core::cmp::max(current_size, align_up(min_size, PAGE_SIZE));
-        
+
         // Check if we'd exceed max
         if current_size + expand_size > MAX_HEAP_SIZE {
             return false;
@@ -95,7 +100,8 @@ impl UserAllocator {
         if let Ok(addr) = mmap(current_end as u64, expand_size, protection, flags) {
             // Check if we got contiguous memory
             if addr as usize == current_end {
-                self.heap_end.store(current_end + expand_size, Ordering::SeqCst);
+                self.heap_end
+                    .store(current_end + expand_size, Ordering::SeqCst);
                 return true;
             } else {
                 // Got non-contiguous memory, unmap it and fail
@@ -130,12 +136,11 @@ unsafe impl GlobalAlloc for UserAllocator {
             }
 
             // Try to bump the pointer
-            if self.next.compare_exchange_weak(
-                current,
-                new_next,
-                Ordering::SeqCst,
-                Ordering::Relaxed,
-            ).is_ok() {
+            if self
+                .next
+                .compare_exchange_weak(current, new_next, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
                 return aligned as *mut u8;
             }
             // Failed, retry
@@ -151,12 +156,12 @@ unsafe impl GlobalAlloc for UserAllocator {
         // Simple realloc: allocate new, copy, don't free old
         let new_layout = Layout::from_size_align_unchecked(new_size, layout.align());
         let new_ptr = self.alloc(new_layout);
-        
+
         if !new_ptr.is_null() {
             let copy_size = core::cmp::min(layout.size(), new_size);
             ptr::copy_nonoverlapping(ptr, new_ptr, copy_size);
         }
-        
+
         new_ptr
     }
 }

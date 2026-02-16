@@ -2,10 +2,10 @@
 //!
 //! Fuzzing harness for JavaScript parsing and execution.
 
+use crate::{FuzzResult, FuzzTarget};
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
-use crate::{FuzzTarget, FuzzResult};
 
 /// JavaScript Parser fuzzer
 pub struct JsFuzzer {
@@ -118,7 +118,10 @@ impl JsFuzzer {
                         } else if next == '*' {
                             chars.next();
                             in_comment = true;
-                        } else if !last_char.is_alphanumeric() && last_char != ')' && last_char != ']' {
+                        } else if !last_char.is_alphanumeric()
+                            && last_char != ')'
+                            && last_char != ']'
+                        {
                             in_regex = true;
                         }
                     }
@@ -526,7 +529,8 @@ impl FuzzTarget for JsExecutionFuzzer {
         }
 
         // Check for recursion bombs
-        if text.contains("f(f)") || (text.contains("function f") && text.matches("f()").count() > 5) {
+        if text.contains("f(f)") || (text.contains("function f") && text.matches("f()").count() > 5)
+        {
             return FuzzResult::Interesting(String::from("potential recursion bomb"));
         }
 
@@ -573,10 +577,11 @@ impl FuzzTarget for RegexFuzzer {
 
         // Check for ReDoS patterns
         // Patterns like (a+)+, (a|a)+, (a|b|a)+ can cause catastrophic backtracking
-        if text.contains("(a+)+") 
+        if text.contains("(a+)+")
             || text.contains("(a*)*")
             || text.contains("(a|a)+")
-            || text.contains("(.*)+") {
+            || text.contains("(.*)+")
+        {
             return FuzzResult::Interesting(String::from("potential ReDoS pattern"));
         }
 

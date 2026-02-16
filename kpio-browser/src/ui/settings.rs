@@ -6,10 +6,10 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use alloc::vec;
 use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 use spin::RwLock;
 
 use super::Theme;
@@ -56,7 +56,7 @@ impl SettingValue {
             _ => None,
         }
     }
-    
+
     /// Get as string.
     pub fn as_string(&self) -> Option<&str> {
         match self {
@@ -64,7 +64,7 @@ impl SettingValue {
             _ => None,
         }
     }
-    
+
     /// Get as int.
     pub fn as_int(&self) -> Option<i64> {
         match self {
@@ -227,12 +227,14 @@ impl SearchEngine {
             name: "Google".to_string(),
             short_name: "google".to_string(),
             search_url: "https://www.google.com/search?q={searchTerms}".to_string(),
-            suggest_url: Some("https://www.google.com/complete/search?q={searchTerms}&output=firefox".to_string()),
+            suggest_url: Some(
+                "https://www.google.com/complete/search?q={searchTerms}&output=firefox".to_string(),
+            ),
             favicon_url: Some("https://www.google.com/favicon.ico".to_string()),
             is_default: true,
         }
     }
-    
+
     /// Create DuckDuckGo search engine.
     pub fn duckduckgo() -> Self {
         Self {
@@ -244,7 +246,7 @@ impl SearchEngine {
             is_default: false,
         }
     }
-    
+
     /// Create Bing search engine.
     pub fn bing() -> Self {
         Self {
@@ -256,7 +258,7 @@ impl SearchEngine {
             is_default: false,
         }
     }
-    
+
     /// Get search URL for query.
     pub fn get_search_url(&self, query: &str) -> String {
         self.search_url.replace("{searchTerms}", &url_encode(query))
@@ -316,14 +318,14 @@ impl SearchSettings {
     pub fn default_engine(&self) -> &SearchEngine {
         &self.engines[self.default_engine_index.min(self.engines.len() - 1)]
     }
-    
+
     /// Set default search engine by name.
     pub fn set_default(&mut self, short_name: &str) {
         if let Some(idx) = self.engines.iter().position(|e| e.short_name == short_name) {
             self.default_engine_index = idx;
         }
     }
-    
+
     /// Add custom search engine.
     pub fn add_engine(&mut self, engine: SearchEngine) {
         self.engines.push(engine);
@@ -445,27 +447,27 @@ impl SettingsManager {
             observers: RwLock::new(Vec::new()),
         }
     }
-    
+
     /// Get current settings.
     pub fn settings(&self) -> BrowserSettings {
         self.settings.read().clone()
     }
-    
+
     /// Update privacy settings.
     pub fn set_privacy(&self, privacy: PrivacySettings) {
         self.settings.write().privacy = privacy;
     }
-    
+
     /// Update appearance settings.
     pub fn set_appearance(&self, appearance: AppearanceSettings) {
         self.settings.write().appearance = appearance;
     }
-    
+
     /// Update search settings.
     pub fn set_search(&self, search: SearchSettings) {
         self.settings.write().search = search;
     }
-    
+
     /// Set custom value.
     pub fn set_custom(&self, key: &str, value: SettingValue) {
         self.custom.write().insert(key.to_string(), value.clone());
@@ -473,56 +475,74 @@ impl SettingsManager {
             observer(key, &value);
         }
     }
-    
+
     /// Get custom value.
     pub fn get_custom(&self, key: &str) -> Option<SettingValue> {
         self.custom.read().get(key).cloned()
     }
-    
+
     /// Add observer.
     pub fn observe<F>(&self, callback: F)
     where
         F: Fn(&str, &SettingValue) + Send + Sync + 'static,
     {
-        self.observers.write().push(alloc::boxed::Box::new(callback));
+        self.observers
+            .write()
+            .push(alloc::boxed::Box::new(callback));
     }
-    
+
     /// Export settings as JSON-like structure.
     pub fn export(&self) -> BTreeMap<String, SettingValue> {
         let settings = self.settings.read();
         let mut map = BTreeMap::new();
-        
+
         // Privacy
-        map.insert("privacy.do_not_track".to_string(), SettingValue::Bool(settings.privacy.do_not_track));
-        map.insert("privacy.block_third_party_cookies".to_string(), SettingValue::Bool(settings.privacy.block_third_party_cookies));
-        map.insert("privacy.safe_browsing".to_string(), SettingValue::Bool(settings.privacy.safe_browsing));
-        
+        map.insert(
+            "privacy.do_not_track".to_string(),
+            SettingValue::Bool(settings.privacy.do_not_track),
+        );
+        map.insert(
+            "privacy.block_third_party_cookies".to_string(),
+            SettingValue::Bool(settings.privacy.block_third_party_cookies),
+        );
+        map.insert(
+            "privacy.safe_browsing".to_string(),
+            SettingValue::Bool(settings.privacy.safe_browsing),
+        );
+
         // Appearance
-        map.insert("appearance.theme".to_string(), SettingValue::Enum(match settings.appearance.theme {
-            Theme::Light => "light".to_string(),
-            Theme::Dark => "dark".to_string(),
-            Theme::System => "system".to_string(),
-        }));
-        map.insert("appearance.page_zoom".to_string(), SettingValue::Int(settings.appearance.page_zoom as i64));
-        
+        map.insert(
+            "appearance.theme".to_string(),
+            SettingValue::Enum(match settings.appearance.theme {
+                Theme::Light => "light".to_string(),
+                Theme::Dark => "dark".to_string(),
+                Theme::System => "system".to_string(),
+            }),
+        );
+        map.insert(
+            "appearance.page_zoom".to_string(),
+            SettingValue::Int(settings.appearance.page_zoom as i64),
+        );
+
         // Search
-        map.insert("search.default_engine".to_string(), SettingValue::String(
-            settings.search.default_engine().short_name.clone()
-        ));
-        
+        map.insert(
+            "search.default_engine".to_string(),
+            SettingValue::String(settings.search.default_engine().short_name.clone()),
+        );
+
         // Custom values
         let custom = self.custom.read();
         for (k, v) in custom.iter() {
             map.insert(k.clone(), v.clone());
         }
-        
+
         map
     }
-    
+
     /// Import settings.
     pub fn import(&self, data: BTreeMap<String, SettingValue>) {
         let mut settings = self.settings.write();
-        
+
         if let Some(SettingValue::Bool(v)) = data.get("privacy.do_not_track") {
             settings.privacy.do_not_track = *v;
         }
@@ -532,7 +552,7 @@ impl SettingsManager {
         if let Some(SettingValue::Bool(v)) = data.get("privacy.safe_browsing") {
             settings.privacy.safe_browsing = *v;
         }
-        
+
         if let Some(SettingValue::Enum(theme)) = data.get("appearance.theme") {
             settings.appearance.theme = match theme.as_str() {
                 "light" => Theme::Light,
@@ -543,7 +563,7 @@ impl SettingsManager {
         if let Some(SettingValue::Int(zoom)) = data.get("appearance.page_zoom") {
             settings.appearance.page_zoom = *zoom as u32;
         }
-        
+
         if let Some(SettingValue::String(engine)) = data.get("search.default_engine") {
             settings.search.set_default(engine);
         }
@@ -559,41 +579,41 @@ impl Default for SettingsManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_search_engine() {
         let engine = SearchEngine::google();
         let url = engine.get_search_url("hello world");
         assert!(url.contains("hello+world"));
     }
-    
+
     #[test]
     fn test_settings_manager() {
         let manager = SettingsManager::new();
-        
+
         let settings = manager.settings();
         assert_eq!(settings.appearance.theme, Theme::System);
-        
+
         let mut appearance = settings.appearance.clone();
         appearance.theme = Theme::Dark;
         manager.set_appearance(appearance);
-        
+
         assert_eq!(manager.settings().appearance.theme, Theme::Dark);
     }
-    
+
     #[test]
     fn test_export_import() {
         let manager = SettingsManager::new();
-        
+
         let mut appearance = manager.settings().appearance.clone();
         appearance.page_zoom = 125;
         manager.set_appearance(appearance);
-        
+
         let exported = manager.export();
-        
+
         let manager2 = SettingsManager::new();
         manager2.import(exported);
-        
+
         assert_eq!(manager2.settings().appearance.page_zoom, 125);
     }
 }

@@ -11,9 +11,9 @@
 //! - **Buddy**: Power-of-two block allocator
 //! - **Optimization**: Memory compression and reclamation
 
-pub mod slab;
 pub mod buddy;
 pub mod optimization;
+pub mod slab;
 
 use bootloader_api::info::MemoryRegionKind;
 use spin::Mutex;
@@ -52,7 +52,11 @@ pub fn init_frame_allocator(start: u64, end: u64) {
 
 /// Allocate a physical frame for slab allocator.
 pub fn allocate_frame() -> Option<usize> {
-    GLOBAL_FRAME_ALLOCATOR.lock().as_mut()?.allocate().map(|f| f as usize)
+    GLOBAL_FRAME_ALLOCATOR
+        .lock()
+        .as_mut()?
+        .allocate()
+        .map(|f| f as usize)
 }
 
 /// Free a physical frame.

@@ -85,16 +85,11 @@ impl NotificationPanel {
             return None;
         }
 
-        let panel_x =
-            screen_width as i32 - PANEL_MARGIN_RIGHT as i32 - PANEL_WIDTH as i32;
+        let panel_x = screen_width as i32 - PANEL_MARGIN_RIGHT as i32 - PANEL_WIDTH as i32;
         let panel_y = taskbar_top - PANEL_MAX_HEIGHT as i32;
 
         // Check bounds
-        if mx < panel_x
-            || mx >= panel_x + PANEL_WIDTH as i32
-            || my < panel_y
-            || my >= taskbar_top
-        {
+        if mx < panel_x || mx >= panel_x + PANEL_WIDTH as i32 || my < panel_y || my >= taskbar_top {
             // Outside panel — close it
             self.hide();
             return None;
@@ -131,12 +126,7 @@ impl NotificationPanel {
     }
 
     /// Render the panel.
-    pub fn render(
-        &self,
-        renderer: &mut Renderer,
-        screen_width: u32,
-        taskbar_top: i32,
-    ) {
+    pub fn render(&self, renderer: &mut Renderer, screen_width: u32, taskbar_top: i32) {
         if !self.visible {
             return;
         }
@@ -145,12 +135,10 @@ impl NotificationPanel {
         let all_notifs = center.list_all();
         let unread_count = center.unread_count();
 
-        let content_height =
-            HEADER_HEIGHT + (all_notifs.len() as u32) * ROW_HEIGHT;
+        let content_height = HEADER_HEIGHT + (all_notifs.len() as u32) * ROW_HEIGHT;
         let panel_height = core::cmp::min(content_height, PANEL_MAX_HEIGHT);
 
-        let panel_x =
-            screen_width as i32 - PANEL_MARGIN_RIGHT as i32 - PANEL_WIDTH as i32;
+        let panel_x = screen_width as i32 - PANEL_MARGIN_RIGHT as i32 - PANEL_WIDTH as i32;
         let panel_y = taskbar_top - panel_height as i32;
 
         // Background
@@ -166,12 +154,7 @@ impl NotificationPanel {
         renderer.fill_rect(panel_x, panel_y, PANEL_WIDTH, 1, Accent::PRIMARY);
 
         // Header
-        renderer.draw_text(
-            panel_x + 12,
-            panel_y + 10,
-            "Notifications",
-            Color::WHITE,
-        );
+        renderer.draw_text(panel_x + 12, panel_y + 10, "Notifications", Color::WHITE);
 
         // "Mark all read" link
         if unread_count > 0 {
@@ -193,8 +176,7 @@ impl NotificationPanel {
         );
 
         // Notification rows (newest first)
-        let max_visible_rows =
-            ((panel_height - HEADER_HEIGHT) / ROW_HEIGHT) as usize;
+        let max_visible_rows = ((panel_height - HEADER_HEIGHT) / ROW_HEIGHT) as usize;
         let start_idx = if all_notifs.len() > max_visible_rows {
             all_notifs.len() - max_visible_rows
         } else {
@@ -261,11 +243,7 @@ impl NotificationPanel {
 
     /// Render the bell icon in the taskbar.
     /// Returns `true` if there are unread notifications (badge).
-    pub fn render_bell_icon(
-        renderer: &mut Renderer,
-        x: i32,
-        y: i32,
-    ) -> bool {
+    pub fn render_bell_icon(renderer: &mut Renderer, x: i32, y: i32) -> bool {
         let center = NOTIFICATION_CENTER.lock();
         let unread = center.unread_count();
 

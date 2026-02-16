@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use spin::{Mutex, RwLock};
 
-use crate::ipc::{ChannelId, create_channel};
+use crate::ipc::{create_channel, ChannelId};
 
 /// Tab identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -132,24 +132,24 @@ impl TabInfo {
             state: TabState::Initializing,
             channels,
             memory: TabMemoryStats::default(),
-            priority: 16, // Normal priority
+            priority: 16,  // Normal priority
             created_at: 0, // TODO: Get timestamp
             last_active: 0,
         }
     }
-    
+
     /// Update memory stats.
     pub fn update_memory(&mut self, heap: u64, gpu: u64, shm: u64) {
         self.memory.heap_bytes = heap;
         self.memory.gpu_bytes = gpu;
         self.memory.shm_bytes = shm;
-        
+
         let total = heap + gpu + shm;
         if total > self.memory.peak_bytes {
             self.memory.peak_bytes = total;
         }
     }
-    
+
     /// Total memory usage.
     pub fn total_memory(&self) -> u64 {
         self.memory.heap_bytes + self.memory.gpu_bytes + self.memory.shm_bytes
@@ -160,19 +160,19 @@ impl TabInfo {
 pub struct BrowserCoordinator {
     /// All registered tabs.
     tabs: BTreeMap<TabId, Arc<Mutex<TabInfo>>>,
-    
+
     /// Next tab ID.
     next_tab_id: AtomicU32,
-    
+
     /// Maximum tabs allowed.
     max_tabs: usize,
-    
+
     /// Total GPU memory budget.
     gpu_memory_budget: u64,
-    
+
     /// Currently used GPU memory.
     gpu_memory_used: AtomicU64,
-    
+
     /// Active/focused tab.
     active_tab: Option<TabId>,
 }
@@ -189,7 +189,7 @@ impl BrowserCoordinator {
             active_tab: None,
         }
     }
-    
+
     /// Register a new tab.
     pub fn register_tab(
         &mut self,
@@ -201,14 +201,14 @@ impl BrowserCoordinator {
         if self.tabs.len() >= self.max_tabs {
             return Err(CoordinatorError::TooManyTabs);
         }
-        
+
         // Generate tab ID
         let tab_id = TabId(self.next_tab_id.fetch_add(1, Ordering::Relaxed));
-        
+
         // Create channels
-        let (coord_end, tab_end) = create_channel()
-            .ok_or(CoordinatorError::ChannelCreationFailed)?;
-        
+        let (coord_end, tab_end) =
+            create_channel().ok_or(CoordinatorError::ChannelCreationFailed)?;
+
         let channels = TabChannels {
             to_coordinator: tab_end,
             from_coordinator: coord_end,
@@ -216,58 +216,70 @@ impl BrowserCoordinator {
             net_channel: None,
             input_channel: None,
         };
-        
+
         // Create tab info
         let tab = TabInfo::new(tab_id, tab_type, name, pid, channels);
-        
+
         self.tabs.insert(tab_id, Arc::new(Mutex::new(tab)));
-        
+
         // Set as active if first tab
         if self.active_tab.is_none() {
             self.active_tab = Some(tab_id);
         }
-        
-        crate::serial_println!("[Browser] Registered tab {} ({:?}): {}", tab_id.0, tab_type, name);
-        
+
+        crate::serial_println!(
+            "[Browser] Registered tab {} ({:?}): {}",
+            tab_id.0,
+            tab_type,
+            name
+        );
+
         Ok(tab_id)
     }
-    
+
     /// Unregister a tab.
     pub fn unregister_tab(&mut self, tab_id: TabId) -> Result<(), CoordinatorError> {
-        let tab = self.tabs.remove(&tab_id).ok_or(CoordinatorError::TabNotFound)?;
-        
+        let tab = self
+            .tabs
+            .remove(&tab_id)
+            .ok_or(CoordinatorError::TabNotFound)?;
+
         // Update GPU memory tracking
         let tab = tab.lock();
-        self.gpu_memory_used.fetch_sub(tab.memory.gpu_bytes, Ordering::Relaxed);
-        
+        self.gpu_memory_used
+            .fetch_sub(tab.memory.gpu_bytes, Ordering::Relaxed);
+
         // Clear active tab if needed
         if self.active_tab == Some(tab_id) {
             self.active_tab = self.tabs.keys().next().copied();
         }
-        
+
         crate::serial_println!("[Browser] Unregistered tab {}", tab_id.0);
-        
+
         Ok(())
     }
-    
+
     /// Get tab info.
     pub fn get_tab(&self, tab_id: TabId) -> Option<Arc<Mutex<TabInfo>>> {
         self.tabs.get(&tab_id).cloned()
     }
-    
+
     /// Update tab state.
     pub fn set_tab_state(&self, tab_id: TabId, state: TabState) -> Result<(), CoordinatorError> {
-        let tab = self.tabs.get(&tab_id).ok_or(CoordinatorError::TabNotFound)?;
+        let tab = self
+            .tabs
+            .get(&tab_id)
+            .ok_or(CoordinatorError::TabNotFound)?;
         tab.lock().state = state;
         Ok(())
     }
-    
+
     /// Set active tab.
     pub fn set_active_tab(&mut self, tab_id: TabId) -> Result<(), CoordinatorError> {
         if !self.tabs.contains_key(&tab_id) {
             return Err(CoordinatorError::TabNotFound);
         }
-        
+
         // Suspend previous active tab
         if let Some(prev) = self.active_tab {
             if prev != tab_id {
@@ -276,59 +288,63 @@ impl BrowserCoordinator {
                 }
             }
         }
-        
+
         // Activate new tab
         if let Some(tab) = self.tabs.get(&tab_id) {
             tab.lock().state = TabState::Active;
         }
-        
+
         self.active_tab = Some(tab_id);
-        
+
         Ok(())
     }
-    
+
     /// Get all tabs.
     pub fn list_tabs(&self) -> Vec<TabId> {
         self.tabs.keys().copied().collect()
     }
-    
+
     /// Get tab count.
     pub fn tab_count(&self) -> usize {
         self.tabs.len()
     }
-    
+
     /// Allocate GPU memory for a tab.
     pub fn alloc_gpu_memory(&self, tab_id: TabId, size: u64) -> Result<(), CoordinatorError> {
         let current = self.gpu_memory_used.load(Ordering::Relaxed);
-        
+
         if current + size > self.gpu_memory_budget {
             return Err(CoordinatorError::GpuMemoryExhausted);
         }
-        
-        let tab = self.tabs.get(&tab_id).ok_or(CoordinatorError::TabNotFound)?;
-        
+
+        let tab = self
+            .tabs
+            .get(&tab_id)
+            .ok_or(CoordinatorError::TabNotFound)?;
+
         self.gpu_memory_used.fetch_add(size, Ordering::Relaxed);
         tab.lock().memory.gpu_bytes += size;
-        
+
         Ok(())
     }
-    
+
     /// Free GPU memory from a tab.
     pub fn free_gpu_memory(&self, tab_id: TabId, size: u64) -> Result<(), CoordinatorError> {
-        let tab = self.tabs.get(&tab_id).ok_or(CoordinatorError::TabNotFound)?;
-        
+        let tab = self
+            .tabs
+            .get(&tab_id)
+            .ok_or(CoordinatorError::TabNotFound)?;
+
         self.gpu_memory_used.fetch_sub(size, Ordering::Relaxed);
         let mut tab = tab.lock();
         tab.memory.gpu_bytes = tab.memory.gpu_bytes.saturating_sub(size);
-        
+
         Ok(())
     }
-    
+
     /// Get total memory usage.
     pub fn total_memory_usage(&self) -> u64 {
-        self.tabs.values()
-            .map(|t| t.lock().total_memory())
-            .sum()
+        self.tabs.values().map(|t| t.lock().total_memory()).sum()
     }
 }
 
@@ -359,7 +375,8 @@ pub fn init() {
 
 /// Register a tab.
 pub fn register_tab(tab_type: u32, name: &str, pid: u64) -> Result<TabId, CoordinatorError> {
-    BROWSER_COORDINATOR.write()
+    BROWSER_COORDINATOR
+        .write()
         .as_mut()
         .ok_or(CoordinatorError::InvalidOperation)?
         .register_tab(TabType::from(tab_type), name, pid)
@@ -367,7 +384,8 @@ pub fn register_tab(tab_type: u32, name: &str, pid: u64) -> Result<TabId, Coordi
 
 /// Unregister a tab.
 pub fn unregister_tab(tab_id: TabId) -> Result<(), CoordinatorError> {
-    BROWSER_COORDINATOR.write()
+    BROWSER_COORDINATOR
+        .write()
         .as_mut()
         .ok_or(CoordinatorError::InvalidOperation)?
         .unregister_tab(tab_id)
@@ -380,7 +398,8 @@ pub fn get_tab(tab_id: TabId) -> Option<Arc<Mutex<TabInfo>>> {
 
 /// Set tab state.
 pub fn set_tab_state(tab_id: TabId, state: TabState) -> Result<(), CoordinatorError> {
-    BROWSER_COORDINATOR.read()
+    BROWSER_COORDINATOR
+        .read()
         .as_ref()
         .ok_or(CoordinatorError::InvalidOperation)?
         .set_tab_state(tab_id, state)
@@ -388,7 +407,8 @@ pub fn set_tab_state(tab_id: TabId, state: TabState) -> Result<(), CoordinatorEr
 
 /// List all tabs.
 pub fn list_tabs() -> Vec<TabId> {
-    BROWSER_COORDINATOR.read()
+    BROWSER_COORDINATOR
+        .read()
         .as_ref()
         .map(|c| c.list_tabs())
         .unwrap_or_default()

@@ -69,7 +69,7 @@ impl Document {
 
         // Create new text node with the split content
         let new_id = Document::create_text(self, new_content);
-        
+
         // Insert after the original text node
         if let Some(parent_id) = parent_id {
             self.insert_before(parent_id, new_id, next_id);
@@ -86,21 +86,25 @@ impl Document {
 
         for child_id in children {
             let is_text = self.get(child_id).map(|n| n.is_text()).unwrap_or(false);
-            
+
             if is_text {
                 if let Some(prev_id) = prev_text_id {
                     // Merge with previous text node
-                    let content = self.get(child_id)
+                    let content = self
+                        .get(child_id)
                         .and_then(|n| n.text_content())
                         .map(|s| s.to_string())
                         .unwrap_or_default();
-                    
+
                     if let Some(prev) = self.get_mut(prev_id) {
-                        if let NodeData::Text { content: prev_content } = &mut prev.data {
+                        if let NodeData::Text {
+                            content: prev_content,
+                        } = &mut prev.data
+                        {
                             prev_content.push_str(&content);
                         }
                     }
-                    
+
                     to_remove.push(child_id);
                 } else {
                     prev_text_id = Some(child_id);

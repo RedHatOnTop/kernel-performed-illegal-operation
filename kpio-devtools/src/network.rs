@@ -6,9 +6,9 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 
 /// Request ID.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -116,7 +116,7 @@ impl HttpMethod {
             _ => None,
         }
     }
-    
+
     /// Convert to string.
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -146,32 +146,32 @@ impl Headers {
             headers: BTreeMap::new(),
         }
     }
-    
+
     /// Set a header.
     pub fn set(&mut self, name: &str, value: &str) {
         self.headers.insert(name.to_lowercase(), value.to_string());
     }
-    
+
     /// Get a header.
     pub fn get(&self, name: &str) -> Option<&str> {
         self.headers.get(&name.to_lowercase()).map(|s| s.as_str())
     }
-    
+
     /// Remove a header.
     pub fn remove(&mut self, name: &str) -> Option<String> {
         self.headers.remove(&name.to_lowercase())
     }
-    
+
     /// Iterate over headers.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
         self.headers.iter().map(|(k, v)| (k.as_str(), v.as_str()))
     }
-    
+
     /// Get content type.
     pub fn content_type(&self) -> Option<&str> {
         self.get("content-type")
     }
-    
+
     /// Get content length.
     pub fn content_length(&self) -> Option<u64> {
         self.get("content-length")?.parse().ok()
@@ -371,7 +371,7 @@ impl Response {
             security_details: None,
         }
     }
-    
+
     /// Get status text for status code.
     fn status_text(status: u16) -> &'static str {
         match status {
@@ -408,17 +408,17 @@ impl Response {
             _ => "",
         }
     }
-    
+
     /// Check if response is successful.
     pub fn is_success(&self) -> bool {
         (200..300).contains(&self.status)
     }
-    
+
     /// Check if response is redirect.
     pub fn is_redirect(&self) -> bool {
         matches!(self.status, 301 | 302 | 303 | 307 | 308)
     }
-    
+
     /// Check if response is from cache.
     pub fn is_from_cache(&self) -> bool {
         self.from_disk_cache || self.from_prefetch_cache
@@ -493,7 +493,7 @@ impl ResourceTiming {
             receive_headers_end: 0.0,
         }
     }
-    
+
     /// Calculate DNS time.
     pub fn dns_time(&self) -> Option<f64> {
         if self.dns_start >= 0.0 && self.dns_end >= 0.0 {
@@ -502,7 +502,7 @@ impl ResourceTiming {
             None
         }
     }
-    
+
     /// Calculate connection time.
     pub fn connect_time(&self) -> Option<f64> {
         if self.connect_start >= 0.0 && self.connect_end >= 0.0 {
@@ -511,7 +511,7 @@ impl ResourceTiming {
             None
         }
     }
-    
+
     /// Calculate SSL time.
     pub fn ssl_time(&self) -> Option<f64> {
         if self.ssl_start >= 0.0 && self.ssl_end >= 0.0 {
@@ -520,12 +520,12 @@ impl ResourceTiming {
             None
         }
     }
-    
+
     /// Calculate time to first byte.
     pub fn ttfb(&self) -> f64 {
         self.receive_headers_start
     }
-    
+
     /// Calculate total time.
     pub fn total_time(&self, end_time: f64) -> f64 {
         (end_time - self.request_time) * 1000.0
@@ -691,26 +691,26 @@ impl NetworkEntry {
             response_body: None,
         }
     }
-    
+
     /// Set response.
     pub fn set_response(&mut self, response: Response, timestamp: MonotonicTime) {
         self.response = Some(response);
         self.response_received_timestamp = Some(timestamp);
     }
-    
+
     /// Mark as finished.
     pub fn finish(&mut self, timestamp: MonotonicTime, encoded_length: i64, decoded_length: i64) {
         self.loading_finished_timestamp = Some(timestamp);
         self.encoded_data_length = encoded_length;
         self.decoded_body_length = decoded_length;
     }
-    
+
     /// Calculate duration.
     pub fn duration(&self) -> Option<f64> {
         self.loading_finished_timestamp
             .map(|end| (end - self.timestamp) * 1000.0)
     }
-    
+
     /// Is completed.
     pub fn is_completed(&self) -> bool {
         self.loading_finished_timestamp.is_some()
@@ -733,13 +733,9 @@ pub enum Initiator {
     /// Preload.
     Preload,
     /// Signed exchange.
-    SignedExchange {
-        url: String,
-    },
+    SignedExchange { url: String },
     /// Preflight.
-    Preflight {
-        request_id: RequestId,
-    },
+    Preflight { request_id: RequestId },
     /// Other.
     Other,
 }
@@ -831,85 +827,89 @@ impl NetworkPanel {
             blocked_urls: Vec::new(),
         }
     }
-    
+
     /// Generate a new request ID.
     pub fn new_request_id(&mut self) -> RequestId {
-        let id = RequestId(alloc::format!("{}.{}", self.next_loader_id, self.next_request_id));
+        let id = RequestId(alloc::format!(
+            "{}.{}",
+            self.next_loader_id,
+            self.next_request_id
+        ));
         self.next_request_id += 1;
         id
     }
-    
+
     /// Generate a new loader ID.
     pub fn new_loader_id(&mut self) -> LoaderId {
         let id = LoaderId(alloc::format!("{}", self.next_loader_id));
         self.next_loader_id += 1;
         id
     }
-    
+
     /// Record a request.
     pub fn record_request(&mut self, entry: NetworkEntry) {
         if self.is_recording {
             self.entries.insert(entry.request_id.0.clone(), entry);
         }
     }
-    
+
     /// Get an entry.
     pub fn get_entry(&self, request_id: &RequestId) -> Option<&NetworkEntry> {
         self.entries.get(&request_id.0)
     }
-    
+
     /// Get an entry mutably.
     pub fn get_entry_mut(&mut self, request_id: &RequestId) -> Option<&mut NetworkEntry> {
         self.entries.get_mut(&request_id.0)
     }
-    
+
     /// Get all entries.
     pub fn entries(&self) -> impl Iterator<Item = &NetworkEntry> {
         self.entries.values()
     }
-    
+
     /// Clear entries.
     pub fn clear(&mut self) {
         self.entries.clear();
     }
-    
+
     /// Set recording state.
     pub fn set_recording(&mut self, recording: bool) {
         self.is_recording = recording;
     }
-    
+
     /// Set preserve log.
     pub fn set_preserve_log(&mut self, preserve: bool) {
         self.preserve_log = preserve;
     }
-    
+
     /// Set cache disabled.
     pub fn set_cache_disabled(&mut self, disabled: bool) {
         self.disable_cache = disabled;
     }
-    
+
     /// Is cache disabled?
     pub fn is_cache_disabled(&self) -> bool {
         self.disable_cache
     }
-    
+
     /// Set throttling.
     pub fn set_throttling(&mut self, throttling: Option<NetworkThrottling>) {
         self.throttling = throttling;
     }
-    
+
     /// Block URL.
     pub fn block_url(&mut self, url: &str) {
         if !self.blocked_urls.contains(&url.to_string()) {
             self.blocked_urls.push(url.to_string());
         }
     }
-    
+
     /// Unblock URL.
     pub fn unblock_url(&mut self, url: &str) {
         self.blocked_urls.retain(|u| u != url);
     }
-    
+
     /// Check if URL is blocked.
     pub fn is_url_blocked(&self, url: &str) -> bool {
         self.blocked_urls.iter().any(|pattern| {
@@ -939,11 +939,13 @@ impl NetworkPanel {
             }
         })
     }
-    
+
     /// Export to HAR format.
     pub fn export_har(&self) -> HarLog {
-        let entries: Vec<HarEntry> = self.entries.values().map(|e| {
-            HarEntry {
+        let entries: Vec<HarEntry> = self
+            .entries
+            .values()
+            .map(|e| HarEntry {
                 started_date_time: format_iso8601(e.wall_time),
                 time: e.duration().unwrap_or(0.0),
                 request: HarRequest {
@@ -951,8 +953,14 @@ impl NetworkPanel {
                     url: e.request.url.clone(),
                     http_version: "HTTP/1.1".to_string(),
                     cookies: Vec::new(),
-                    headers: e.request.headers.iter()
-                        .map(|(k, v)| HarHeader { name: k.to_string(), value: v.to_string() })
+                    headers: e
+                        .request
+                        .headers
+                        .iter()
+                        .map(|(k, v)| HarHeader {
+                            name: k.to_string(),
+                            value: v.to_string(),
+                        })
                         .collect(),
                     query_string: Vec::new(),
                     post_data: e.request.post_data.as_ref().map(|data| HarPostData {
@@ -961,22 +969,43 @@ impl NetworkPanel {
                         params: Vec::new(),
                     }),
                     headers_size: -1,
-                    body_size: e.request.post_data.as_ref().map(|d| d.len() as i64).unwrap_or(-1),
+                    body_size: e
+                        .request
+                        .post_data
+                        .as_ref()
+                        .map(|d| d.len() as i64)
+                        .unwrap_or(-1),
                 },
                 response: HarResponse {
                     status: e.response.as_ref().map(|r| r.status).unwrap_or(0),
-                    status_text: e.response.as_ref().map(|r| r.status_text.clone()).unwrap_or_default(),
+                    status_text: e
+                        .response
+                        .as_ref()
+                        .map(|r| r.status_text.clone())
+                        .unwrap_or_default(),
                     http_version: "HTTP/1.1".to_string(),
                     cookies: Vec::new(),
-                    headers: e.response.as_ref().map(|r| {
-                        r.headers.iter()
-                            .map(|(k, v)| HarHeader { name: k.to_string(), value: v.to_string() })
-                            .collect()
-                    }).unwrap_or_default(),
+                    headers: e
+                        .response
+                        .as_ref()
+                        .map(|r| {
+                            r.headers
+                                .iter()
+                                .map(|(k, v)| HarHeader {
+                                    name: k.to_string(),
+                                    value: v.to_string(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     content: HarContent {
                         size: e.decoded_body_length,
                         compression: Some(e.decoded_body_length - e.encoded_data_length),
-                        mime_type: e.response.as_ref().map(|r| r.mime_type.clone()).unwrap_or_default(),
+                        mime_type: e
+                            .response
+                            .as_ref()
+                            .map(|r| r.mime_type.clone())
+                            .unwrap_or_default(),
                         text: None,
                         encoding: None,
                     },
@@ -987,36 +1016,51 @@ impl NetworkPanel {
                 cache: HarCache {},
                 timings: HarTimings {
                     blocked: -1.0,
-                    dns: e.response.as_ref()
+                    dns: e
+                        .response
+                        .as_ref()
                         .and_then(|r| r.timing.as_ref())
                         .and_then(|t| t.dns_time())
                         .unwrap_or(-1.0),
-                    connect: e.response.as_ref()
+                    connect: e
+                        .response
+                        .as_ref()
                         .and_then(|r| r.timing.as_ref())
                         .and_then(|t| t.connect_time())
                         .unwrap_or(-1.0),
-                    send: e.response.as_ref()
+                    send: e
+                        .response
+                        .as_ref()
                         .and_then(|r| r.timing.as_ref())
                         .map(|t| t.send_end - t.send_start)
                         .unwrap_or(-1.0),
-                    wait: e.response.as_ref()
+                    wait: e
+                        .response
+                        .as_ref()
                         .and_then(|r| r.timing.as_ref())
                         .map(|t| t.receive_headers_start - t.send_end)
                         .unwrap_or(-1.0),
-                    receive: e.response.as_ref()
+                    receive: e
+                        .response
+                        .as_ref()
                         .and_then(|r| r.timing.as_ref())
                         .map(|t| t.receive_headers_end - t.receive_headers_start)
                         .unwrap_or(-1.0),
-                    ssl: e.response.as_ref()
+                    ssl: e
+                        .response
+                        .as_ref()
                         .and_then(|r| r.timing.as_ref())
                         .and_then(|t| t.ssl_time())
                         .unwrap_or(-1.0),
                 },
-                server_ip_address: e.response.as_ref().and_then(|r| r.remote_ip_address.clone()),
+                server_ip_address: e
+                    .response
+                    .as_ref()
+                    .and_then(|r| r.remote_ip_address.clone()),
                 connection: None,
-            }
-        }).collect();
-        
+            })
+            .collect();
+
         HarLog {
             version: "1.2".to_string(),
             creator: HarCreator {
@@ -1057,27 +1101,27 @@ impl NetworkThrottling {
             offline: false,
         }
     }
-    
+
     /// Slow 3G.
     pub fn slow_3g() -> Self {
         Self {
-            download_throughput: 500 * 1024 / 8,  // 500 kbps
-            upload_throughput: 500 * 1024 / 8,    // 500 kbps
+            download_throughput: 500 * 1024 / 8, // 500 kbps
+            upload_throughput: 500 * 1024 / 8,   // 500 kbps
             latency: 400.0,
             offline: false,
         }
     }
-    
+
     /// Fast 3G.
     pub fn fast_3g() -> Self {
         Self {
-            download_throughput: 1500 * 1024 / 8,  // 1.5 Mbps
-            upload_throughput: 750 * 1024 / 8,     // 750 kbps
+            download_throughput: 1500 * 1024 / 8, // 1.5 Mbps
+            upload_throughput: 750 * 1024 / 8,    // 750 kbps
             latency: 150.0,
             offline: false,
         }
     }
-    
+
     /// Offline.
     pub fn offline() -> Self {
         Self {
@@ -1211,13 +1255,13 @@ pub struct HarTimings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_network_panel() {
         let mut panel = NetworkPanel::new();
         let request_id = panel.new_request_id();
         let loader_id = panel.new_loader_id();
-        
+
         let request = Request::new("https://example.com/", HttpMethod::Get);
         let entry = NetworkEntry::new(
             request_id.clone(),
@@ -1227,25 +1271,25 @@ mod tests {
             0.0,
             1234567890.0,
         );
-        
+
         panel.record_request(entry);
         assert!(panel.get_entry(&request_id).is_some());
     }
-    
+
     #[test]
     fn test_url_blocking() {
         let mut panel = NetworkPanel::new();
         panel.block_url("*.example.com/*");
-        
+
         assert!(panel.is_url_blocked("https://www.example.com/path"));
         assert!(!panel.is_url_blocked("https://other.com/path"));
     }
-    
+
     #[test]
     fn test_throttling() {
         let slow_3g = NetworkThrottling::slow_3g();
         assert_eq!(slow_3g.latency, 400.0);
-        
+
         let offline = NetworkThrottling::offline();
         assert!(offline.offline);
     }

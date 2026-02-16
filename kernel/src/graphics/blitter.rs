@@ -3,8 +3,8 @@
 //! Optimized memory copy operations for compositing surfaces.
 //! Uses SIMD when available for maximum throughput.
 
-use super::surface::{PixelFormat, Surface};
 use super::damage::DamageRect;
+use super::surface::{PixelFormat, Surface};
 
 /// Blend mode for compositing
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,15 +108,15 @@ impl Blitter {
         // Same format - fast path with memcpy
         if src.format == dst.format {
             let row_bytes = width as usize * src_bpp;
-            
+
             for y in 0..height {
                 let src_y = op.src_rect.y as u32 + src_offset_y + y;
                 let dst_y = clip_y as u32 + y;
-                
-                let src_offset = src_y as usize * src.stride 
+
+                let src_offset = src_y as usize * src.stride
                     + (op.src_rect.x as u32 + src_offset_x) as usize * src_bpp;
                 let dst_offset = dst_y as usize * dst.stride + clip_x as usize * dst_bpp;
-                
+
                 dst.data[dst_offset..dst_offset + row_bytes]
                     .copy_from_slice(&src.data[src_offset..src_offset + row_bytes]);
             }
@@ -155,7 +155,7 @@ impl Blitter {
 
                 // Get source pixel
                 let (sr, sg, sb, sa) = self.get_pixel_rgba(src, src_x, src_y);
-                
+
                 // Apply global alpha
                 let sa = (sa as u32 * global_alpha / 255) as u8;
 
@@ -386,9 +386,7 @@ impl Blitter {
                 data[2] = b;
             }
             PixelFormat::RGB565 => {
-                let pixel = ((r as u16 >> 3) << 11)
-                    | ((g as u16 >> 2) << 5)
-                    | (b as u16 >> 3);
+                let pixel = ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3);
                 data[0] = pixel as u8;
                 data[1] = (pixel >> 8) as u8;
             }
@@ -414,7 +412,7 @@ impl Blitter {
         }
 
         let bpp = dst.format.bytes_per_pixel();
-        
+
         // Build pixel value based on format
         let mut pixel = [0u8; 4];
         match dst.format {

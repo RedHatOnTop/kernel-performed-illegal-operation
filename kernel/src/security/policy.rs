@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use spin::RwLock;
 
 use crate::browser::coordinator::TabId;
-use crate::ipc::{CapabilityId, CapabilityType, CapabilityRights};
+use crate::ipc::{CapabilityId, CapabilityRights, CapabilityType};
 
 /// Security domain (isolation boundary).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -93,8 +93,8 @@ impl Default for FileSystemPolicy {
             allowed_paths: Vec::new(),
             readonly_paths: Vec::new(),
             denied_paths: Vec::new(),
-            max_file_size: 100 * 1024 * 1024,  // 100MB
-            max_storage: 1024 * 1024 * 1024,    // 1GB
+            max_file_size: 100 * 1024 * 1024, // 100MB
+            max_storage: 1024 * 1024 * 1024,  // 1GB
         }
     }
 }
@@ -116,7 +116,7 @@ impl Default for GpuPolicy {
     fn default() -> Self {
         GpuPolicy {
             allow: true,
-            max_memory: 256 * 1024 * 1024,  // 256MB
+            max_memory: 256 * 1024 * 1024, // 256MB
             allow_webgl: true,
             allow_compute: false,
         }
@@ -155,43 +155,43 @@ impl Default for IpcPolicy {
 pub struct SecurityPolicy {
     /// Domain ID.
     pub domain: DomainId,
-    
+
     /// Policy name.
     pub name: String,
-    
+
     /// Network policy.
     pub network: NetworkPolicy,
-    
+
     /// File system policy.
     pub filesystem: FileSystemPolicy,
-    
+
     /// GPU policy.
     pub gpu: GpuPolicy,
-    
+
     /// IPC policy.
     pub ipc: IpcPolicy,
-    
+
     /// Can spawn child processes.
     pub can_spawn: bool,
-    
+
     /// Can access clipboard.
     pub clipboard_access: Permission,
-    
+
     /// Can access geolocation.
     pub geolocation_access: Permission,
-    
+
     /// Can access camera.
     pub camera_access: Permission,
-    
+
     /// Can access microphone.
     pub microphone_access: Permission,
-    
+
     /// Can show notifications.
     pub notification_access: Permission,
-    
+
     /// Maximum CPU time per second (milliseconds, 0 = unlimited).
     pub cpu_time_limit: u32,
-    
+
     /// Priority ceiling.
     pub max_priority: u32,
 }
@@ -212,19 +212,29 @@ impl SecurityPolicy {
             camera_access: Permission::Deny,
             microphone_access: Permission::Deny,
             notification_access: Permission::Prompt,
-            cpu_time_limit: 900,  // 900ms per second
+            cpu_time_limit: 900, // 900ms per second
             max_priority: 16,
         }
     }
-    
+
     /// Create a permissive policy (for trusted processes).
     pub fn new_permissive(name: &str, domain: DomainId) -> Self {
         SecurityPolicy {
             domain,
             name: String::from(name),
-            network: NetworkPolicy { allow_any: true, ..Default::default() },
-            filesystem: FileSystemPolicy { allow_any: true, ..Default::default() },
-            gpu: GpuPolicy { allow: true, allow_compute: true, ..Default::default() },
+            network: NetworkPolicy {
+                allow_any: true,
+                ..Default::default()
+            },
+            filesystem: FileSystemPolicy {
+                allow_any: true,
+                ..Default::default()
+            },
+            gpu: GpuPolicy {
+                allow: true,
+                allow_compute: true,
+                ..Default::default()
+            },
             ipc: IpcPolicy {
                 allowed_destinations: alloc::vec![
                     DomainId::KERNEL,
@@ -245,19 +255,19 @@ impl SecurityPolicy {
             max_priority: 24,
         }
     }
-    
+
     /// Create renderer policy (web content).
     pub fn new_renderer(name: &str) -> Self {
         let mut policy = Self::new_restrictive(name, DomainId::RENDERER);
-        
+
         // Renderers can talk to coordinator only
         policy.ipc.allowed_destinations = alloc::vec![DomainId::BROWSER_COORD];
         policy.gpu.allow = true;
         policy.gpu.allow_webgl = true;
-        
+
         policy
     }
-    
+
     /// Check if network access is allowed.
     pub fn check_network(&self, host: &str) -> Permission {
         // Check blocked hosts first
@@ -266,27 +276,28 @@ impl SecurityPolicy {
                 return Permission::Deny;
             }
         }
-        
+
         // Check localhost
         if (host == "localhost" || host == "127.0.0.1" || host == "::1")
-            && self.network.allow_localhost {
+            && self.network.allow_localhost
+        {
             return Permission::Allow;
         }
-        
+
         // Check allowed hosts
         if self.network.allow_any {
             return Permission::AllowWithAudit;
         }
-        
+
         for allowed in &self.network.allowed_hosts {
             if host_matches(host, allowed) {
                 return Permission::Allow;
             }
         }
-        
+
         Permission::Deny
     }
-    
+
     /// Check if file access is allowed.
     pub fn check_file(&self, path: &str, write: bool) -> Permission {
         // Check denied paths first
@@ -295,7 +306,7 @@ impl SecurityPolicy {
                 return Permission::Deny;
             }
         }
-        
+
         // Check readonly paths for writes
         if write {
             for readonly in &self.filesystem.readonly_paths {
@@ -304,21 +315,21 @@ impl SecurityPolicy {
                 }
             }
         }
-        
+
         // Check allowed paths
         if self.filesystem.allow_any {
             return Permission::AllowWithAudit;
         }
-        
+
         for allowed in &self.filesystem.allowed_paths {
             if path.starts_with(allowed) {
                 return Permission::Allow;
             }
         }
-        
+
         Permission::Deny
     }
-    
+
     /// Check if IPC to destination is allowed.
     pub fn check_ipc(&self, dest_domain: DomainId) -> Permission {
         if self.ipc.allowed_destinations.contains(&dest_domain) {
@@ -332,7 +343,7 @@ impl SecurityPolicy {
 /// Simple host pattern matching.
 fn host_matches(host: &str, pattern: &str) -> bool {
     if pattern.starts_with("*.") {
-        let suffix = &pattern[1..];  // Keep the dot
+        let suffix = &pattern[1..]; // Keep the dot
         host.ends_with(suffix)
     } else {
         host == pattern
@@ -385,86 +396,85 @@ impl PolicyManager {
             tab_domains: BTreeMap::new(),
             capability_policies: BTreeMap::new(),
         };
-        
+
         // Register built-in policies
-        manager.register_policy(SecurityPolicy::new_permissive(
-            "kernel",
-            DomainId::KERNEL,
-        ));
-        manager.register_policy(SecurityPolicy::new_permissive(
-            "system",
-            DomainId::SYSTEM,
-        ));
+        manager.register_policy(SecurityPolicy::new_permissive("kernel", DomainId::KERNEL));
+        manager.register_policy(SecurityPolicy::new_permissive("system", DomainId::SYSTEM));
         manager.register_policy(SecurityPolicy::new_permissive(
             "browser_coordinator",
             DomainId::BROWSER_COORD,
         ));
-        
+
         manager
     }
-    
+
     /// Register a policy.
     pub fn register_policy(&mut self, policy: SecurityPolicy) {
         crate::serial_println!(
             "[Security] Registered policy '{}' for domain {}",
-            policy.name, policy.domain.0
+            policy.name,
+            policy.domain.0
         );
         self.policies.insert(policy.domain, policy);
     }
-    
+
     /// Get policy for domain.
     pub fn get_policy(&self, domain: DomainId) -> Option<&SecurityPolicy> {
         self.policies.get(&domain)
     }
-    
+
     /// Assign tab to domain.
     pub fn assign_tab(&mut self, tab: TabId, domain: DomainId) {
         self.tab_domains.insert(tab, domain);
     }
-    
+
     /// Get domain for tab.
     pub fn tab_domain(&self, tab: TabId) -> Option<DomainId> {
         self.tab_domains.get(&tab).copied()
     }
-    
+
     /// Check permission for tab.
     pub fn check_tab_network(&self, tab: TabId, host: &str) -> Permission {
-        self.tab_domains.get(&tab)
+        self.tab_domains
+            .get(&tab)
             .and_then(|d| self.policies.get(d))
             .map(|p| p.check_network(host))
             .unwrap_or(Permission::Deny)
     }
-    
+
     /// Check file permission for tab.
     pub fn check_tab_file(&self, tab: TabId, path: &str, write: bool) -> Permission {
-        self.tab_domains.get(&tab)
+        self.tab_domains
+            .get(&tab)
             .and_then(|d| self.policies.get(d))
             .map(|p| p.check_file(path, write))
             .unwrap_or(Permission::Deny)
     }
-    
+
     /// Check capability usage.
     pub fn check_capability(
         &mut self,
         cap_id: CapabilityId,
         rights: CapabilityRights,
     ) -> Result<(), PolicyError> {
-        let policy = self.capability_policies.get_mut(&cap_id)
+        let policy = self
+            .capability_policies
+            .get_mut(&cap_id)
             .ok_or(PolicyError::NotFound)?;
-        
+
         // Check rights
         if !policy.allowed_rights.contains(rights) {
             return Err(PolicyError::AccessDenied);
         }
-        
+
         // Check use limit
         if policy.use_limit > 0 && policy.use_count >= policy.use_limit {
             return Err(PolicyError::AccessDenied);
         }
-        
+
         // Increment use count
         policy.use_count += 1;
-        
+
         Ok(())
     }
 }
@@ -493,7 +503,8 @@ pub fn assign_tab_domain(tab: TabId, domain: DomainId) {
 
 /// Check network permission.
 pub fn check_network(tab: TabId, host: &str) -> Permission {
-    POLICY_MANAGER.read()
+    POLICY_MANAGER
+        .read()
         .as_ref()
         .map(|m| m.check_tab_network(tab, host))
         .unwrap_or(Permission::Deny)

@@ -15,7 +15,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::idb_engine::{IDBEngine, IDBKey, IDBValue, EngineError};
+use super::idb_engine::{EngineError, IDBEngine, IDBKey, IDBValue};
 
 // ── Error ───────────────────────────────────────────────────
 
@@ -267,9 +267,7 @@ impl<'a> IDBObjectStore<'a> {
 
     /// Open a forward cursor over all keys.
     pub fn open_cursor(&self) -> Result<IDBCursor, IDBError> {
-        let keys = self
-            .engine
-            .all_keys(&self.db_name, &self.store_name)?;
+        let keys = self.engine.all_keys(&self.db_name, &self.store_name)?;
         Ok(IDBCursor::new(keys))
     }
 
@@ -297,12 +295,8 @@ impl<'a> IDBObjectStore<'a> {
             },
         );
         // Create the index table in the engine
-        self.engine.create_index(
-            &self.db_name,
-            &self.store_name,
-            name,
-            key_path,
-        )?;
+        self.engine
+            .create_index(&self.db_name, &self.store_name, name, key_path)?;
         Ok(())
     }
 
@@ -329,12 +323,9 @@ impl<'a> IDBObjectStore<'a> {
         if !self.descriptor.indices.contains_key(index_name) {
             return Err(IDBError::NoSuchIndex);
         }
-        Ok(self.engine.index_get(
-            &self.db_name,
-            &self.store_name,
-            index_name,
-            value,
-        )?)
+        Ok(self
+            .engine
+            .index_get(&self.db_name, &self.store_name, index_name, value)?)
     }
 
     /// Store name.
@@ -383,9 +374,7 @@ impl IDBDatabase {
         }
         let store = ObjectStoreDescriptor::new(name, key_path, auto_increment);
         self.engine.create_store(&self.descriptor.name, name)?;
-        self.descriptor
-            .stores
-            .insert(String::from(name), store);
+        self.descriptor.stores.insert(String::from(name), store);
         Ok(())
     }
 
@@ -395,8 +384,7 @@ impl IDBDatabase {
             .stores
             .remove(name)
             .ok_or(IDBError::NoSuchStore)?;
-        self.engine
-            .delete_store(&self.descriptor.name, name)?;
+        self.engine.delete_store(&self.descriptor.name, name)?;
         Ok(())
     }
 
@@ -526,9 +514,7 @@ mod tests {
             let store = db
                 .transaction_on("items", TransactionMode::Readonly)
                 .unwrap();
-            let val = store
-                .get(&IDBKey::String(String::from("k1")))
-                .unwrap();
+            let val = store.get(&IDBKey::String(String::from("k1"))).unwrap();
             assert!(val.is_some());
         }
 
@@ -536,18 +522,14 @@ mod tests {
             let mut store = db
                 .transaction_on("items", TransactionMode::Readwrite)
                 .unwrap();
-            store
-                .delete(&IDBKey::String(String::from("k1")))
-                .unwrap();
+            store.delete(&IDBKey::String(String::from("k1"))).unwrap();
         }
 
         {
             let store = db
                 .transaction_on("items", TransactionMode::Readonly)
                 .unwrap();
-            let val = store
-                .get(&IDBKey::String(String::from("k1")))
-                .unwrap();
+            let val = store.get(&IDBKey::String(String::from("k1"))).unwrap();
             assert!(val.is_none());
         }
     }

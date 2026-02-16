@@ -116,14 +116,17 @@ pub enum IoResult {
 impl IoResult {
     /// Check if result is success.
     pub fn is_ok(&self) -> bool {
-        matches!(self, IoResult::Bytes(_) | IoResult::Fd(_) | IoResult::Success)
+        matches!(
+            self,
+            IoResult::Bytes(_) | IoResult::Fd(_) | IoResult::Success
+        )
     }
-    
+
     /// Check if result is error.
     pub fn is_err(&self) -> bool {
         matches!(self, IoResult::Error(_))
     }
-    
+
     /// Get bytes if applicable.
     pub fn bytes(&self) -> Option<usize> {
         match self {
@@ -131,7 +134,7 @@ impl IoResult {
             _ => None,
         }
     }
-    
+
     /// Convert to result code for completion.
     pub fn to_result_code(&self) -> i64 {
         match self {
@@ -203,29 +206,29 @@ impl IoOpError {
             IoOpError::PermissionDenied => 1,    // EPERM
             IoOpError::NotFound => 2,            // ENOENT
             IoOpError::IoError => 5,             // EIO
-            IoOpError::InvalidArgument => 22,   // EINVAL
+            IoOpError::InvalidArgument => 22,    // EINVAL
             IoOpError::BadFd => 9,               // EBADF
             IoOpError::Busy => 16,               // EBUSY
             IoOpError::Exists => 17,             // EEXIST
-            IoOpError::NotADirectory => 20,     // ENOTDIR
-            IoOpError::IsADirectory => 21,      // EISDIR
-            IoOpError::InvalidSeek => 29,       // ESPIPE
-            IoOpError::TooManyOpenFiles => 24,  // EMFILE
-            IoOpError::NoSpace => 28,           // ENOSPC
-            IoOpError::ReadOnly => 30,          // EROFS
-            IoOpError::WouldBlock => 11,        // EAGAIN
-            IoOpError::Interrupted => 4,        // EINTR
+            IoOpError::NotADirectory => 20,      // ENOTDIR
+            IoOpError::IsADirectory => 21,       // EISDIR
+            IoOpError::InvalidSeek => 29,        // ESPIPE
+            IoOpError::TooManyOpenFiles => 24,   // EMFILE
+            IoOpError::NoSpace => 28,            // ENOSPC
+            IoOpError::ReadOnly => 30,           // EROFS
+            IoOpError::WouldBlock => 11,         // EAGAIN
+            IoOpError::Interrupted => 4,         // EINTR
             IoOpError::ConnectionRefused => 111, // ECONNREFUSED
-            IoOpError::ConnectionReset => 104,  // ECONNRESET
-            IoOpError::NotConnected => 107,     // ENOTCONN
-            IoOpError::AlreadyConnected => 106, // EISCONN
-            IoOpError::TimedOut => 110,         // ETIMEDOUT
-            IoOpError::NotSupported => 95,      // EOPNOTSUPP
-            IoOpError::Cancelled => 125,        // ECANCELED
+            IoOpError::ConnectionReset => 104,   // ECONNRESET
+            IoOpError::NotConnected => 107,      // ENOTCONN
+            IoOpError::AlreadyConnected => 106,  // EISCONN
+            IoOpError::TimedOut => 110,          // ETIMEDOUT
+            IoOpError::NotSupported => 95,       // EOPNOTSUPP
+            IoOpError::Cancelled => 125,         // ECANCELED
             IoOpError::Unknown(e) => *e,
         }
     }
-    
+
     /// Create from errno.
     pub fn from_errno(errno: i32) -> Self {
         match errno {
@@ -289,7 +292,7 @@ impl IoOp {
             user_data,
         }
     }
-    
+
     /// Create a write operation.
     pub fn write(fd: i32, buffer: IoBuffer, offset: u64, user_data: u64) -> Self {
         let len = buffer.len() as u32;
@@ -303,7 +306,7 @@ impl IoOp {
             user_data,
         }
     }
-    
+
     /// Create a close operation.
     pub fn close(fd: i32, user_data: u64) -> Self {
         Self {
@@ -316,7 +319,7 @@ impl IoOp {
             user_data,
         }
     }
-    
+
     /// Create a nop operation.
     pub fn nop(user_data: u64) -> Self {
         Self {
@@ -335,18 +338,11 @@ impl IoOp {
 #[derive(Debug)]
 pub enum IoBuffer {
     /// Single buffer.
-    Single {
-        addr: u64,
-        len: usize,
-    },
+    Single { addr: u64, len: usize },
     /// Vectored buffer.
     Vectored(Vec<IoVec>),
     /// Fixed buffer (pre-registered).
-    Fixed {
-        index: u16,
-        offset: u32,
-        len: u32,
-    },
+    Fixed { index: u16, offset: u32, len: u32 },
 }
 
 impl IoBuffer {
@@ -358,7 +354,7 @@ impl IoBuffer {
             IoBuffer::Fixed { len, .. } => *len as usize,
         }
     }
-    
+
     /// Check if buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -402,22 +398,22 @@ impl PollEvents {
     pub const POLLNVAL: Self = Self(0x020);
     /// Read half shutdown.
     pub const POLLRDHUP: Self = Self(0x2000);
-    
+
     /// Create from raw value.
     pub const fn from_raw(value: u32) -> Self {
         Self(value)
     }
-    
+
     /// Get raw value.
     pub const fn raw(&self) -> u32 {
         self.0
     }
-    
+
     /// Check if event is set.
     pub const fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) == other.0
     }
-    
+
     /// Union of events.
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -449,22 +445,22 @@ impl OpenFlags {
     pub const SYNC: Self = Self(0o4010000);
     /// Directory.
     pub const DIRECTORY: Self = Self(0o200000);
-    
+
     /// Create from raw value.
     pub const fn from_raw(value: u32) -> Self {
         Self(value)
     }
-    
+
     /// Get raw value.
     pub const fn raw(&self) -> u32 {
         self.0
     }
-    
+
     /// Check if flag is set.
     pub const fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) == other.0
     }
-    
+
     /// Union of flags.
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)

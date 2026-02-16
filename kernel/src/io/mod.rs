@@ -30,18 +30,18 @@
 //! └──────────────────────────────────────────────────────────────────┘
 //! ```
 
-pub mod ring;
 pub mod executor;
 pub mod operations;
+pub mod ring;
 
-use alloc::vec::Vec;
 use alloc::sync::Arc;
-use spin::Mutex;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use spin::Mutex;
 
-pub use ring::{SubmissionRing, CompletionRing, SqEntry, CqEntry};
 pub use executor::IoExecutor;
 pub use operations::{IoOp, IoResult};
+pub use ring::{CompletionRing, CqEntry, SqEntry, SubmissionRing};
 
 /// Maximum number of entries in a ring.
 pub const MAX_RING_SIZE: usize = 4096;
@@ -109,7 +109,7 @@ impl IoContext {
     /// Create a new I/O context.
     pub fn new(ring_size: usize) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-        
+
         Self {
             submission: SubmissionRing::new(ring_size),
             completion: CompletionRing::new(ring_size),
@@ -117,20 +117,20 @@ impl IoContext {
             stats: IoStats::new(),
         }
     }
-    
+
     /// Submit an I/O operation.
     pub fn submit(&mut self, entry: SqEntry) -> Result<(), IoError> {
         if self.submission.is_full() {
             self.stats.sq_overflows.fetch_add(1, Ordering::Relaxed);
             return Err(IoError::RingFull);
         }
-        
+
         self.submission.push(entry);
         self.stats.submissions.fetch_add(1, Ordering::Relaxed);
         self.stats.in_flight.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
-    
+
     /// Get a completion result if available.
     pub fn poll_completion(&mut self) -> Option<CqEntry> {
         let entry = self.completion.pop()?;
@@ -138,7 +138,7 @@ impl IoContext {
         self.stats.in_flight.fetch_sub(1, Ordering::Relaxed);
         Some(entry)
     }
-    
+
     /// Get all available completions.
     pub fn poll_completions(&mut self, max: usize) -> Vec<CqEntry> {
         let mut results = Vec::with_capacity(max);
@@ -151,30 +151,30 @@ impl IoContext {
         }
         results
     }
-    
+
     /// Wait for at least one completion.
     pub fn wait_completion(&mut self) -> Option<CqEntry> {
         // In a real implementation, this would block until completion
         // For now, just poll
         self.poll_completion()
     }
-    
+
     /// Submit and wait for all completions.
     pub fn submit_and_wait(&mut self) -> Vec<CqEntry> {
         let pending = self.stats.in_flight.load(Ordering::Relaxed);
         self.poll_completions(pending as usize)
     }
-    
+
     /// Get the context ID.
     pub fn id(&self) -> u64 {
         self.id
     }
-    
+
     /// Get statistics.
     pub fn stats(&self) -> &IoStats {
         &self.stats
     }
-    
+
     /// Add a completion (called by executor).
     pub(crate) fn complete(&mut self, entry: CqEntry) -> Result<(), IoError> {
         if self.completion.is_full() {
@@ -184,7 +184,7 @@ impl IoContext {
         self.completion.push(entry);
         Ok(())
     }
-    
+
     /// Get pending submission entries.
     pub(crate) fn drain_submissions(&mut self) -> Vec<SqEntry> {
         let mut entries = Vec::new();
@@ -235,25 +235,25 @@ impl IoSubsystem {
             next_ctx_id: AtomicU64::new(1),
         }
     }
-    
+
     /// Initialize the I/O subsystem.
     pub fn init(&mut self) {
         // Initialize executor
         self.executor.init();
     }
-    
+
     /// Create a new I/O context.
     pub fn create_context(&mut self, ring_size: usize) -> Arc<Mutex<IoContext>> {
         let ctx = Arc::new(Mutex::new(IoContext::new(ring_size)));
         self.contexts.push(ctx.clone());
         ctx
     }
-    
+
     /// Process pending I/O operations.
     pub fn process(&mut self) {
         // Collect all submissions
         let mut all_submissions = Vec::new();
-        
+
         for ctx in &self.contexts {
             let mut ctx = ctx.lock();
             let submissions = ctx.drain_submissions();
@@ -261,7 +261,7 @@ impl IoSubsystem {
                 all_submissions.push((ctx.id(), sq));
             }
         }
-        
+
         // Process submissions
         for (ctx_id, sq) in all_submissions {
             if let Some(cq) = self.executor.process(sq) {
@@ -290,7 +290,10 @@ pub fn init() {
 
 /// Create a new I/O context.
 pub fn create_context(ring_size: usize) -> Option<Arc<Mutex<IoContext>>> {
-    IO_SUBSYSTEM.lock().as_mut().map(|s| s.create_context(ring_size))
+    IO_SUBSYSTEM
+        .lock()
+        .as_mut()
+        .map(|s| s.create_context(ring_size))
 }
 
 /// Process pending I/O.

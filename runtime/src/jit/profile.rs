@@ -36,17 +36,17 @@ impl ProfileData {
             estimated_cycles: 0,
         }
     }
-    
+
     /// Record a function call.
     pub fn record_call(&mut self) {
         self.call_count = self.call_count.saturating_add(1);
     }
-    
+
     /// Record loop iterations.
     pub fn record_loop(&mut self, iterations: u64) {
         self.loop_iterations = self.loop_iterations.saturating_add(iterations);
     }
-    
+
     /// Record branch taken.
     pub fn record_branch_taken(&mut self, branch_idx: usize) {
         self.ensure_branch(branch_idx);
@@ -54,7 +54,7 @@ impl ProfileData {
             stats.taken = stats.taken.saturating_add(1);
         }
     }
-    
+
     /// Record branch not taken.
     pub fn record_branch_not_taken(&mut self, branch_idx: usize) {
         self.ensure_branch(branch_idx);
@@ -62,28 +62,28 @@ impl ProfileData {
             stats.not_taken = stats.not_taken.saturating_add(1);
         }
     }
-    
+
     fn ensure_branch(&mut self, idx: usize) {
         while self.branch_stats.len() <= idx {
             self.branch_stats.push(BranchStats::default());
         }
     }
-    
+
     /// Get branch prediction accuracy.
     pub fn branch_prediction_accuracy(&self, branch_idx: usize) -> Option<f32> {
         self.branch_stats.get(branch_idx).map(|s| s.accuracy())
     }
-    
+
     /// Check if function is hot enough for optimization.
     pub fn is_hot(&self, threshold: u32) -> bool {
         self.call_count >= threshold
     }
-    
+
     /// Merge with another profile.
     pub fn merge(&mut self, other: &ProfileData) {
         self.call_count = self.call_count.saturating_add(other.call_count);
         self.loop_iterations = self.loop_iterations.saturating_add(other.loop_iterations);
-        
+
         for (i, other_stats) in other.branch_stats.iter().enumerate() {
             self.ensure_branch(i);
             if let Some(stats) = self.branch_stats.get_mut(i) {
@@ -116,16 +116,16 @@ impl BranchStats {
         if total == 0 {
             return 0.5;
         }
-        
+
         let max = self.taken.max(self.not_taken);
         max as f32 / total as f32
     }
-    
+
     /// Check if branch is biased (>80% one way).
     pub fn is_biased(&self) -> bool {
         self.accuracy() > 0.8
     }
-    
+
     /// Get predicted outcome.
     pub fn predicted_taken(&self) -> bool {
         self.taken >= self.not_taken
@@ -152,7 +152,7 @@ impl TypeFeedback {
             counts: Vec::new(),
         }
     }
-    
+
     /// Record an observed type.
     pub fn record(&mut self, type_idx: u32) {
         if let Some(pos) = self.observed_types.iter().position(|&t| t == type_idx) {
@@ -162,20 +162,21 @@ impl TypeFeedback {
             self.counts.push(1);
         }
     }
-    
+
     /// Check if call site is monomorphic.
     pub fn is_monomorphic(&self) -> bool {
         self.observed_types.len() == 1
     }
-    
+
     /// Check if call site is megamorphic (too many types).
     pub fn is_megamorphic(&self) -> bool {
         self.observed_types.len() > 4
     }
-    
+
     /// Get most common type.
     pub fn dominant_type(&self) -> Option<u32> {
-        self.counts.iter()
+        self.counts
+            .iter()
             .enumerate()
             .max_by_key(|(_, &c)| c)
             .map(|(i, _)| self.observed_types[i])
@@ -214,11 +215,11 @@ impl HotnessCounter {
             optimized_threshold,
         }
     }
-    
+
     /// Increment the counter.
     pub fn increment(&self) -> HotnessLevel {
         let count = self.count.fetch_add(1, Ordering::Relaxed) + 1;
-        
+
         if count >= self.optimized_threshold {
             HotnessLevel::Optimized
         } else if count >= self.baseline_threshold {
@@ -227,11 +228,11 @@ impl HotnessCounter {
             HotnessLevel::Cold
         }
     }
-    
+
     /// Get current hotness level.
     pub fn level(&self) -> HotnessLevel {
         let count = self.count.load(Ordering::Relaxed);
-        
+
         if count >= self.optimized_threshold {
             HotnessLevel::Optimized
         } else if count >= self.baseline_threshold {
@@ -240,12 +241,12 @@ impl HotnessCounter {
             HotnessLevel::Cold
         }
     }
-    
+
     /// Reset the counter.
     pub fn reset(&self) {
         self.count.store(0, Ordering::Relaxed);
     }
-    
+
     /// Get current count.
     pub fn count(&self) -> u32 {
         self.count.load(Ordering::Relaxed)
@@ -282,28 +283,29 @@ impl Profiler {
             sample_counter: AtomicU64::new(0),
         }
     }
-    
+
     /// Check if we should sample this call.
     pub fn should_sample(&self) -> bool {
         let count = self.sample_counter.fetch_add(1, Ordering::Relaxed);
         count % self.sampling_rate as u64 == 0
     }
-    
+
     /// Record a function call.
     pub fn record_call(&self, func_id: u64) {
         if self.should_sample() {
             let mut profiles = self.profiles.write();
-            profiles.entry(func_id)
+            profiles
+                .entry(func_id)
                 .or_insert_with(ProfileData::new)
                 .record_call();
         }
     }
-    
+
     /// Get profile data for a function.
     pub fn get_profile(&self, func_id: u64) -> Option<ProfileData> {
         self.profiles.read().get(&func_id).cloned()
     }
-    
+
     /// Clear all profile data.
     pub fn clear(&self) {
         self.profiles.write().clear();

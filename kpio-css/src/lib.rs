@@ -8,33 +8,30 @@
 
 extern crate alloc;
 
-pub mod parser;
-pub mod selector;
-pub mod properties;
-pub mod values;
-pub mod stylesheet;
 pub mod cascade;
 pub mod computed;
+pub mod parser;
+pub mod properties;
+pub mod selector;
+pub mod stylesheet;
+pub mod values;
 
 #[cfg(test)]
 mod tests;
 
-pub use parser::{CssParser, ParseError};
-pub use selector::{Selector, SelectorList, Specificity};
-pub use properties::{PropertyId, PropertyDeclaration};
-pub use values::{CssValue, Length, Color, Display};
-pub use stylesheet::{Stylesheet, Rule, StyleRule};
 pub use cascade::CascadedValues;
 pub use computed::ComputedStyle;
+pub use parser::{CssParser, ParseError};
+pub use properties::{PropertyDeclaration, PropertyId};
+pub use selector::{Selector, SelectorList, Specificity};
+pub use stylesheet::{Rule, StyleRule, Stylesheet};
+pub use values::{Color, CssValue, Display, Length};
 
 /// Prelude for common imports
 pub mod prelude {
     pub use crate::{
-        CssParser, ParseError,
-        Selector, SelectorList, Specificity,
-        PropertyId, PropertyDeclaration,
-        CssValue, Length, Color, Display,
-        Stylesheet, Rule, StyleRule,
-        CascadedValues, ComputedStyle,
+        CascadedValues, Color, ComputedStyle, CssParser, CssValue, Display, Length, ParseError,
+        PropertyDeclaration, PropertyId, Rule, Selector, SelectorList, Specificity, StyleRule,
+        Stylesheet,
     };
 }

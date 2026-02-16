@@ -1,39 +1,51 @@
 //! KPIO WASM Runtime
 //!
-//! This crate provides the WebAssembly runtime for the KPIO operating system.
-//! It uses a tiered JIT compiler for executing WASM modules with high performance.
+//! This crate provides a lightweight WebAssembly runtime for the KPIO operating system.
+//! The current execution path is a validating parser plus a stack-based interpreter,
+//! with a tiered JIT framework scaffolded under `jit/`.
+//!
+//! WASI support targets WASI Preview 1 (`wasi_snapshot_preview1`) with an in-memory,
+//! sandboxed VFS used by tests and host-side execution.
 //!
 //! # Architecture
 //!
-//! The runtime is organized into the following modules:
-//!
-//! - `engine`: Core Wasmtime engine configuration
-//! - `module`: WASM module loading and validation
-//! - `instance`: Module instantiation and execution
-//! - `wasi`: WASI Preview 2 implementation
-//! - `host`: Host function bindings for kernel services
-//! - `memory`: Linear memory management
-//! - `sandbox`: Security sandbox implementation
-//! - `jit`: JIT compiler with tiered compilation (baseline + optimizing)
+//! - `parser`: WASM binary parser (sections + instruction decoding)
+//! - `module`: Parsed module representation + structural validation
+//! - `instance`: Instantiation + import resolution
+//! - `executor` / `interpreter`: Stack-machine execution and traps
+//! - `wasi`: WASI Preview 1 context + VFS
+//! - `host`: Host function bindings (WASI implemented; KPIO/GPU/NET currently stubbed)
+//! - `memory` / `sandbox`: Linear memory + resource limiting
+//! - `jit`: JIT IR + caching/profiling (codegen is work-in-progress)
+//! - `package`: `.kpioapp` ZIP-based application package format
+//! - `app_launcher`: Application lifecycle management (load → instantiate → run)
+//! - `host_gui` / `host_system` / `host_net`: KPIO-specific host API bindings
+//! - `wit`: WebAssembly Interface Types (WIT) parser and type system
 
 #![no_std]
 #![feature(alloc_error_handler)]
 
 extern crate alloc;
 
+pub mod app_launcher;
 pub mod engine;
-pub mod module;
-pub mod instance;
-pub mod wasi;
-pub mod host;
-pub mod memory;
-pub mod sandbox;
-pub mod jit;
-pub mod service_worker;
-pub mod parser;
-pub mod opcodes;
-pub mod interpreter;
 pub mod executor;
+pub mod host;
+pub mod host_gui;
+pub mod host_net;
+pub mod host_system;
+pub mod instance;
+pub mod interpreter;
+pub mod jit;
+pub mod memory;
+pub mod module;
+pub mod opcodes;
+pub mod package;
+pub mod parser;
+pub mod sandbox;
+pub mod service_worker;
+pub mod wasi;
+pub mod wit;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -105,11 +117,7 @@ pub fn init() -> Result<(), RuntimeError> {
 }
 
 /// Execute a WASM module.
-pub fn execute(
-    wasm_bytes: &[u8],
-    entry_point: &str,
-    args: &[u8],
-) -> Result<Vec<u8>, RuntimeError> {
+pub fn execute(wasm_bytes: &[u8], entry_point: &str, args: &[u8]) -> Result<Vec<u8>, RuntimeError> {
     let module = module::Module::from_bytes(wasm_bytes)?;
     let mut inst = instance::Instance::new(&module)?;
     inst.call(entry_point, args)

@@ -6,11 +6,11 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::design::{
-    tokens::{Color, spacing, radius, shadows},
-    theme::Theme,
-    components::{Size, Button, ButtonVariant, Input, InputType, Badge, Progress},
-    layout::{Flex, JustifyContent, AlignItems, EdgeInsets},
+    components::{Badge, Button, ButtonVariant, Input, InputType, Progress, Size},
     icons::{Icon, IconButton},
+    layout::{AlignItems, EdgeInsets, Flex, JustifyContent},
+    theme::Theme,
+    tokens::{radius, shadows, spacing, Color},
 };
 
 /// Browser tab
@@ -98,7 +98,7 @@ impl BrowserTab {
 
         let min_width = 100u32;
         let max_width = 240u32;
-        
+
         let ideal_width = available_width / (tab_count as u32).max(1);
         ideal_width.max(min_width).min(max_width)
     }

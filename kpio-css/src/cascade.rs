@@ -1,9 +1,9 @@
 //! CSS Cascade - Style cascading and inheritance
 
-use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
-use crate::properties::{PropertyId, PropertyDeclaration, DeclarationBlock};
+use crate::properties::{DeclarationBlock, PropertyDeclaration, PropertyId};
 use crate::selector::Specificity;
 use crate::stylesheet::StylesheetOrigin;
 
@@ -71,7 +71,7 @@ impl CascadedValues {
         };
 
         let key = decl.property as u16;
-        
+
         // Check if we should override
         let should_insert = match self.declarations.get(&key) {
             Some(existing) => priority > existing.priority,
@@ -79,10 +79,13 @@ impl CascadedValues {
         };
 
         if should_insert {
-            self.declarations.insert(key, CascadeEntry {
-                value: decl,
-                priority,
-            });
+            self.declarations.insert(
+                key,
+                CascadeEntry {
+                    value: decl,
+                    priority,
+                },
+            );
         }
     }
 
@@ -98,9 +101,7 @@ impl CascadedValues {
 
     /// Get the cascaded value for a property.
     pub fn get(&self, property: PropertyId) -> Option<&PropertyDeclaration> {
-        self.declarations
-            .get(&(property as u16))
-            .map(|e| &e.value)
+        self.declarations.get(&(property as u16)).map(|e| &e.value)
     }
 
     /// Check if a property has a cascaded value.

@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, RwLock};
 
-use crate::ipc::ShmId;
 use super::coordinator::TabId;
+use crate::ipc::ShmId;
 
 /// GPU buffer handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -88,7 +88,7 @@ impl GpuBufferDesc {
             label: None,
         }
     }
-    
+
     /// Create a texture descriptor.
     pub fn texture(size: u64) -> Self {
         GpuBufferDesc {
@@ -99,7 +99,7 @@ impl GpuBufferDesc {
             label: None,
         }
     }
-    
+
     /// Create a staging buffer descriptor.
     pub fn staging(size: u64) -> Self {
         GpuBufferDesc {
@@ -110,7 +110,7 @@ impl GpuBufferDesc {
             label: None,
         }
     }
-    
+
     /// Create a framebuffer descriptor.
     pub fn framebuffer(width: u32, height: u32) -> Self {
         let size = (width as u64) * (height as u64) * 4; // RGBA8
@@ -190,31 +190,29 @@ pub enum GpuCommand {
         vertex_count: u32,
     },
     /// Present to screen.
-    Present {
-        target: GpuBufferHandle,
-    },
+    Present { target: GpuBufferHandle },
 }
 
 /// GPU memory manager.
 pub struct GpuMemoryManager {
     /// All allocated buffers.
     buffers: BTreeMap<GpuBufferHandle, Arc<Mutex<GpuBuffer>>>,
-    
+
     /// Per-tab allocations.
     tab_allocations: BTreeMap<TabId, Vec<GpuBufferHandle>>,
-    
+
     /// Fences.
     fences: BTreeMap<GpuFence, FenceState>,
-    
+
     /// Next handle.
     next_handle: AtomicU64,
-    
+
     /// Next fence ID.
     next_fence: AtomicU64,
-    
+
     /// Total allocated memory.
     total_allocated: AtomicU64,
-    
+
     /// Memory limit.
     memory_limit: u64,
 }
@@ -232,7 +230,7 @@ impl GpuMemoryManager {
             memory_limit,
         }
     }
-    
+
     /// Allocate a GPU buffer.
     pub fn alloc(&mut self, tab: TabId, desc: GpuBufferDesc) -> Result<GpuBufferHandle, GpuError> {
         // Check memory limit
@@ -240,10 +238,10 @@ impl GpuMemoryManager {
         if current + desc.size > self.memory_limit {
             return Err(GpuError::OutOfMemory);
         }
-        
+
         // Generate handle
         let handle = GpuBufferHandle(self.next_handle.fetch_add(1, Ordering::Relaxed));
-        
+
         // Create buffer
         let buffer = GpuBuffer {
             handle,
@@ -253,46 +251,52 @@ impl GpuMemoryManager {
             paddr: 0, // TODO: Actual allocation
             vaddr: None,
         };
-        
+
         // Track allocation
         self.total_allocated.fetch_add(desc.size, Ordering::Relaxed);
         self.buffers.insert(handle, Arc::new(Mutex::new(buffer)));
-        
+
         self.tab_allocations
             .entry(tab)
             .or_insert_with(Vec::new)
             .push(handle);
-        
+
         crate::serial_println!(
             "[GPU] Allocated buffer {:?} for tab {}: {} bytes",
-            handle, tab.0, desc.size
+            handle,
+            tab.0,
+            desc.size
         );
-        
+
         Ok(handle)
     }
-    
+
     /// Free a GPU buffer.
     pub fn free(&mut self, handle: GpuBufferHandle) -> Result<(), GpuError> {
-        let buffer = self.buffers.remove(&handle).ok_or(GpuError::InvalidHandle)?;
+        let buffer = self
+            .buffers
+            .remove(&handle)
+            .ok_or(GpuError::InvalidHandle)?;
         let buffer = buffer.lock();
-        
+
         // Update tracking
-        self.total_allocated.fetch_sub(buffer.desc.size, Ordering::Relaxed);
-        
+        self.total_allocated
+            .fetch_sub(buffer.desc.size, Ordering::Relaxed);
+
         if let Some(handles) = self.tab_allocations.get_mut(&buffer.owner) {
             handles.retain(|h| *h != handle);
         }
-        
+
         crate::serial_println!("[GPU] Freed buffer {:?}", handle);
-        
+
         Ok(())
     }
-    
+
     /// Get buffer info.
     pub fn get_buffer(&self, handle: GpuBufferHandle) -> Option<Arc<Mutex<GpuBuffer>>> {
         self.buffers.get(&handle).cloned()
     }
-    
+
     /// Free all buffers for a tab.
     pub fn free_tab_buffers(&mut self, tab: TabId) {
         if let Some(handles) = self.tab_allocations.remove(&tab) {
@@ -304,37 +308,41 @@ impl GpuMemoryManager {
             }
         }
     }
-    
+
     /// Create a fence.
     pub fn create_fence(&mut self) -> GpuFence {
         let fence = GpuFence(self.next_fence.fetch_add(1, Ordering::Relaxed));
         self.fences.insert(fence, FenceState::Unsignaled);
         fence
     }
-    
+
     /// Signal a fence.
     pub fn signal_fence(&mut self, fence: GpuFence) {
         if let Some(state) = self.fences.get_mut(&fence) {
             *state = FenceState::Signaled;
         }
     }
-    
+
     /// Check fence state.
     pub fn fence_state(&self, fence: GpuFence) -> FenceState {
-        self.fences.get(&fence).copied().unwrap_or(FenceState::Signaled)
+        self.fences
+            .get(&fence)
+            .copied()
+            .unwrap_or(FenceState::Signaled)
     }
-    
+
     /// Get total allocated memory.
     pub fn allocated(&self) -> u64 {
         self.total_allocated.load(Ordering::Relaxed)
     }
-    
+
     /// Get tab's allocated memory.
     pub fn tab_allocated(&self, tab: TabId) -> u64 {
         self.tab_allocations
             .get(&tab)
             .map(|handles| {
-                handles.iter()
+                handles
+                    .iter()
                     .filter_map(|h| self.buffers.get(h))
                     .map(|b| b.lock().desc.size)
                     .sum()
@@ -365,12 +373,16 @@ static GPU_MANAGER: RwLock<Option<GpuMemoryManager>> = RwLock::new(None);
 pub fn init(memory_limit: u64) {
     let mut mgr = GPU_MANAGER.write();
     *mgr = Some(GpuMemoryManager::new(memory_limit));
-    crate::serial_println!("[GPU] Memory manager initialized: {} MB limit", memory_limit / 1024 / 1024);
+    crate::serial_println!(
+        "[GPU] Memory manager initialized: {} MB limit",
+        memory_limit / 1024 / 1024
+    );
 }
 
 /// Allocate GPU buffer.
 pub fn alloc(tab: TabId, desc: GpuBufferDesc) -> Result<GpuBufferHandle, GpuError> {
-    GPU_MANAGER.write()
+    GPU_MANAGER
+        .write()
         .as_mut()
         .ok_or(GpuError::DeviceError)?
         .alloc(tab, desc)
@@ -378,7 +390,8 @@ pub fn alloc(tab: TabId, desc: GpuBufferDesc) -> Result<GpuBufferHandle, GpuErro
 
 /// Free GPU buffer.
 pub fn free(handle: GpuBufferHandle) -> Result<(), GpuError> {
-    GPU_MANAGER.write()
+    GPU_MANAGER
+        .write()
         .as_mut()
         .ok_or(GpuError::DeviceError)?
         .free(handle)

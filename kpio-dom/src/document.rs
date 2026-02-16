@@ -1,15 +1,15 @@
 //! DOM Document - Document node and tree management
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 use hashbrown::HashMap;
 
-use servo_types::{QualName, LocalName};
+use servo_types::{LocalName, QualName};
 
-use crate::node::{Node, NodeData, NodeType, NodeId, Attribute};
+use crate::node::{Attribute, Node, NodeData, NodeId, NodeType};
 use kpio_html::tokenizer::Attribute as HtmlAttribute;
-use kpio_html::tree_builder::{TreeSink, QuirksMode};
+use kpio_html::tree_builder::{QuirksMode, TreeSink};
 
 /// A DOM document.
 #[derive(Debug)]
@@ -30,7 +30,7 @@ impl Document {
             quirks_mode: QuirksMode::NoQuirks,
             id_map: HashMap::new(),
         };
-        
+
         // Create document node
         doc.nodes.push(Node::new_document(0));
         doc
@@ -55,7 +55,7 @@ impl Document {
     pub fn document_element(&self) -> Option<&Node> {
         let doc = &self.nodes[0];
         let mut child_id = doc.first_child;
-        
+
         while let Some(id) = child_id {
             if let Some(node) = self.get(id) {
                 if node.is_element() {
@@ -76,12 +76,16 @@ impl Document {
 
     /// Get the head element.
     pub fn head(&self) -> Option<&Node> {
-        self.get_elements_by_tag_name("head").first().and_then(|&id| self.get(id))
+        self.get_elements_by_tag_name("head")
+            .first()
+            .and_then(|&id| self.get(id))
     }
 
     /// Get the body element.
     pub fn body(&self) -> Option<&Node> {
-        self.get_elements_by_tag_name("body").first().and_then(|&id| self.get(id))
+        self.get_elements_by_tag_name("body")
+            .first()
+            .and_then(|&id| self.get(id))
     }
 
     /// Create a new element.
@@ -92,16 +96,17 @@ impl Document {
     /// Create a new element with namespace.
     pub fn create_element_ns(&mut self, name: QualName, attrs: Vec<Attribute>) -> NodeId {
         let id = self.nodes.len();
-        
+
         // Extract ID attribute for mapping
-        let id_attr = attrs.iter()
+        let id_attr = attrs
+            .iter()
             .find(|a| a.name.local.as_str() == "id")
             .map(|a| a.value.clone());
-        
+
         if let Some(ref id_value) = id_attr {
             self.id_map.insert(id_value.clone(), id);
         }
-        
+
         self.nodes.push(Node::new_element(id, name, attrs));
         id
     }
@@ -152,7 +157,12 @@ impl Document {
     }
 
     /// Insert a child before another child.
-    pub fn insert_before(&mut self, parent_id: NodeId, new_child_id: NodeId, ref_child_id: Option<NodeId>) {
+    pub fn insert_before(
+        &mut self,
+        parent_id: NodeId,
+        new_child_id: NodeId,
+        ref_child_id: Option<NodeId>,
+    ) {
         if ref_child_id.is_none() {
             self.append_child(parent_id, new_child_id);
             return;
@@ -232,12 +242,12 @@ impl Document {
     pub fn children(&self, parent_id: NodeId) -> Vec<NodeId> {
         let mut children = Vec::new();
         let mut child_id = self.nodes.get(parent_id).and_then(|p| p.first_child);
-        
+
         while let Some(id) = child_id {
             children.push(id);
             child_id = self.nodes.get(id).and_then(|n| n.next_sibling);
         }
-        
+
         children
     }
 
@@ -251,8 +261,13 @@ impl Document {
 
     /// Get elements by tag name.
     pub fn get_elements_by_tag_name(&self, tag_name: &str) -> Vec<NodeId> {
-        self.nodes.iter()
-            .filter(|n| n.tag_name().map(|t| t.eq_ignore_ascii_case(tag_name)).unwrap_or(false))
+        self.nodes
+            .iter()
+            .filter(|n| {
+                n.tag_name()
+                    .map(|t| t.eq_ignore_ascii_case(tag_name))
+                    .unwrap_or(false)
+            })
             .map(|n| n.id)
             .collect()
     }
@@ -264,7 +279,8 @@ impl Document {
 
     /// Get elements by class name.
     pub fn get_elements_by_class_name(&self, class_name: &str) -> Vec<NodeId> {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .filter(|n| n.has_class(class_name))
             .map(|n| n.id)
             .collect()
@@ -344,10 +360,11 @@ impl TreeSink for Document {
 
     fn create_element(&mut self, name: QualName, attrs: Vec<HtmlAttribute>) -> NodeId {
         // Convert HTML attributes to DOM attributes
-        let dom_attrs: Vec<Attribute> = attrs.into_iter()
+        let dom_attrs: Vec<Attribute> = attrs
+            .into_iter()
             .map(|a| Attribute::new(a.name.as_str(), &a.value))
             .collect();
-        
+
         self.create_element_ns(name, dom_attrs)
     }
 
@@ -383,7 +400,7 @@ impl TreeSink for Document {
 /// Parse HTML into a Document.
 pub fn parse_html(html: &str) -> Document {
     use kpio_html::HtmlParser;
-    
+
     let parser = HtmlParser::new(Document::new());
     parser.parse(html)
 }
@@ -404,7 +421,7 @@ mod tests {
         let mut doc = Document::new();
         let div_id = doc.create_element("div");
         doc.append_child(0, div_id);
-        
+
         assert_eq!(doc.len(), 2);
         assert_eq!(doc.get(div_id).unwrap().tag_name(), Some("div"));
     }
@@ -412,10 +429,10 @@ mod tests {
     #[test]
     fn test_parse_html() {
         let doc = parse_html("<html><body><p>Hello</p></body></html>");
-        
+
         let p_elements = doc.get_elements_by_tag_name("p");
         assert_eq!(p_elements.len(), 1);
-        
+
         let text = doc.text_content(p_elements[0]);
         assert_eq!(text, "Hello");
     }

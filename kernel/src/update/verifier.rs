@@ -89,7 +89,7 @@ impl UpdateVerifier {
     /// Verify hash
     pub fn verify_hash(&self, data: &[u8], expected: &str) -> bool {
         let computed = self.compute_hash(data);
-        
+
         // Parse expected hash
         let expected_hash = if let Some(hash) = expected.strip_prefix("sha256:") {
             hash
@@ -138,7 +138,11 @@ impl UpdateVerifier {
     /// Verify signature
     pub fn verify_signature(&self, data: &[u8], signature: &Signature) -> bool {
         // Find matching key
-        let key = match self.trusted_keys.iter().find(|k| k.key_id == signature.key_id) {
+        let key = match self
+            .trusted_keys
+            .iter()
+            .find(|k| k.key_id == signature.key_id)
+        {
             Some(k) => k,
             None => return false,
         };
@@ -239,7 +243,11 @@ impl UpdateManifest {
     }
 
     /// Verify all files
-    pub fn verify_files(&self, verifier: &UpdateVerifier, get_file: impl Fn(&str) -> Option<Vec<u8>>) -> bool {
+    pub fn verify_files(
+        &self,
+        verifier: &UpdateVerifier,
+        get_file: impl Fn(&str) -> Option<Vec<u8>>,
+    ) -> bool {
         for file in &self.files {
             if let Some(data) = get_file(&file.path) {
                 if !verifier.verify_hash(&data, &file.hash) {

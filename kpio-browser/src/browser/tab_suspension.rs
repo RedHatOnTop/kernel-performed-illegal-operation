@@ -2,9 +2,9 @@
 //!
 //! Automatic tab suspension for resource saving.
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 
 /// Tab suspension manager
 #[derive(Debug, Clone)]
@@ -109,13 +109,16 @@ impl TabSuspensionManager {
 
     /// Suspend tab
     pub fn suspend(&mut self, tab_id: u64, url: &str, title: &str, favicon: Option<&str>) {
-        self.suspended.insert(tab_id, SuspendedTab {
-            original_url: url.to_string(),
-            original_title: title.to_string(),
-            favicon: favicon.map(|s| s.to_string()),
-            suspended_at: 0, // Would be set to current time
-            scroll_position: 0,
-        });
+        self.suspended.insert(
+            tab_id,
+            SuspendedTab {
+                original_url: url.to_string(),
+                original_title: title.to_string(),
+                favicon: favicon.map(|s| s.to_string()),
+                suspended_at: 0, // Would be set to current time
+                scroll_position: 0,
+            },
+        );
     }
 
     /// Unsuspend tab (returns original URL)
@@ -146,7 +149,11 @@ impl TabSuspensionManager {
     }
 
     /// Suspend all inactive tabs
-    pub fn suspend_all_inactive(&mut self, tabs: &[(u64, &str, &str, Option<&str>)], current_time: u64) {
+    pub fn suspend_all_inactive(
+        &mut self,
+        tabs: &[(u64, &str, &str, Option<&str>)],
+        current_time: u64,
+    ) {
         for &(tab_id, url, title, favicon) in tabs {
             if self.should_suspend(tab_id, url, current_time) {
                 self.suspend(tab_id, url, title, favicon);
@@ -193,12 +200,12 @@ impl TabSuspensionManager {
         if pattern.contains('*') {
             let parts: Vec<&str> = pattern.split('*').collect();
             let mut pos = 0;
-            
+
             for (i, part) in parts.iter().enumerate() {
                 if part.is_empty() {
                     continue;
                 }
-                
+
                 if let Some(found) = url[pos..].find(part) {
                     if i == 0 && found != 0 {
                         return false;
@@ -379,7 +386,10 @@ pub fn suspended_page_html(tab: &SuspendedTab) -> String {
 </body>
 </html>"#,
         tab.original_title,
-        tab.favicon.as_ref().map(|f| alloc::format!(r#"<img class="favicon" src="{}" alt="">"#, f)).unwrap_or_default(),
+        tab.favicon
+            .as_ref()
+            .map(|f| alloc::format!(r#"<img class="favicon" src="{}" alt="">"#, f))
+            .unwrap_or_default(),
         tab.original_title,
         tab.original_url,
         tab.original_url

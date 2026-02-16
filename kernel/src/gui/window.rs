@@ -799,13 +799,12 @@ impl Window {
 
         // ── Title bar (flat solid) ──
         // WebApp windows can override the title bar color with theme_color
-        let title_color = if let WindowContent::WebApp { theme_color: Some(tc), .. } = &self.content {
-            Color::rgba(
-                (*tc >> 16) as u8,
-                (*tc >> 8) as u8,
-                *tc as u8,
-                255,
-            )
+        let title_color = if let WindowContent::WebApp {
+            theme_color: Some(tc),
+            ..
+        } = &self.content
+        {
+            Color::rgba((*tc >> 16) as u8, (*tc >> 8) as u8, *tc as u8, 255)
         } else if is_active {
             Surface::WINDOW_TITLE_ACTIVE
         } else {

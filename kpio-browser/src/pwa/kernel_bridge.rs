@@ -22,7 +22,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::{InstalledApp, PwaError, WebAppManifest, DisplayMode, AppIcon, IconPurpose};
+use super::{AppIcon, DisplayMode, IconPurpose, InstalledApp, PwaError, WebAppManifest};
 
 // ─── Kernel App ID ─────────────────────────────────────────────
 
@@ -129,10 +129,16 @@ pub fn is_connected() -> bool {
 /// Returns the kernel app ID on success.
 pub fn pwa_install_to_kernel(manifest: &WebAppManifest) -> Result<KernelAppId, PwaError> {
     let bridge = BRIDGE.lock();
-    let install_fn = bridge.install
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
-    let save_fn = bridge.save_manifest
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
+    let install_fn = bridge
+        .install
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
+    let save_fn = bridge
+        .save_manifest
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
 
     let name = manifest.display_name();
     let entry = &manifest.start_url;
@@ -152,32 +158,39 @@ pub fn pwa_install_to_kernel(manifest: &WebAppManifest) -> Result<KernelAppId, P
 /// Uninstall a PWA from the kernel registry.
 pub fn pwa_uninstall_from_kernel(app_id: KernelAppId) -> Result<(), PwaError> {
     let bridge = BRIDGE.lock();
-    let uninstall_fn = bridge.uninstall
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
+    let uninstall_fn = bridge
+        .uninstall
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
 
-    uninstall_fn(app_id.0)
-        .map_err(|e| PwaError::InstallationFailed(String::from(e)))
+    uninstall_fn(app_id.0).map_err(|e| PwaError::InstallationFailed(String::from(e)))
 }
 
 /// Launch a PWA via the kernel, returning the start_url and instance_id.
 pub fn pwa_launch_from_kernel(app_id: KernelAppId) -> Result<(u64, String), PwaError> {
     let bridge = BRIDGE.lock();
-    let launch_fn = bridge.launch
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
-    let load_fn = bridge.load_manifest
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
+    let launch_fn = bridge
+        .launch
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
+    let load_fn = bridge
+        .load_manifest
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
 
     // Launch in kernel
-    let instance_id = launch_fn(app_id.0)
-        .map_err(|e| PwaError::InstallationFailed(String::from(e)))?;
+    let instance_id =
+        launch_fn(app_id.0).map_err(|e| PwaError::InstallationFailed(String::from(e)))?;
 
     // Load manifest to extract start_url
-    let manifest_bytes = load_fn(app_id.0)
-        .map_err(|e| PwaError::ManifestFetchFailed(String::from(e)))?;
+    let manifest_bytes =
+        load_fn(app_id.0).map_err(|e| PwaError::ManifestFetchFailed(String::from(e)))?;
     let manifest_str = core::str::from_utf8(&manifest_bytes)
         .map_err(|_| PwaError::InvalidManifest(String::from("UTF-8 decode failed")))?;
-    let start_url = extract_field(manifest_str, "start_url")
-        .unwrap_or_else(|| String::from("/"));
+    let start_url = extract_field(manifest_str, "start_url").unwrap_or_else(|| String::from("/"));
 
     Ok((instance_id, start_url))
 }
@@ -185,11 +198,13 @@ pub fn pwa_launch_from_kernel(app_id: KernelAppId) -> Result<(u64, String), PwaE
 /// Terminate a PWA instance in the kernel.
 pub fn pwa_terminate_in_kernel(instance_id: u64) -> Result<(), PwaError> {
     let bridge = BRIDGE.lock();
-    let terminate_fn = bridge.terminate
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
+    let terminate_fn = bridge
+        .terminate
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
 
-    terminate_fn(instance_id)
-        .map_err(|e| PwaError::InstallationFailed(String::from(e)))
+    terminate_fn(instance_id).map_err(|e| PwaError::InstallationFailed(String::from(e)))
 }
 
 /// Synchronise the PwaManager with the kernel app registry.
@@ -201,10 +216,16 @@ pub fn pwa_terminate_in_kernel(instance_id: u64) -> Result<(), PwaError> {
 /// Returns `(added, removed)` counts.
 pub fn sync_pwa_registry() -> Result<(usize, usize), PwaError> {
     let bridge = BRIDGE.lock();
-    let list_fn = bridge.list_apps
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
-    let load_fn = bridge.load_manifest
-        .ok_or(PwaError::InstallationFailed(String::from("Kernel bridge not connected")))?;
+    let list_fn = bridge
+        .list_apps
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
+    let load_fn = bridge
+        .load_manifest
+        .ok_or(PwaError::InstallationFailed(String::from(
+            "Kernel bridge not connected",
+        )))?;
 
     let kernel_apps = list_fn();
     drop(bridge); // Release lock before acquiring PWA_MANAGER
@@ -214,7 +235,8 @@ pub fn sync_pwa_registry() -> Result<(usize, usize), PwaError> {
     let mut removed = 0usize;
 
     // Collect existing PWA app IDs with kernel_app_id
-    let existing_kernel_ids: Vec<u64> = pwa_mgr.installed_apps()
+    let existing_kernel_ids: Vec<u64> = pwa_mgr
+        .installed_apps()
         .filter_map(|app| app.kernel_app_id.map(|kid| kid.0))
         .collect();
 
@@ -241,7 +263,8 @@ pub fn sync_pwa_registry() -> Result<(usize, usize), PwaError> {
 
     // Remove PwaManager apps whose kernel ID no longer exists
     let kernel_id_set: Vec<u64> = kernel_apps.iter().map(|(id, _)| *id).collect();
-    let to_remove: Vec<String> = pwa_mgr.installed_apps()
+    let to_remove: Vec<String> = pwa_mgr
+        .installed_apps()
         .filter(|app| {
             if let Some(kid) = app.kernel_app_id {
                 !kernel_id_set.contains(&kid.0)
@@ -390,10 +413,7 @@ fn extract_field(json: &str, field: &str) -> Option<String> {
 
 /// Extract an HTML attribute value from a tag string.
 fn extract_attr(tag: &str, attr: &str) -> Option<String> {
-    let patterns = [
-        alloc::format!("{}=\"", attr),
-        alloc::format!("{}='", attr),
-    ];
+    let patterns = [alloc::format!("{}=\"", attr), alloc::format!("{}='", attr)];
 
     for pat in &patterns {
         if let Some(start) = tag.find(pat.as_str()) {
@@ -422,7 +442,10 @@ mod tests {
     #[test]
     fn test_detect_manifest_link_single_quotes() {
         let html = "<html><head><link rel='manifest' href='/manifest.webmanifest'></head></html>";
-        assert_eq!(detect_manifest_link(html), Some(String::from("/manifest.webmanifest")));
+        assert_eq!(
+            detect_manifest_link(html),
+            Some(String::from("/manifest.webmanifest"))
+        );
     }
 
     #[test]
@@ -435,7 +458,10 @@ mod tests {
     fn test_extract_field() {
         let json = r#"{"name":"My App","start_url":"/index.html"}"#;
         assert_eq!(extract_field(json, "name"), Some(String::from("My App")));
-        assert_eq!(extract_field(json, "start_url"), Some(String::from("/index.html")));
+        assert_eq!(
+            extract_field(json, "start_url"),
+            Some(String::from("/index.html"))
+        );
         assert_eq!(extract_field(json, "missing"), None);
     }
 
@@ -472,7 +498,9 @@ mod tests {
         m.start_url = String::from("/");
         let result = evaluate_installability(&m, "http://example.com", false);
         assert!(!result.installable);
-        assert!(result.errors.contains(&InstallabilityError::NotSecureOrigin));
+        assert!(result
+            .errors
+            .contains(&InstallabilityError::NotSecureOrigin));
     }
 
     #[test]

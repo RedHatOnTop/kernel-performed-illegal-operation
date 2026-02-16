@@ -2,9 +2,9 @@
 //!
 //! DOM event system implementation.
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 
 /// Event types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,40 +21,40 @@ pub enum EventType {
     MouseOut,
     ContextMenu,
     Wheel,
-    
+
     // Keyboard events
     KeyDown,
     KeyUp,
     KeyPress,
-    
+
     // Focus events
     Focus,
     Blur,
     FocusIn,
     FocusOut,
-    
+
     // Form events
     Submit,
     Reset,
     Change,
     Input,
-    
+
     // Document events
     DomContentLoaded,
     Load,
     Unload,
     BeforeUnload,
-    
+
     // Window events
     Resize,
     Scroll,
-    
+
     // Touch events
     TouchStart,
     TouchMove,
     TouchEnd,
     TouchCancel,
-    
+
     // Drag events
     DragStart,
     Drag,
@@ -110,21 +110,28 @@ impl EventType {
             EventType::Drop => "drop",
         }
     }
-    
+
     /// Check if event bubbles.
     pub fn bubbles(&self) -> bool {
         match self {
-            EventType::Focus | EventType::Blur | EventType::Load |
-            EventType::Unload | EventType::MouseEnter | EventType::MouseLeave => false,
+            EventType::Focus
+            | EventType::Blur
+            | EventType::Load
+            | EventType::Unload
+            | EventType::MouseEnter
+            | EventType::MouseLeave => false,
             _ => true,
         }
     }
-    
+
     /// Check if event is cancelable.
     pub fn cancelable(&self) -> bool {
         match self {
-            EventType::Load | EventType::Unload | EventType::Scroll |
-            EventType::Resize | EventType::DomContentLoaded => false,
+            EventType::Load
+            | EventType::Unload
+            | EventType::Scroll
+            | EventType::Resize
+            | EventType::DomContentLoaded => false,
             _ => true,
         }
     }
@@ -177,19 +184,19 @@ impl Event {
             timestamp: 0,
         }
     }
-    
+
     /// Prevent default action.
     pub fn prevent_default(&mut self) {
         if self.event_type.cancelable() {
             self.default_prevented = true;
         }
     }
-    
+
     /// Stop propagation.
     pub fn stop_propagation(&mut self) {
         self.propagation_stopped = true;
     }
-    
+
     /// Stop immediate propagation.
     pub fn stop_immediate_propagation(&mut self) {
         self.propagation_stopped = true;
@@ -310,10 +317,10 @@ pub struct EventListener {
 pub trait EventTarget {
     /// Add event listener.
     fn add_event_listener(&mut self, listener: EventListener);
-    
+
     /// Remove event listener.
     fn remove_event_listener(&mut self, event_type: EventType, callback_id: u64);
-    
+
     /// Dispatch event.
     fn dispatch_event(&mut self, event: &mut Event) -> bool;
 }
@@ -333,22 +340,20 @@ struct QueuedEvent {
 impl EventQueue {
     /// Create a new event queue.
     pub fn new() -> Self {
-        Self {
-            events: Vec::new(),
-        }
+        Self { events: Vec::new() }
     }
-    
+
     /// Queue an event.
     pub fn queue(&mut self, event: Event, target_id: u64) {
         self.events.push(QueuedEvent { event, target_id });
     }
-    
+
     /// Process all queued events.
     pub fn process_all(&mut self) -> Vec<(Event, u64)> {
         let events = core::mem::take(&mut self.events);
         events.into_iter().map(|e| (e.event, e.target_id)).collect()
     }
-    
+
     /// Check if queue is empty.
     pub fn is_empty(&self) -> bool {
         self.events.is_empty()

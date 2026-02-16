@@ -86,7 +86,7 @@ impl<'a> TreeWalker<'a> {
     pub fn first_child(&mut self) -> Option<NodeId> {
         let node = self.document.get(self.current)?;
         let mut child_id = node.first_child;
-        
+
         while let Some(id) = child_id {
             if self.accept_node(id) == FilterResult::Accept {
                 self.current = id;
@@ -94,7 +94,7 @@ impl<'a> TreeWalker<'a> {
             }
             child_id = self.document.get(id).and_then(|n| n.next_sibling);
         }
-        
+
         None
     }
 
@@ -102,7 +102,7 @@ impl<'a> TreeWalker<'a> {
     pub fn last_child(&mut self) -> Option<NodeId> {
         let node = self.document.get(self.current)?;
         let mut child_id = node.last_child;
-        
+
         while let Some(id) = child_id {
             if self.accept_node(id) == FilterResult::Accept {
                 self.current = id;
@@ -110,14 +110,14 @@ impl<'a> TreeWalker<'a> {
             }
             child_id = self.document.get(id).and_then(|n| n.prev_sibling);
         }
-        
+
         None
     }
 
     /// Move to the next sibling.
     pub fn next_sibling(&mut self) -> Option<NodeId> {
         let mut node = self.document.get(self.current)?;
-        
+
         while let Some(sibling_id) = node.next_sibling {
             if self.accept_node(sibling_id) == FilterResult::Accept {
                 self.current = sibling_id;
@@ -125,14 +125,14 @@ impl<'a> TreeWalker<'a> {
             }
             node = self.document.get(sibling_id)?;
         }
-        
+
         None
     }
 
     /// Move to the previous sibling.
     pub fn previous_sibling(&mut self) -> Option<NodeId> {
         let mut node = self.document.get(self.current)?;
-        
+
         while let Some(sibling_id) = node.prev_sibling {
             if self.accept_node(sibling_id) == FilterResult::Accept {
                 self.current = sibling_id;
@@ -140,21 +140,21 @@ impl<'a> TreeWalker<'a> {
             }
             node = self.document.get(sibling_id)?;
         }
-        
+
         None
     }
 
     /// Move to the parent node.
     pub fn parent_node(&mut self) -> Option<NodeId> {
         let node = self.document.get(self.current)?;
-        
+
         if let Some(parent_id) = node.parent {
             if parent_id != self.root || self.accept_node(parent_id) == FilterResult::Accept {
                 self.current = parent_id;
                 return Some(parent_id);
             }
         }
-        
+
         None
     }
 
@@ -326,12 +326,12 @@ impl Document {
     pub fn ancestors(&self, node_id: NodeId) -> Vec<NodeId> {
         let mut ancestors = Vec::new();
         let mut current = self.get(node_id).and_then(|n| n.parent);
-        
+
         while let Some(id) = current {
             ancestors.push(id);
             current = self.get(id).and_then(|n| n.parent);
         }
-        
+
         ancestors
     }
 

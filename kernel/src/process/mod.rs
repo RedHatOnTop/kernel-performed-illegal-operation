@@ -7,6 +7,6 @@ pub mod context;
 pub mod manager;
 pub mod table;
 
-pub use context::{ProcessContext, ContextFlags};
+pub use context::{ContextFlags, ProcessContext};
 pub use manager::ProcessManager;
-pub use table::{ProcessId, ProcessTable, ProcessState};
+pub use table::{ProcessId, ProcessState, ProcessTable};

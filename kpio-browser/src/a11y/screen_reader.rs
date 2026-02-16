@@ -2,10 +2,10 @@
 //!
 //! Text-to-speech and screen reader integration.
 
+use super::{A11yNode, Role};
 use alloc::collections::VecDeque;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use super::{A11yNode, Role};
 
 /// Speech priority
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -177,8 +177,7 @@ impl ScreenReader {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if enabled {
-            self.speak(SpeechRequest::new("Screen reader on")
-                .with_priority(SpeechPriority::High));
+            self.speak(SpeechRequest::new("Screen reader on").with_priority(SpeechPriority::High));
         }
     }
 
@@ -199,10 +198,12 @@ impl ScreenReader {
         }
 
         // Insert based on priority
-        let pos = self.queue.iter()
+        let pos = self
+            .queue
+            .iter()
             .position(|r| r.priority < request.priority)
             .unwrap_or(self.queue.len());
-        
+
         self.queue.insert(pos, request);
     }
 
@@ -292,7 +293,8 @@ impl ScreenReader {
             Role::Banner => "banner",
             Role::Search => "search",
             _ => "",
-        }.to_string()
+        }
+        .to_string()
     }
 
     /// Stop speaking

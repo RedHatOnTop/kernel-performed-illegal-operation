@@ -6,9 +6,9 @@
 //! - Control Flow Integrity (CFI)
 //! - Memory protection (SMAP/SMEP)
 
+use alloc::collections::BTreeSet;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use spin::Mutex;
-use alloc::collections::BTreeSet;
 
 /// Kernel hardening configuration.
 pub struct HardeningConfig {
@@ -53,15 +53,15 @@ pub fn init() {
     if HARDENING_INITIALIZED.swap(true, Ordering::SeqCst) {
         return; // Already initialized
     }
-    
+
     // Initialize stack canary with random value
     let canary = generate_random_canary();
     STACK_CANARY.store(canary, Ordering::SeqCst);
-    
+
     // Enable CPU security features
     enable_smep();
     enable_smap();
-    
+
     crate::serial_println!("[Hardening] Kernel hardening initialized");
 }
 
@@ -76,13 +76,13 @@ fn generate_random_canary() -> u64 {
                 // Ensure low byte is zero to detect string overflows
                 return (val & !0xFF) | 0x00;
             }
-            
+
             // Fallback: use TSC
             let tsc = core::arch::x86_64::_rdtsc();
             (tsc ^ (tsc >> 17) ^ (tsc << 13)) | 0x00
         }
     }
-    
+
     #[cfg(not(target_arch = "x86_64"))]
     {
         0xDEADBEEFCAFE0000u64
@@ -180,7 +180,7 @@ pub fn is_guard_page(_addr: u64) -> bool {
 /// KASLR functions.
 pub mod kaslr {
     use super::*;
-    
+
     /// Initialize KASLR offset.
     pub fn init(entropy: u64) {
         // Generate a random offset aligned to 2MB
@@ -188,17 +188,17 @@ pub mod kaslr {
         KASLR_OFFSET.store(offset, Ordering::SeqCst);
         crate::serial_println!("[KASLR] Offset: {:#x}", offset);
     }
-    
+
     /// Get the KASLR offset.
     pub fn get_offset() -> u64 {
         KASLR_OFFSET.load(Ordering::SeqCst)
     }
-    
+
     /// Randomize a kernel address.
     pub fn randomize_address(base: u64) -> u64 {
         base.wrapping_add(get_offset())
     }
-    
+
     /// De-randomize a kernel address (for debugging).
     pub fn derandomize_address(addr: u64) -> u64 {
         addr.wrapping_sub(get_offset())
@@ -208,13 +208,13 @@ pub mod kaslr {
 /// Control Flow Integrity.
 pub mod cfi {
     use super::*;
-    
+
     /// CFI state.
     static CFI_ENABLED: AtomicBool = AtomicBool::new(false);
-    
+
     /// Valid indirect call targets.
     static VALID_TARGETS: Mutex<Option<BTreeSet<u64>>> = Mutex::new(None);
-    
+
     /// Initialize CFI.
     pub fn init() {
         let mut targets = VALID_TARGETS.lock();
@@ -222,31 +222,31 @@ pub mod cfi {
         CFI_ENABLED.store(true, Ordering::SeqCst);
         crate::serial_println!("[CFI] Control Flow Integrity initialized");
     }
-    
+
     /// Register a valid indirect call target.
     pub fn register_target(addr: u64) {
         if let Some(ref mut targets) = *VALID_TARGETS.lock() {
             targets.insert(addr);
         }
     }
-    
+
     /// Check if target is valid for indirect call.
     #[inline(always)]
     pub fn check_target(addr: u64) -> bool {
         if !CFI_ENABLED.load(Ordering::Relaxed) {
             return true;
         }
-        
+
         if let Some(ref targets) = *VALID_TARGETS.lock() {
             if targets.contains(&addr) {
                 return true;
             }
         }
-        
+
         cfi_violation(addr);
         false
     }
-    
+
     /// Called on CFI violation.
     #[cold]
     fn cfi_violation(addr: u64) {
@@ -259,13 +259,13 @@ pub mod cfi {
 pub mod shadow_stack {
     /// Maximum shadow stack depth.
     const MAX_DEPTH: usize = 1024;
-    
+
     /// Per-CPU shadow stack.
     pub struct ShadowStack {
         stack: [u64; MAX_DEPTH],
         top: usize,
     }
-    
+
     impl ShadowStack {
         /// Create a new shadow stack.
         pub const fn new() -> Self {
@@ -274,7 +274,7 @@ pub mod shadow_stack {
                 top: 0,
             }
         }
-        
+
         /// Push a return address.
         #[inline(always)]
         pub fn push(&mut self, addr: u64) {
@@ -283,38 +283,39 @@ pub mod shadow_stack {
                 self.top += 1;
             }
         }
-        
+
         /// Pop and verify return address.
         #[inline(always)]
         pub fn pop(&mut self, expected: u64) -> bool {
             if self.top == 0 {
                 return false;
             }
-            
+
             self.top -= 1;
             let stored = self.stack[self.top];
-            
+
             if stored != expected {
                 return_address_mismatch(stored, expected);
                 return false;
             }
-            
+
             true
         }
     }
-    
+
     impl Default for ShadowStack {
         fn default() -> Self {
             Self::new()
         }
     }
-    
+
     /// Called when return address mismatch is detected.
     #[cold]
     fn return_address_mismatch(stored: u64, actual: u64) {
         crate::serial_println!(
             "*** RETURN ADDRESS MISMATCH: stored={:#x}, actual={:#x} ***",
-            stored, actual
+            stored,
+            actual
         );
     }
 }

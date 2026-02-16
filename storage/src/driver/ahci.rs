@@ -2,8 +2,8 @@
 //!
 //! This module provides support for SATA devices through the AHCI interface.
 
-use crate::{BlockDeviceInfo, StorageError};
 use super::BlockDevice;
+use crate::{BlockDeviceInfo, StorageError};
 
 /// AHCI generic host control registers.
 #[derive(Debug)]

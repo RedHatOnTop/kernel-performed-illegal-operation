@@ -12,12 +12,12 @@ impl UdpSocket {
     pub fn new() -> Self {
         UdpSocket { local_addr: None }
     }
-    
+
     /// Bind to an address.
     pub fn bind(&mut self, addr: SocketAddr) {
         self.local_addr = Some(addr);
     }
-    
+
     /// Get the local address.
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.local_addr

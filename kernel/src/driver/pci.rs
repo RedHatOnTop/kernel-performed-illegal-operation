@@ -1,9 +1,9 @@
 //! PCI (Peripheral Component Interconnect) bus driver.
 //!
 //! This module provides PCI bus enumeration and configuration space access.
-//! 
+//!
 //! # PCI Configuration Space
-//! 
+//!
 //! PCI devices expose a 256-byte configuration space accessible via:
 //! - Legacy I/O ports (0xCF8/0xCFC) for Configuration Mechanism #1
 //! - Memory-mapped configuration (PCIe ECAM) for extended config space
@@ -45,13 +45,17 @@ impl PciAddress {
     pub fn new(bus: u8, device: u8, function: u8) -> Self {
         debug_assert!(device < 32, "Device must be 0-31");
         debug_assert!(function < 8, "Function must be 0-7");
-        Self { bus, device, function }
+        Self {
+            bus,
+            device,
+            function,
+        }
     }
-    
+
     /// Convert to configuration address for I/O port access.
     fn to_config_address(&self, offset: u8) -> u32 {
         debug_assert!(offset & 0x3 == 0, "Offset must be 4-byte aligned");
-        
+
         (1 << 31) // Enable bit
             | ((self.bus as u32) << 16)
             | ((self.device as u32) << 11)
@@ -108,12 +112,12 @@ impl PciClass {
     pub const DISPLAY: u8 = 0x03;
     /// Bridge device.
     pub const BRIDGE: u8 = 0x06;
-    
+
     /// Check if this is a storage device.
     pub fn is_storage(&self) -> bool {
         self.class == Self::MASS_STORAGE
     }
-    
+
     /// Check if this is a network device.
     pub fn is_network(&self) -> bool {
         self.class == Self::NETWORK
@@ -122,7 +126,11 @@ impl PciClass {
 
 impl fmt::Display for PciClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02x}:{:02x}:{:02x}", self.class, self.subclass, self.prog_if)
+        write!(
+            f,
+            "{:02x}:{:02x}:{:02x}",
+            self.class, self.subclass, self.prog_if
+        )
     }
 }
 
@@ -157,7 +165,7 @@ impl PciDevice {
     pub fn is_virtio(&self) -> bool {
         self.vendor_id == 0x1AF4
     }
-    
+
     /// Get VirtIO device type if this is a VirtIO device.
     /// Device ID 0x1000-0x103F are transitional VirtIO devices.
     /// Device ID 0x1040+ are modern VirtIO devices.
@@ -165,7 +173,7 @@ impl PciDevice {
         if !self.is_virtio() {
             return None;
         }
-        
+
         match self.device_id {
             0x1001 | 0x1042 => Some(VirtioDeviceType::Block),
             0x1000 | 0x1041 => Some(VirtioDeviceType::Network),
@@ -218,11 +226,11 @@ impl fmt::Display for VirtioDeviceType {
 /// Read a 32-bit value from PCI configuration space.
 pub fn config_read32(addr: PciAddress, offset: u8) -> u32 {
     let config_addr = addr.to_config_address(offset);
-    
+
     unsafe {
         let mut addr_port: Port<u32> = Port::new(CONFIG_ADDRESS);
         let mut data_port: Port<u32> = Port::new(CONFIG_DATA);
-        
+
         addr_port.write(config_addr);
         data_port.read()
     }
@@ -243,11 +251,11 @@ pub fn config_read8(addr: PciAddress, offset: u8) -> u8 {
 /// Write a 32-bit value to PCI configuration space.
 pub fn config_write32(addr: PciAddress, offset: u8, value: u32) {
     let config_addr = addr.to_config_address(offset);
-    
+
     unsafe {
         let mut addr_port: Port<u32> = Port::new(CONFIG_ADDRESS);
         let mut data_port: Port<u32> = Port::new(CONFIG_DATA);
-        
+
         addr_port.write(config_addr);
         data_port.write(value);
     }
@@ -257,11 +265,11 @@ pub fn config_write32(addr: PciAddress, offset: u8, value: u32) {
 pub fn config_write16(addr: PciAddress, offset: u8, value: u16) {
     let aligned_offset = offset & !0x3;
     let shift = (offset & 0x2) * 8;
-    
+
     let mut current = config_read32(addr, aligned_offset);
     current &= !(0xFFFF << shift);
     current |= (value as u32) << shift;
-    
+
     config_write32(addr, aligned_offset, current);
 }
 
@@ -283,19 +291,19 @@ fn read_device(addr: PciAddress) -> Option<PciDevice> {
     if vendor_id == 0xFFFF {
         return None;
     }
-    
+
     let device_id = config_read16(addr, 0x02);
     let class_reg = config_read32(addr, 0x08);
     let header_type_raw = config_read8(addr, 0x0E);
-    
+
     let class = PciClass {
         class: ((class_reg >> 24) & 0xFF) as u8,
         subclass: ((class_reg >> 16) & 0xFF) as u8,
         prog_if: ((class_reg >> 8) & 0xFF) as u8,
     };
-    
+
     let header_type = HeaderType::from(header_type_raw);
-    
+
     // Read BARs (only for Type 0 headers)
     let mut bars = [0u32; 6];
     if header_type == HeaderType::Standard {
@@ -303,21 +311,18 @@ fn read_device(addr: PciAddress) -> Option<PciDevice> {
             bars[i] = config_read32(addr, 0x10 + (i as u8 * 4));
         }
     }
-    
+
     // Read subsystem info
     let (subsystem_vendor_id, subsystem_id) = if header_type == HeaderType::Standard {
-        (
-            config_read16(addr, 0x2C),
-            config_read16(addr, 0x2E),
-        )
+        (config_read16(addr, 0x2C), config_read16(addr, 0x2E))
     } else {
         (0, 0)
     };
-    
+
     // Read interrupt info
     let interrupt_line = config_read8(addr, 0x3C);
     let interrupt_pin = config_read8(addr, 0x3D);
-    
+
     Some(PciDevice {
         address: addr,
         vendor_id,
@@ -336,23 +341,23 @@ fn read_device(addr: PciAddress) -> Option<PciDevice> {
 fn scan_bus(bus: u8, devices: &mut Vec<PciDevice>) {
     for device in 0..32 {
         let addr = PciAddress::new(bus, device, 0);
-        
+
         if !device_exists(addr) {
             continue;
         }
-        
+
         // Check function 0
         if let Some(dev) = read_device(addr) {
             let multifunction = is_multifunction(addr);
-            
+
             // Check for PCI-to-PCI bridge
             if dev.header_type == HeaderType::PciBridge {
                 let secondary_bus = config_read8(addr, 0x19);
                 scan_bus(secondary_bus, devices);
             }
-            
+
             devices.push(dev);
-            
+
             // Scan other functions if multifunction device
             if multifunction {
                 for function in 1..8 {
@@ -370,9 +375,9 @@ fn scan_bus(bus: u8, devices: &mut Vec<PciDevice>) {
 pub fn enumerate() {
     let mut devices = PCI_DEVICES.lock();
     devices.clear();
-    
+
     crate::serial_println!("[PCI] Enumerating PCI bus...");
-    
+
     // Check if multiple PCI host controllers exist
     let host_addr = PciAddress::new(0, 0, 0);
     if is_multifunction(host_addr) {
@@ -387,7 +392,7 @@ pub fn enumerate() {
         // Single host controller
         scan_bus(0, &mut devices);
     }
-    
+
     crate::serial_println!("[PCI] Found {} devices:", devices.len());
     for dev in devices.iter() {
         crate::serial_println!("  {}", dev);

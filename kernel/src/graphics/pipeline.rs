@@ -6,7 +6,7 @@
 use super::damage::{DamageRect, DamageTracker};
 use alloc::vec;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Frame timing information
 #[derive(Debug, Clone, Copy)]
@@ -131,8 +131,17 @@ impl RenderPipeline {
     }
 
     /// Mark a window area as damaged (for move/resize)
-    pub fn damage_window(&mut self, old_x: i32, old_y: i32, new_x: i32, new_y: i32, width: u32, height: u32) {
-        self.damage.add_surface_damage(old_x, old_y, new_x, new_y, width, height);
+    pub fn damage_window(
+        &mut self,
+        old_x: i32,
+        old_y: i32,
+        new_x: i32,
+        new_y: i32,
+        width: u32,
+        height: u32,
+    ) {
+        self.damage
+            .add_surface_damage(old_x, old_y, new_x, new_y, width, height);
         self.frame_pending = true;
     }
 
@@ -177,7 +186,7 @@ impl RenderPipeline {
     /// Begin a new frame
     pub fn begin_frame(&mut self) -> FrameContext {
         let frame_start = read_tsc();
-        
+
         FrameContext {
             start_tsc: frame_start,
             is_full_redraw: self.damage.is_full_damage(),
@@ -212,9 +221,8 @@ impl RenderPipeline {
         }
 
         // Update rolling average
-        self.stats.avg_render_time_us = 
-            (self.stats.avg_render_time_us * 7 + frame_time_us) / 8;
-        
+        self.stats.avg_render_time_us = (self.stats.avg_render_time_us * 7 + frame_time_us) / 8;
+
         if frame_time_us > self.stats.peak_render_time_us {
             self.stats.peak_render_time_us = frame_time_us;
         }

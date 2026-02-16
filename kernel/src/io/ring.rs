@@ -59,7 +59,7 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a read operation.
     pub fn read(fd: i32, buf: u64, len: u32, offset: u64, user_data: u64) -> Self {
         Self {
@@ -78,7 +78,7 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a write operation.
     pub fn write(fd: i32, buf: u64, len: u32, offset: u64, user_data: u64) -> Self {
         Self {
@@ -97,7 +97,7 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a readv (scatter) operation.
     pub fn readv(fd: i32, iov: u64, iovlen: u32, offset: u64, user_data: u64) -> Self {
         Self {
@@ -116,7 +116,7 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a writev (gather) operation.
     pub fn writev(fd: i32, iov: u64, iovlen: u32, offset: u64, user_data: u64) -> Self {
         Self {
@@ -135,7 +135,7 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a fsync operation.
     pub fn fsync(fd: i32, datasync: bool, user_data: u64) -> Self {
         Self {
@@ -154,7 +154,7 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a poll operation.
     pub fn poll_add(fd: i32, events: u32, user_data: u64) -> Self {
         Self {
@@ -173,7 +173,7 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a timeout operation.
     pub fn timeout(ts: u64, count: u32, user_data: u64) -> Self {
         Self {
@@ -192,18 +192,18 @@ impl SqEntry {
             _reserved: [0; 2],
         }
     }
-    
+
     /// Create a nop (no operation) entry.
     pub fn nop(user_data: u64) -> Self {
         Self::new(OpCode::Nop, -1, user_data)
     }
-    
+
     /// Set link flag (link to next operation).
     pub fn set_link(mut self) -> Self {
         self.flags = self.flags.union(SqFlags::LINK);
         self
     }
-    
+
     /// Set drain flag (wait for previous ops).
     pub fn set_drain(mut self) -> Self {
         self.flags = self.flags.union(SqFlags::DRAIN);
@@ -220,7 +220,7 @@ impl SqFlags {
     pub const fn empty() -> Self {
         Self(0)
     }
-    
+
     /// Fixed file (use registered file index).
     pub const FIXED_FILE: Self = Self(1 << 0);
     /// Drain previous ops before this one.
@@ -233,12 +233,12 @@ impl SqFlags {
     pub const ASYNC: Self = Self(1 << 4);
     /// Use registered buffer.
     pub const BUFFER_SELECT: Self = Self(1 << 5);
-    
+
     /// Union of two flags.
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
     }
-    
+
     /// Check if flag is set.
     pub const fn contains(self, other: Self) -> bool {
         (self.0 & other.0) == other.0
@@ -266,22 +266,22 @@ impl CqEntry {
             flags: CqFlags::empty(),
         }
     }
-    
+
     /// Create a success completion.
     pub const fn success(user_data: u64, value: i64) -> Self {
         Self::new(user_data, value)
     }
-    
+
     /// Create an error completion.
     pub const fn error(user_data: u64, errno: i32) -> Self {
         Self::new(user_data, -(errno as i64))
     }
-    
+
     /// Check if result is an error.
     pub const fn is_error(&self) -> bool {
         self.result < 0
     }
-    
+
     /// Get error code if error.
     pub const fn error_code(&self) -> Option<i32> {
         if self.result < 0 {
@@ -301,19 +301,19 @@ impl CqFlags {
     pub const fn empty() -> Self {
         Self(0)
     }
-    
+
     /// More completions pending.
     pub const MORE: Self = Self(1 << 0);
     /// Socket notification.
     pub const SOCK_NONEMPTY: Self = Self(1 << 1);
     /// Notification.
     pub const NOTIF: Self = Self(1 << 2);
-    
+
     /// Union of two flags.
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
     }
-    
+
     /// Check if flag is set.
     pub const fn contains(self, other: Self) -> bool {
         (self.0 & other.0) == other.0
@@ -337,7 +337,7 @@ impl SubmissionRing {
     pub fn new(size: usize) -> Self {
         // Round up to power of 2
         let size = size.next_power_of_two();
-        
+
         Self {
             entries: alloc::vec![SqEntry::nop(0); size],
             head: AtomicU32::new(0),
@@ -345,62 +345,62 @@ impl SubmissionRing {
             mask: (size - 1) as u32,
         }
     }
-    
+
     /// Push an entry to the ring.
     pub fn push(&mut self, entry: SqEntry) -> bool {
         let tail = self.tail.load(Ordering::Relaxed);
         let head = self.head.load(Ordering::Acquire);
-        
+
         // Check if full
         if tail.wrapping_sub(head) > self.mask {
             return false;
         }
-        
+
         let idx = (tail & self.mask) as usize;
         self.entries[idx] = entry;
-        
+
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
         true
     }
-    
+
     /// Pop an entry from the ring.
     pub fn pop(&mut self) -> Option<SqEntry> {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Acquire);
-        
+
         // Check if empty
         if head == tail {
             return None;
         }
-        
+
         let idx = (head & self.mask) as usize;
         let entry = self.entries[idx];
-        
+
         self.head.store(head.wrapping_add(1), Ordering::Release);
         Some(entry)
     }
-    
+
     /// Check if ring is empty.
     pub fn is_empty(&self) -> bool {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Relaxed);
         head == tail
     }
-    
+
     /// Check if ring is full.
     pub fn is_full(&self) -> bool {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Relaxed);
         tail.wrapping_sub(head) > self.mask
     }
-    
+
     /// Get number of entries in ring.
     pub fn len(&self) -> usize {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Relaxed);
         tail.wrapping_sub(head) as usize
     }
-    
+
     /// Get ring capacity.
     pub fn capacity(&self) -> usize {
         (self.mask + 1) as usize
@@ -424,7 +424,7 @@ impl CompletionRing {
     pub fn new(size: usize) -> Self {
         // Round up to power of 2
         let size = size.next_power_of_two();
-        
+
         Self {
             entries: alloc::vec![CqEntry::new(0, 0); size],
             head: AtomicU32::new(0),
@@ -432,76 +432,76 @@ impl CompletionRing {
             mask: (size - 1) as u32,
         }
     }
-    
+
     /// Push a completion entry.
     pub fn push(&mut self, entry: CqEntry) -> bool {
         let tail = self.tail.load(Ordering::Relaxed);
         let head = self.head.load(Ordering::Acquire);
-        
+
         // Check if full
         if tail.wrapping_sub(head) > self.mask {
             return false;
         }
-        
+
         let idx = (tail & self.mask) as usize;
         self.entries[idx] = entry;
-        
+
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
         true
     }
-    
+
     /// Pop a completion entry.
     pub fn pop(&mut self) -> Option<CqEntry> {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Acquire);
-        
+
         // Check if empty
         if head == tail {
             return None;
         }
-        
+
         let idx = (head & self.mask) as usize;
         let entry = self.entries[idx];
-        
+
         self.head.store(head.wrapping_add(1), Ordering::Release);
         Some(entry)
     }
-    
+
     /// Check if ring is empty.
     pub fn is_empty(&self) -> bool {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Relaxed);
         head == tail
     }
-    
+
     /// Check if ring is full.
     pub fn is_full(&self) -> bool {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Relaxed);
         tail.wrapping_sub(head) > self.mask
     }
-    
+
     /// Get number of entries.
     pub fn len(&self) -> usize {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Relaxed);
         tail.wrapping_sub(head) as usize
     }
-    
+
     /// Get ring capacity.
     pub fn capacity(&self) -> usize {
         (self.mask + 1) as usize
     }
-    
+
     /// Peek at next entry without consuming.
     pub fn peek(&self) -> Option<&CqEntry> {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Acquire);
-        
+
         if head == tail {
             return None;
         }
-        
+
         let idx = (head & self.mask) as usize;
         Some(&self.entries[idx])
     }
@@ -542,7 +542,7 @@ impl TimeSpec {
             tv_nsec: ((ms % 1000) * 1_000_000) as i64,
         }
     }
-    
+
     /// Create a timespec from seconds.
     pub const fn from_secs(secs: u64) -> Self {
         Self {

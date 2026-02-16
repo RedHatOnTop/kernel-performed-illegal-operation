@@ -19,5 +19,5 @@
 pub mod elf;
 pub mod program;
 
-pub use elf::{Elf64Loader, LoadedProgram, ElfError};
-pub use program::{UserProgram, ProgramState};
+pub use elf::{Elf64Loader, ElfError, LoadedProgram};
+pub use program::{ProgramState, UserProgram};

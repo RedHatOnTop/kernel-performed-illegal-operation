@@ -106,13 +106,11 @@ impl ServiceWorkerBridge {
     ///
     /// The script at `script_url` is stored in VFS at
     /// `/apps/cache/{app_id}/sw.js` (the `app_id` is encoded in the scope).
-    pub fn register(
-        &mut self,
-        scope: &str,
-        script_url: &str,
-    ) -> Result<ServiceWorkerId, SwError> {
+    pub fn register(&mut self, scope: &str, script_url: &str) -> Result<ServiceWorkerId, SwError> {
         if scope.is_empty() || script_url.is_empty() {
-            return Err(SwError::InvalidUrl(String::from("empty scope or script URL")));
+            return Err(SwError::InvalidUrl(String::from(
+                "empty scope or script URL",
+            )));
         }
 
         // Check for existing registration
@@ -150,10 +148,7 @@ impl ServiceWorkerBridge {
 
     /// Unregister a service worker by scope.
     pub fn unregister(&mut self, scope: &str) -> Result<(), SwError> {
-        let id = self
-            .scope_index
-            .remove(scope)
-            .ok_or(SwError::NotFound)?;
+        let id = self.scope_index.remove(scope).ok_or(SwError::NotFound)?;
 
         if let Some(reg) = self.registrations.get_mut(&id) {
             reg.state = SwState::Redundant;
@@ -296,13 +291,22 @@ mod tests {
     fn lifecycle_transitions() {
         let mut bridge = ServiceWorkerBridge::new();
         let id = bridge.register("https://test.com/", "/sw.js").unwrap();
-        assert_eq!(bridge.get_registration("https://test.com/").unwrap().state, SwState::Installing);
+        assert_eq!(
+            bridge.get_registration("https://test.com/").unwrap().state,
+            SwState::Installing
+        );
 
         bridge.on_install_complete(id);
-        assert_eq!(bridge.get_registration("https://test.com/").unwrap().state, SwState::Waiting);
+        assert_eq!(
+            bridge.get_registration("https://test.com/").unwrap().state,
+            SwState::Waiting
+        );
 
         bridge.skip_waiting(id);
-        assert_eq!(bridge.get_registration("https://test.com/").unwrap().state, SwState::Activated);
+        assert_eq!(
+            bridge.get_registration("https://test.com/").unwrap().state,
+            SwState::Activated
+        );
     }
 
     #[test]

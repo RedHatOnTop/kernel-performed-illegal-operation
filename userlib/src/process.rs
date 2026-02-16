@@ -3,7 +3,7 @@
 //! This module provides functions to control the current process
 //! and create new processes.
 
-use crate::syscall::{syscall0, syscall1, syscall3, SyscallNumber, SyscallResult, SyscallError};
+use crate::syscall::{syscall0, syscall1, syscall3, SyscallError, SyscallNumber, SyscallResult};
 
 /// Exit the current process.
 pub fn exit(code: i32) -> ! {
@@ -16,16 +16,12 @@ pub fn exit(code: i32) -> ! {
 
 /// Get current process ID.
 pub fn getpid() -> u64 {
-    unsafe {
-        syscall0(SyscallNumber::GetPid).unwrap_or(0)
-    }
+    unsafe { syscall0(SyscallNumber::GetPid).unwrap_or(0) }
 }
 
 /// Get parent process ID.
 pub fn getppid() -> u64 {
-    unsafe {
-        syscall0(SyscallNumber::GetPpid).unwrap_or(0)
-    }
+    unsafe { syscall0(SyscallNumber::GetPpid).unwrap_or(0) }
 }
 
 /// Fork the current process.
@@ -35,9 +31,7 @@ pub fn getppid() -> u64 {
 /// - `Ok(child_pid)` in the parent process
 /// - `Err(_)` if fork failed
 pub fn fork() -> SyscallResult {
-    unsafe {
-        syscall0(SyscallNumber::Fork)
-    }
+    unsafe { syscall0(SyscallNumber::Fork) }
 }
 
 /// Wait flags.
@@ -59,12 +53,12 @@ impl WaitStatus {
     pub const fn from_raw(raw: i32) -> Self {
         Self { raw }
     }
-    
+
     /// Check if child exited normally.
     pub fn exited(&self) -> bool {
         (self.raw & 0x7f) == 0
     }
-    
+
     /// Get exit code (if exited normally).
     pub fn exit_code(&self) -> Option<i32> {
         if self.exited() {
@@ -73,12 +67,12 @@ impl WaitStatus {
             None
         }
     }
-    
+
     /// Check if child was killed by signal.
     pub fn signaled(&self) -> bool {
         ((self.raw & 0x7f) + 1) >> 1 > 0
     }
-    
+
     /// Get signal number (if signaled).
     pub fn signal(&self) -> Option<i32> {
         if self.signaled() {
@@ -102,7 +96,7 @@ pub fn waitpid(pid: i64, options: u32) -> Result<(u64, WaitStatus), SyscallError
             options as u64,
         )
     }?;
-    
+
     Ok((result, WaitStatus::from_raw(status)))
 }
 
@@ -127,7 +121,5 @@ pub fn sleep_ms(ms: u64) {
 
 /// Get current time in nanoseconds since boot.
 pub fn get_time() -> u64 {
-    unsafe {
-        syscall0(SyscallNumber::GetTime).unwrap_or(0)
-    }
+    unsafe { syscall0(SyscallNumber::GetTime).unwrap_or(0) }
 }

@@ -2,9 +2,9 @@
 //!
 //! Fuzzing harness for HTML parsing.
 
+use crate::{FuzzResult, FuzzTarget, Mutator};
 use alloc::string::String;
 use alloc::vec::Vec;
-use crate::{FuzzTarget, FuzzResult, Mutator};
 
 /// HTML Parser fuzzer
 pub struct HtmlFuzzer {
@@ -286,11 +286,11 @@ impl HtmlAttributeFuzzer {
         result.extend_from_slice(b"<div ");
         result.extend_from_slice(self.attr_name.as_bytes());
         result.extend_from_slice(b"=\"");
-        
+
         let mut value = value.to_vec();
         mutator.mutate(&mut value);
         result.extend(value);
-        
+
         result.extend_from_slice(b"\"></div>");
         result
     }

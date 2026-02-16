@@ -3,13 +3,13 @@
 //! Implements a simplified HTML5 tree construction algorithm.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
-use servo_types::{LocalName, QualName, Namespace};
 use servo_types::namespace::HTML_NAMESPACE;
+use servo_types::{LocalName, Namespace, QualName};
 
-use crate::tokenizer::{Token, TagToken, TagKind, Attribute};
+use crate::tokenizer::{Attribute, TagKind, TagToken, Token};
 
 /// Node ID in the tree.
 pub type NodeId = usize;
@@ -126,8 +126,8 @@ impl<S: TreeSink> TreeBuilder<S> {
             InsertionMode::Text => self.process_text(token),
             InsertionMode::InTable => self.process_in_body(token), // Simplified
             InsertionMode::InTableBody => self.process_in_body(token), // Simplified
-            InsertionMode::InRow => self.process_in_body(token), // Simplified
-            InsertionMode::InCell => self.process_in_body(token), // Simplified
+            InsertionMode::InRow => self.process_in_body(token),   // Simplified
+            InsertionMode::InCell => self.process_in_body(token),  // Simplified
             InsertionMode::InSelect => self.process_in_body(token), // Simplified
             InsertionMode::AfterBody => self.process_after_body(token),
             InsertionMode::AfterAfterBody => self.process_after_after_body(token),
@@ -408,8 +408,8 @@ impl<S: TreeSink> TreeBuilder<S> {
             "html" => {
                 // Merge attributes
             }
-            "base" | "basefont" | "bgsound" | "link" | "meta" | "noframes" | "script"
-            | "style" | "template" | "title" => {
+            "base" | "basefont" | "bgsound" | "link" | "meta" | "noframes" | "script" | "style"
+            | "template" | "title" => {
                 self.process_in_head(Token::StartTag(tag));
             }
             "body" => {
@@ -419,9 +419,8 @@ impl<S: TreeSink> TreeBuilder<S> {
                 // Ignore in most cases
             }
             "address" | "article" | "aside" | "blockquote" | "center" | "details" | "dialog"
-            | "dir" | "div" | "dl" | "fieldset" | "figcaption" | "figure" | "footer"
-            | "header" | "hgroup" | "main" | "menu" | "nav" | "ol" | "p" | "section"
-            | "summary" | "ul" => {
+            | "dir" | "div" | "dl" | "fieldset" | "figcaption" | "figure" | "footer" | "header"
+            | "hgroup" | "main" | "menu" | "nav" | "ol" | "p" | "section" | "summary" | "ul" => {
                 self.close_p_element_if_in_scope();
                 let elem = self.sink.create_element(tag.qual_name(), tag.attributes);
                 self.insert_element(elem);
@@ -501,10 +500,16 @@ impl<S: TreeSink> TreeBuilder<S> {
             }
             "input" => {
                 self.reconstruct_active_formatting_elements();
-                let elem = self.sink.create_element(tag.qual_name(), tag.attributes.clone());
+                let elem = self
+                    .sink
+                    .create_element(tag.qual_name(), tag.attributes.clone());
                 self.insert_element(elem);
                 self.open_elements.pop();
-                if tag.get_attribute("type").map(|t| t.eq_ignore_ascii_case("hidden")) != Some(true) {
+                if tag
+                    .get_attribute("type")
+                    .map(|t| t.eq_ignore_ascii_case("hidden"))
+                    != Some(true)
+                {
                     self.frameset_ok = false;
                 }
             }
@@ -589,9 +594,9 @@ impl<S: TreeSink> TreeBuilder<S> {
                 }
             }
             "address" | "article" | "aside" | "blockquote" | "button" | "center" | "details"
-            | "dialog" | "dir" | "div" | "dl" | "fieldset" | "figcaption" | "figure"
-            | "footer" | "header" | "hgroup" | "listing" | "main" | "menu" | "nav" | "ol"
-            | "pre" | "section" | "summary" | "ul" => {
+            | "dialog" | "dir" | "div" | "dl" | "fieldset" | "figcaption" | "figure" | "footer"
+            | "header" | "hgroup" | "listing" | "main" | "menu" | "nav" | "ol" | "pre"
+            | "section" | "summary" | "ul" => {
                 if self.has_element_in_scope(tag.name.as_str()) {
                     self.generate_implied_end_tags();
                     self.pop_until(tag.name.as_str());
@@ -606,10 +611,9 @@ impl<S: TreeSink> TreeBuilder<S> {
             }
             "p" => {
                 if !self.has_element_in_button_scope("p") {
-                    let elem = self.sink.create_element(
-                        QualName::html(LocalName::new("p")),
-                        Vec::new(),
-                    );
+                    let elem = self
+                        .sink
+                        .create_element(QualName::html(LocalName::new("p")), Vec::new());
                     self.insert_element(elem);
                 }
                 self.close_p_element();
@@ -723,9 +727,9 @@ impl<S: TreeSink> TreeBuilder<S> {
 
     fn create_element_for_token(&mut self, token: &Token) -> NodeId {
         match token {
-            Token::StartTag(tag) | Token::EndTag(tag) => {
-                self.sink.create_element(tag.qual_name(), tag.attributes.clone())
-            }
+            Token::StartTag(tag) | Token::EndTag(tag) => self
+                .sink
+                .create_element(tag.qual_name(), tag.attributes.clone()),
             _ => panic!("Expected tag token"),
         }
     }
@@ -756,29 +760,26 @@ impl<S: TreeSink> TreeBuilder<S> {
     }
 
     fn insert_html_element(&mut self) {
-        let elem = self.sink.create_element(
-            QualName::html(LocalName::new("html")),
-            Vec::new(),
-        );
+        let elem = self
+            .sink
+            .create_element(QualName::html(LocalName::new("html")), Vec::new());
         let doc = self.sink.document();
         self.sink.append(doc, elem);
         self.open_elements.push(elem);
     }
 
     fn insert_head_element(&mut self) {
-        let elem = self.sink.create_element(
-            QualName::html(LocalName::new("head")),
-            Vec::new(),
-        );
+        let elem = self
+            .sink
+            .create_element(QualName::html(LocalName::new("head")), Vec::new());
         self.insert_element(elem);
         self.head_element = Some(elem);
     }
 
     fn insert_body_element(&mut self) {
-        let elem = self.sink.create_element(
-            QualName::html(LocalName::new("body")),
-            Vec::new(),
-        );
+        let elem = self
+            .sink
+            .create_element(QualName::html(LocalName::new("body")), Vec::new());
         self.insert_element(elem);
     }
 
@@ -826,7 +827,10 @@ impl<S: TreeSink> TreeBuilder<S> {
     fn pop_until_heading(&mut self) {
         while let Some(&elem) = self.open_elements.last() {
             if let Some(elem_name) = self.sink.element_name(elem) {
-                if matches!(elem_name.local.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
+                if matches!(
+                    elem_name.local.as_str(),
+                    "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+                ) {
                     self.open_elements.pop();
                     break;
                 }
@@ -847,8 +851,15 @@ impl<S: TreeSink> TreeBuilder<S> {
                     if tag_name != except
                         && matches!(
                             tag_name,
-                            "dd" | "dt" | "li" | "optgroup" | "option" | "p" | "rb" | "rp"
-                                | "rt" | "rtc"
+                            "dd" | "dt"
+                                | "li"
+                                | "optgroup"
+                                | "option"
+                                | "p"
+                                | "rb"
+                                | "rp"
+                                | "rt"
+                                | "rtc"
                         )
                     {
                         self.open_elements.pop();
@@ -861,15 +872,32 @@ impl<S: TreeSink> TreeBuilder<S> {
     }
 
     fn has_element_in_scope(&self, name: &str) -> bool {
-        self.has_element_in_scope_impl(name, &["applet", "caption", "html", "table", "td", "th", "marquee", "object", "template"])
+        self.has_element_in_scope_impl(
+            name,
+            &[
+                "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
+            ],
+        )
     }
 
     fn has_element_in_button_scope(&self, name: &str) -> bool {
-        self.has_element_in_scope_impl(name, &["applet", "caption", "html", "table", "td", "th", "marquee", "object", "template", "button"])
+        self.has_element_in_scope_impl(
+            name,
+            &[
+                "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
+                "button",
+            ],
+        )
     }
 
     fn has_element_in_list_scope(&self, name: &str) -> bool {
-        self.has_element_in_scope_impl(name, &["applet", "caption", "html", "table", "td", "th", "marquee", "object", "template", "ol", "ul"])
+        self.has_element_in_scope_impl(
+            name,
+            &[
+                "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
+                "ol", "ul",
+            ],
+        )
     }
 
     fn has_element_in_scope_impl(&self, name: &str, scope: &[&str]) -> bool {

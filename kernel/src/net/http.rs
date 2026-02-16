@@ -92,7 +92,9 @@ struct Cookie {
     value: String,
 }
 
-static COOKIE_JAR: Mutex<CookieJar> = Mutex::new(CookieJar { cookies: Vec::new() });
+static COOKIE_JAR: Mutex<CookieJar> = Mutex::new(CookieJar {
+    cookies: Vec::new(),
+});
 
 impl CookieJar {
     fn set(&mut self, domain: &str, path: &str, header: &str) {
@@ -102,14 +104,21 @@ impl CookieJar {
             if let Some((name, value)) = nv.split_once('=') {
                 let name = name.trim();
                 let value = value.trim();
-                let cookie_path = parts.next()
-                    .and_then(|rest| rest.split(';')
-                        .find(|s| s.trim().to_ascii_lowercase().starts_with("path="))
-                        .and_then(|s| s.split_once('=').map(|(_,v)| v.trim())))
+                let cookie_path = parts
+                    .next()
+                    .and_then(|rest| {
+                        rest.split(';')
+                            .find(|s| s.trim().to_ascii_lowercase().starts_with("path="))
+                            .and_then(|s| s.split_once('=').map(|(_, v)| v.trim()))
+                    })
                     .unwrap_or(path);
 
                 // Update existing or insert
-                if let Some(c) = self.cookies.iter_mut().find(|c| c.domain == domain && c.name == name) {
+                if let Some(c) = self
+                    .cookies
+                    .iter_mut()
+                    .find(|c| c.domain == domain && c.name == name)
+                {
                     c.value = String::from(value);
                     c.path = String::from(cookie_path);
                 } else {
@@ -125,11 +134,16 @@ impl CookieJar {
     }
 
     fn get_header(&self, domain: &str, path: &str) -> Option<String> {
-        let matching: Vec<&Cookie> = self.cookies.iter()
+        let matching: Vec<&Cookie> = self
+            .cookies
+            .iter()
             .filter(|c| domain.ends_with(c.domain.as_str()) && path.starts_with(c.path.as_str()))
             .collect();
-        if matching.is_empty() { return None; }
-        let cookie_str: Vec<String> = matching.iter()
+        if matching.is_empty() {
+            return None;
+        }
+        let cookie_str: Vec<String> = matching
+            .iter()
             .map(|c| format!("{}={}", c.name, c.value))
             .collect();
         Some(cookie_str.join("; "))
@@ -223,7 +237,8 @@ fn get_with_redirects(url: &str, max_redirects: u8) -> HttpResponse {
 
         match tls_result {
             Ok(mut tls13_conn) => {
-                let result = https_exchange_tls13(&mut tls13_conn, &parsed, cookie_header.as_deref());
+                let result =
+                    https_exchange_tls13(&mut tls13_conn, &parsed, cookie_header.as_deref());
                 tls13_conn.close().ok();
                 tcp::destroy(conn);
                 result
@@ -238,7 +253,11 @@ fn get_with_redirects(url: &str, max_redirects: u8) -> HttpResponse {
                 }
                 match tls::TlsConnection::handshake(conn2) {
                     Ok(mut tls12_conn) => {
-                        let result = https_exchange_tls12(&mut tls12_conn, &parsed, cookie_header.as_deref());
+                        let result = https_exchange_tls12(
+                            &mut tls12_conn,
+                            &parsed,
+                            cookie_header.as_deref(),
+                        );
                         tls12_conn.close().ok();
                         tcp::destroy(conn2);
                         result
@@ -265,12 +284,16 @@ fn get_with_redirects(url: &str, max_redirects: u8) -> HttpResponse {
     // Follow redirects
     if max_redirects > 0 && matches!(response.status, 301 | 302 | 307 | 308) {
         if let Some(location) = extract_location_header(&response) {
-            let redirect_url = if location.starts_with("http://") || location.starts_with("https://") {
-                location
-            } else {
-                // Relative redirect
-                format!("{}://{}:{}{}", parsed.scheme, parsed.host, parsed.port, location)
-            };
+            let redirect_url =
+                if location.starts_with("http://") || location.starts_with("https://") {
+                    location
+                } else {
+                    // Relative redirect
+                    format!(
+                        "{}://{}:{}{}",
+                        parsed.scheme, parsed.host, parsed.port, location
+                    )
+                };
             return get_with_redirects(&redirect_url, max_redirects - 1);
         }
     }
@@ -290,7 +313,11 @@ fn build_request(parsed: &ParsedUrl, cookie: Option<&str>) -> String {
     req
 }
 
-fn https_exchange_tls13(conn: &mut tls13::Tls13Connection, parsed: &ParsedUrl, cookie: Option<&str>) -> HttpResponse {
+fn https_exchange_tls13(
+    conn: &mut tls13::Tls13Connection,
+    parsed: &ParsedUrl,
+    cookie: Option<&str>,
+) -> HttpResponse {
     let request = build_request(parsed, cookie);
     if conn.send(request.as_bytes()).is_err() {
         return error_response("Failed to send request (TLS 1.3)", &parsed.host);
@@ -303,7 +330,9 @@ fn https_exchange_tls13(conn: &mut tls13::Tls13Connection, parsed: &ParsedUrl, c
             Ok(0) => break,
             Ok(n) => {
                 response_data.extend_from_slice(&buf[..n]);
-                if has_complete_response(&response_data) { break; }
+                if has_complete_response(&response_data) {
+                    break;
+                }
             }
             Err(_) => break,
         }
@@ -315,7 +344,11 @@ fn https_exchange_tls13(conn: &mut tls13::Tls13Connection, parsed: &ParsedUrl, c
     parse_http_response(&response_data)
 }
 
-fn https_exchange_tls12(conn: &mut tls::TlsConnection, parsed: &ParsedUrl, cookie: Option<&str>) -> HttpResponse {
+fn https_exchange_tls12(
+    conn: &mut tls::TlsConnection,
+    parsed: &ParsedUrl,
+    cookie: Option<&str>,
+) -> HttpResponse {
     let request = build_request(parsed, cookie);
     if conn.send(request.as_bytes()).is_err() {
         return error_response("Failed to send request (TLS 1.2)", &parsed.host);
@@ -328,7 +361,9 @@ fn https_exchange_tls12(conn: &mut tls::TlsConnection, parsed: &ParsedUrl, cooki
             Ok(0) => break,
             Ok(n) => {
                 response_data.extend_from_slice(&buf[..n]);
-                if has_complete_response(&response_data) { break; }
+                if has_complete_response(&response_data) {
+                    break;
+                }
             }
             Err(_) => break,
         }
@@ -357,7 +392,9 @@ fn http_exchange(conn: tcp::ConnId, parsed: &ParsedUrl, cookie: Option<&str>) ->
                 if !response_data.is_empty() && has_complete_response(&response_data) {
                     break;
                 }
-                for _ in 0..50_000 { core::hint::spin_loop(); }
+                for _ in 0..50_000 {
+                    core::hint::spin_loop();
+                }
             }
             Err(_) => break,
         }

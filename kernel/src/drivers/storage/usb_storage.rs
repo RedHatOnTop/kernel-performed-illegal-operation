@@ -2,10 +2,10 @@
 //!
 //! USB Mass Storage Class (MSC) driver for USB drives.
 
+use super::{BlockDevice, StorageError, StorageInfo, StorageInterface, StorageManager};
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
-use super::{BlockDevice, StorageError, StorageInfo, StorageInterface, StorageManager};
 
 /// USB Mass Storage subclass codes
 #[repr(u8)]
@@ -221,7 +221,12 @@ impl BlockDevice for UsbStorageDevice {
         self.block_size
     }
 
-    fn read_blocks(&self, start_block: u64, count: u32, buffer: &mut [u8]) -> Result<(), StorageError> {
+    fn read_blocks(
+        &self,
+        start_block: u64,
+        count: u32,
+        buffer: &mut [u8],
+    ) -> Result<(), StorageError> {
         let expected_size = count as usize * self.block_size as usize;
         if buffer.len() < expected_size {
             return Err(StorageError::BufferTooSmall);
@@ -241,7 +246,12 @@ impl BlockDevice for UsbStorageDevice {
         Err(StorageError::NotSupported)
     }
 
-    fn write_blocks(&self, start_block: u64, count: u32, buffer: &[u8]) -> Result<(), StorageError> {
+    fn write_blocks(
+        &self,
+        start_block: u64,
+        count: u32,
+        buffer: &[u8],
+    ) -> Result<(), StorageError> {
         let expected_size = count as usize * self.block_size as usize;
         if buffer.len() < expected_size {
             return Err(StorageError::BufferTooSmall);

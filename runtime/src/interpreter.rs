@@ -304,18 +304,14 @@ pub enum TrapError {
         got: ValueType,
     },
     /// Undefined element in table.
-    UndefinedElement {
-        index: u32,
-    },
+    UndefinedElement { index: u32 },
     /// Indirect call type mismatch.
     IndirectCallTypeMismatch {
         expected_type: u32,
         actual_type: u32,
     },
     /// Uninitialized table element.
-    UninitializedElement {
-        index: u32,
-    },
+    UninitializedElement { index: u32 },
     /// Export not found.
     ExportNotFound(String),
     /// Function not found.
@@ -336,8 +332,16 @@ impl core::fmt::Display for TrapError {
             TrapError::DivisionByZero => write!(f, "integer divide by zero"),
             TrapError::IntegerOverflow => write!(f, "integer overflow"),
             TrapError::InvalidConversionToInteger => write!(f, "invalid conversion to integer"),
-            TrapError::MemoryOutOfBounds { offset, size, memory_size } => {
-                write!(f, "out of bounds memory access: {} + {} > {}", offset, size, memory_size)
+            TrapError::MemoryOutOfBounds {
+                offset,
+                size,
+                memory_size,
+            } => {
+                write!(
+                    f,
+                    "out of bounds memory access: {} + {} > {}",
+                    offset, size, memory_size
+                )
             }
             TrapError::StackOverflow => write!(f, "call stack exhausted"),
             TrapError::StackUnderflow => write!(f, "stack underflow"),
@@ -349,8 +353,15 @@ impl core::fmt::Display for TrapError {
             TrapError::UndefinedElement { index } => {
                 write!(f, "undefined element: table[{}]", index)
             }
-            TrapError::IndirectCallTypeMismatch { expected_type, actual_type } => {
-                write!(f, "indirect call type mismatch: expected type {}, got {}", expected_type, actual_type)
+            TrapError::IndirectCallTypeMismatch {
+                expected_type,
+                actual_type,
+            } => {
+                write!(
+                    f,
+                    "indirect call type mismatch: expected type {}, got {}",
+                    expected_type, actual_type
+                )
             }
             TrapError::UninitializedElement { index } => {
                 write!(f, "uninitialized element: {}", index)
@@ -402,9 +413,11 @@ impl Table {
     /// Grow the table by delta elements.
     pub fn grow(&mut self, delta: u32, init: Option<u32>) -> Result<u32, TrapError> {
         let old_size = self.elements.len() as u32;
-        let new_size = old_size.checked_add(delta).ok_or(TrapError::ExecutionError(
-            String::from("table grow overflow"),
-        ))?;
+        let new_size = old_size
+            .checked_add(delta)
+            .ok_or(TrapError::ExecutionError(String::from(
+                "table grow overflow",
+            )))?;
 
         if let Some(max) = self.max {
             if new_size > max {

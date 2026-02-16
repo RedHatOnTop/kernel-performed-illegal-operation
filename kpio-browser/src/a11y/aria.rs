@@ -306,12 +306,16 @@ impl AriaAttributes {
 
     /// Check if disabled
     pub fn is_disabled(&self) -> bool {
-        self.states.iter().any(|s| matches!(s, AriaState::Disabled(true)))
+        self.states
+            .iter()
+            .any(|s| matches!(s, AriaState::Disabled(true)))
     }
 
     /// Check if hidden
     pub fn is_hidden(&self) -> bool {
-        self.states.iter().any(|s| matches!(s, AriaState::Hidden(Some(true))))
+        self.states
+            .iter()
+            .any(|s| matches!(s, AriaState::Hidden(Some(true))))
     }
 
     /// Check if expanded

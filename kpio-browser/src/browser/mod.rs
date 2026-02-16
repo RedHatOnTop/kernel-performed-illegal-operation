@@ -3,20 +3,20 @@
 //! Manages browser state and coordinates components.
 
 pub mod extensions;
+pub mod private_mode;
 pub mod tab_suspension;
 pub mod tracking_protection;
-pub mod private_mode;
 
 pub use extensions::*;
+pub use private_mode::*;
 pub use tab_suspension::*;
 pub use tracking_protection::*;
-pub use private_mode::*;
 
 use alloc::string::{String, ToString};
 
-use crate::BrowserConfig;
-use crate::tabs::TabManager;
 use crate::navigation::Navigator;
+use crate::tabs::TabManager;
+use crate::BrowserConfig;
 
 /// Main browser controller.
 pub struct Browser {
@@ -58,12 +58,12 @@ impl Browser {
     pub fn new() -> Self {
         Self::with_config(BrowserConfig::default())
     }
-    
+
     /// Create a browser with custom configuration.
     pub fn with_config(config: BrowserConfig) -> Self {
         let mut tabs = TabManager::new();
         tabs.new_tab();
-        
+
         Self {
             config,
             tabs,
@@ -76,25 +76,25 @@ impl Browser {
             private_browsing: PrivateBrowsingManager::new(),
         }
     }
-    
+
     /// Navigate to a URL.
     pub fn navigate(&mut self, url: &str) -> Result<(), BrowserError> {
         self.state = BrowserState::Loading;
-        
+
         // Parse URL
         let parsed_url = self.navigator.parse_url(url)?;
-        
+
         // Get active tab
         if let Some(tab) = self.tabs.get_active_mut() {
             tab.load_url(&parsed_url)?;
         }
-        
+
         self.navigator.push_history(parsed_url);
         self.state = BrowserState::Ready;
-        
+
         Ok(())
     }
-    
+
     /// Go back in history.
     pub fn back(&mut self) -> Result<(), BrowserError> {
         if let Some(url) = self.navigator.go_back() {
@@ -104,7 +104,7 @@ impl Browser {
         }
         Ok(())
     }
-    
+
     /// Go forward in history.
     pub fn forward(&mut self) -> Result<(), BrowserError> {
         if let Some(url) = self.navigator.go_forward() {
@@ -114,7 +114,7 @@ impl Browser {
         }
         Ok(())
     }
-    
+
     /// Reload the current page.
     pub fn reload(&mut self) -> Result<(), BrowserError> {
         if let Some(url) = self.navigator.current_url() {
@@ -124,7 +124,7 @@ impl Browser {
         }
         Ok(())
     }
-    
+
     /// Stop loading.
     pub fn stop(&mut self) {
         if let Some(tab) = self.tabs.get_active_mut() {
@@ -132,14 +132,14 @@ impl Browser {
         }
         self.state = BrowserState::Idle;
     }
-    
+
     /// Create a new tab.
     pub fn new_tab(&mut self) -> usize {
         let idx = self.tabs.new_tab();
         self.active_tab = idx;
         idx
     }
-    
+
     /// Create a new private tab.
     pub fn new_private_tab(&mut self, timestamp: u64) -> (usize, u64) {
         let session_id = self.private_browsing.create_session(timestamp);
@@ -147,7 +147,7 @@ impl Browser {
         self.active_tab = tab_idx;
         (tab_idx, session_id)
     }
-    
+
     /// Close a tab.
     pub fn close_tab(&mut self, index: usize) -> Result<(), BrowserError> {
         self.tabs.close_tab(index)?;
@@ -156,7 +156,7 @@ impl Browser {
         }
         Ok(())
     }
-    
+
     /// Switch to a tab.
     pub fn switch_tab(&mut self, index: usize) -> Result<(), BrowserError> {
         if index < self.tabs.count() {
@@ -167,90 +167,95 @@ impl Browser {
             Err(BrowserError::InvalidTabIndex(index))
         }
     }
-    
+
     /// Get current URL.
     pub fn current_url(&self) -> Option<String> {
         self.navigator.current_url().map(|u| u.to_string())
     }
-    
+
     /// Get page title.
     pub fn title(&self) -> Option<String> {
         self.tabs.get_active().and_then(|t| t.title())
     }
-    
+
     /// Get browser state.
     pub fn state(&self) -> BrowserState {
         self.state
     }
-    
+
     /// Get tab count.
     pub fn tab_count(&self) -> usize {
         self.tabs.count()
     }
-    
+
     /// Get active tab index.
     pub fn active_tab(&self) -> usize {
         self.active_tab
     }
-    
+
     /// Render the current page to a framebuffer.
-    pub fn render(&mut self, framebuffer: &mut [u32], width: u32, height: u32) -> Result<(), BrowserError> {
+    pub fn render(
+        &mut self,
+        framebuffer: &mut [u32],
+        width: u32,
+        height: u32,
+    ) -> Result<(), BrowserError> {
         if let Some(tab) = self.tabs.get_active_mut() {
             tab.render(framebuffer, width, height)?;
         }
         Ok(())
     }
-    
+
     /// Process a mouse event.
     pub fn on_mouse(&mut self, x: i32, y: i32, button: MouseButton, state: MouseState) {
         if let Some(tab) = self.tabs.get_active_mut() {
             tab.on_mouse(x, y, button, state);
         }
     }
-    
+
     /// Process a keyboard event.
     pub fn on_key(&mut self, key: Key, state: KeyState, modifiers: Modifiers) {
         if let Some(tab) = self.tabs.get_active_mut() {
             tab.on_key(key, state, modifiers);
         }
     }
-    
+
     /// Tick - process pending events and animations.
     pub fn tick(&mut self) {
         if let Some(tab) = self.tabs.get_active_mut() {
             tab.tick();
         }
     }
-    
+
     /// Execute JavaScript.
     pub fn execute_script(&mut self, script: &str) -> Result<String, BrowserError> {
         if !self.config.javascript_enabled {
             return Err(BrowserError::JavaScriptDisabled);
         }
-        
+
         if let Some(tab) = self.tabs.get_active_mut() {
             tab.execute_script(script)
         } else {
             Err(BrowserError::NoActiveTab)
         }
     }
-    
+
     /// Check if current tab is private.
     pub fn is_private_tab(&self) -> bool {
         // Would check tab's session association
         false
     }
-    
+
     /// Get tracking protection stats.
     pub fn blocked_trackers_count(&self) -> u64 {
         self.tracking_protection.total_blocked
     }
-    
+
     /// Get suspended tabs count.
     pub fn suspended_tabs_count(&self) -> usize {
         self.tab_suspension.suspended_count()
     }
-    
+
     /// Get enabled extensions count.
     pub fn enabled_extensions_count(&self) -> usize {
         self.extensions.enabled.len()

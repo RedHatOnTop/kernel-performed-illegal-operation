@@ -5,37 +5,62 @@
 //! linear memory for buffer passing and call into `WasiCtx` for
 //! actual filesystem, clock, and process operations.
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+
+use spin::Mutex;
 
 use crate::executor::ExecutorContext;
 use crate::instance::Imports;
 use crate::interpreter::{TrapError, WasmValue};
 use crate::wasi::{ClockId, FdFlags, FdRights, LookupFlags, OFlags, Whence};
 
+// ─── KPIO IPC / Process / Capability / GPU Global State ────────────
+
+/// Next IPC channel ID (monotonically increasing).
+static IPC_NEXT_CHANNEL: Mutex<u64> = Mutex::new(1);
+/// In-memory IPC message queues indexed by channel ID.
+static IPC_CHANNELS: Mutex<Option<BTreeMap<u64, Vec<Vec<u8>>>>> = Mutex::new(None);
+
+/// Next process ID.
+static PROCESS_NEXT_PID: Mutex<u64> = Mutex::new(1000);
+
+/// Next capability token.
+static CAPABILITY_NEXT_TOKEN: Mutex<u64> = Mutex::new(1);
+
+/// Next GPU resource handle.
+static GPU_NEXT_HANDLE: Mutex<u64> = Mutex::new(1);
+/// GPU surfaces: handle → (width, height).
+static GPU_SURFACES: Mutex<Option<BTreeMap<u64, (u32, u32)>>> = Mutex::new(None);
+/// GPU buffers: handle → size.
+static GPU_BUFFERS: Mutex<Option<BTreeMap<u64, u32>>> = Mutex::new(None);
+
 // ─── Memory Helpers ────────────────────────────────────────────────
 
 /// Read a u32 from linear memory at the given offset.
 fn mem_read_u32(ctx: &ExecutorContext, addr: u32) -> Result<u32, TrapError> {
-    let mem = ctx.memories.first().ok_or(TrapError::ExecutionError(
-        String::from("no linear memory"),
-    ))?;
-    let bytes = mem.read_bytes(addr as usize, 4).map_err(|_| {
-        TrapError::MemoryOutOfBounds {
+    let mem = ctx
+        .memories
+        .first()
+        .ok_or(TrapError::ExecutionError(String::from("no linear memory")))?;
+    let bytes = mem
+        .read_bytes(addr as usize, 4)
+        .map_err(|_| TrapError::MemoryOutOfBounds {
             offset: addr as usize,
             size: 4,
             memory_size: mem.size(),
-        }
-    })?;
+        })?;
     Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 /// Write a u32 to linear memory at the given offset.
 fn mem_write_u32(ctx: &mut ExecutorContext, addr: u32, val: u32) -> Result<(), TrapError> {
-    let mem = ctx.memories.first_mut().ok_or(TrapError::ExecutionError(
-        String::from("no linear memory"),
-    ))?;
+    let mem = ctx
+        .memories
+        .first_mut()
+        .ok_or(TrapError::ExecutionError(String::from("no linear memory")))?;
     mem.write_bytes(addr as usize, &val.to_le_bytes())
         .map_err(|_| TrapError::MemoryOutOfBounds {
             offset: addr as usize,
@@ -46,9 +71,10 @@ fn mem_write_u32(ctx: &mut ExecutorContext, addr: u32, val: u32) -> Result<(), T
 
 /// Write a u64 to linear memory at the given offset.
 fn mem_write_u64(ctx: &mut ExecutorContext, addr: u32, val: u64) -> Result<(), TrapError> {
-    let mem = ctx.memories.first_mut().ok_or(TrapError::ExecutionError(
-        String::from("no linear memory"),
-    ))?;
+    let mem = ctx
+        .memories
+        .first_mut()
+        .ok_or(TrapError::ExecutionError(String::from("no linear memory")))?;
     mem.write_bytes(addr as usize, &val.to_le_bytes())
         .map_err(|_| TrapError::MemoryOutOfBounds {
             offset: addr as usize,
@@ -59,31 +85,32 @@ fn mem_write_u64(ctx: &mut ExecutorContext, addr: u32, val: u64) -> Result<(), T
 
 /// Read a byte slice from linear memory.
 fn mem_read_bytes(ctx: &ExecutorContext, addr: u32, len: u32) -> Result<Vec<u8>, TrapError> {
-    let mem = ctx.memories.first().ok_or(TrapError::ExecutionError(
-        String::from("no linear memory"),
-    ))?;
-    let bytes = mem.read_bytes(addr as usize, len as usize).map_err(|_| {
-        TrapError::MemoryOutOfBounds {
-            offset: addr as usize,
-            size: len as usize,
-            memory_size: mem.size(),
-        }
-    })?;
+    let mem = ctx
+        .memories
+        .first()
+        .ok_or(TrapError::ExecutionError(String::from("no linear memory")))?;
+    let bytes =
+        mem.read_bytes(addr as usize, len as usize)
+            .map_err(|_| TrapError::MemoryOutOfBounds {
+                offset: addr as usize,
+                size: len as usize,
+                memory_size: mem.size(),
+            })?;
     Ok(bytes.to_vec())
 }
 
 /// Write bytes to linear memory.
 fn mem_write_bytes(ctx: &mut ExecutorContext, addr: u32, data: &[u8]) -> Result<(), TrapError> {
-    let mem = ctx.memories.first_mut().ok_or(TrapError::ExecutionError(
-        String::from("no linear memory"),
-    ))?;
-    mem.write_bytes(addr as usize, data).map_err(|_| {
-        TrapError::MemoryOutOfBounds {
+    let mem = ctx
+        .memories
+        .first_mut()
+        .ok_or(TrapError::ExecutionError(String::from("no linear memory")))?;
+    mem.write_bytes(addr as usize, data)
+        .map_err(|_| TrapError::MemoryOutOfBounds {
             offset: addr as usize,
             size: data.len(),
             memory_size: mem.size(),
-        }
-    })
+        })
 }
 
 /// Read iov (scatter/gather) data from linear memory.
@@ -130,9 +157,8 @@ fn write_to_iovs(
 /// Read a string from linear memory.
 fn mem_read_string(ctx: &ExecutorContext, ptr: u32, len: u32) -> Result<String, TrapError> {
     let bytes = mem_read_bytes(ctx, ptr, len)?;
-    String::from_utf8(bytes).map_err(|_| {
-        TrapError::ExecutionError(String::from("invalid UTF-8 in WASI string"))
-    })
+    String::from_utf8(bytes)
+        .map_err(|_| TrapError::ExecutionError(String::from("invalid UTF-8 in WASI string")))
 }
 
 /// Helper to get a WasmValue as i32 with a default.
@@ -152,31 +178,74 @@ pub fn register_all(imports: &mut Imports) {
     register_wasi_functions(imports);
     register_kpio_functions(imports);
     register_graphics_functions(imports);
-    register_network_functions(imports);
+    // Detailed kpio modules (supersede old stubs)
+    crate::host_gui::register(imports);
+    crate::host_system::register(imports);
+    crate::host_net::register(imports);
 }
 
 /// Register WASI Preview 1 functions.
 fn register_wasi_functions(imports: &mut Imports) {
     imports.add_function("wasi_snapshot_preview1", "args_get", host_args_get);
-    imports.add_function("wasi_snapshot_preview1", "args_sizes_get", host_args_sizes_get);
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "args_sizes_get",
+        host_args_sizes_get,
+    );
     imports.add_function("wasi_snapshot_preview1", "environ_get", host_environ_get);
-    imports.add_function("wasi_snapshot_preview1", "environ_sizes_get", host_environ_sizes_get);
-    imports.add_function("wasi_snapshot_preview1", "clock_time_get", host_clock_time_get);
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "environ_sizes_get",
+        host_environ_sizes_get,
+    );
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "clock_time_get",
+        host_clock_time_get,
+    );
     imports.add_function("wasi_snapshot_preview1", "fd_close", host_fd_close);
     imports.add_function("wasi_snapshot_preview1", "fd_read", host_fd_read);
     imports.add_function("wasi_snapshot_preview1", "fd_write", host_fd_write);
     imports.add_function("wasi_snapshot_preview1", "fd_seek", host_fd_seek);
     imports.add_function("wasi_snapshot_preview1", "fd_tell", host_fd_tell);
-    imports.add_function("wasi_snapshot_preview1", "fd_fdstat_get", host_fd_fdstat_get);
-    imports.add_function("wasi_snapshot_preview1", "fd_prestat_get", host_fd_prestat_get);
-    imports.add_function("wasi_snapshot_preview1", "fd_prestat_dir_name", host_fd_prestat_dir_name);
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "fd_fdstat_get",
+        host_fd_fdstat_get,
+    );
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "fd_prestat_get",
+        host_fd_prestat_get,
+    );
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "fd_prestat_dir_name",
+        host_fd_prestat_dir_name,
+    );
     imports.add_function("wasi_snapshot_preview1", "fd_readdir", host_fd_readdir);
     imports.add_function("wasi_snapshot_preview1", "path_open", host_path_open);
-    imports.add_function("wasi_snapshot_preview1", "path_create_directory", host_path_create_directory);
-    imports.add_function("wasi_snapshot_preview1", "path_remove_directory", host_path_remove_directory);
-    imports.add_function("wasi_snapshot_preview1", "path_unlink_file", host_path_unlink_file);
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "path_create_directory",
+        host_path_create_directory,
+    );
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "path_remove_directory",
+        host_path_remove_directory,
+    );
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "path_unlink_file",
+        host_path_unlink_file,
+    );
     imports.add_function("wasi_snapshot_preview1", "path_rename", host_path_rename);
-    imports.add_function("wasi_snapshot_preview1", "path_filestat_get", host_path_filestat_get);
+    imports.add_function(
+        "wasi_snapshot_preview1",
+        "path_filestat_get",
+        host_path_filestat_get,
+    );
     imports.add_function("wasi_snapshot_preview1", "proc_exit", host_proc_exit);
     imports.add_function("wasi_snapshot_preview1", "random_get", host_random_get);
 }
@@ -198,19 +267,15 @@ fn register_graphics_functions(imports: &mut Imports) {
     imports.add_function("kpio_gpu", "present", host_gpu_present);
 }
 
-/// Register network functions.
-fn register_network_functions(imports: &mut Imports) {
-    imports.add_function("kpio_net", "socket_create", host_socket_create);
-    imports.add_function("kpio_net", "socket_bind", host_socket_bind);
-    imports.add_function("kpio_net", "socket_connect", host_socket_connect);
-    imports.add_function("kpio_net", "socket_send", host_socket_send);
-    imports.add_function("kpio_net", "socket_recv", host_socket_recv);
-}
+// Network functions are now provided by `crate::host_net` module.
 
-// ─── WASI Implementations ─────────────────────────────────────────
+// ─── Tests ─────────────────────────────────────────────────────────
 
 /// fd_write(fd, iovs_ptr, iovs_cnt, nwritten_ptr) -> errno
-fn host_fd_write(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_write(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let iovs_ptr = arg_i32(args, 1) as u32;
     let iovs_cnt = arg_i32(args, 2) as u32;
@@ -248,7 +313,10 @@ fn host_fd_write(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<Wa
 }
 
 /// fd_read(fd, iovs_ptr, iovs_cnt, nread_ptr) -> errno
-fn host_fd_read(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_read(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let iovs_ptr = arg_i32(args, 1) as u32;
     let iovs_cnt = arg_i32(args, 2) as u32;
@@ -285,7 +353,10 @@ fn host_fd_read(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<Was
 }
 
 /// fd_close(fd) -> errno
-fn host_fd_close(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_close(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let result = if let Some(ref mut wasi) = ctx.wasi_ctx {
         wasi.fd_close(fd)
@@ -301,7 +372,10 @@ fn host_fd_close(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<Wa
 /// fd_seek(fd, offset_lo, offset_hi, whence, newoffset_ptr) -> errno
 /// Note: WASI ABI splits i64 offset into two i32 args on 32-bit platforms.
 /// But the standard signature is: fd_seek(fd: i32, offset: i64, whence: i32, newoffset_ptr: i32) -> errno
-fn host_fd_seek(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_seek(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let offset = arg_i64(args, 1);
     let whence_val = arg_i32(args, 2) as u8;
@@ -325,7 +399,10 @@ fn host_fd_seek(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<Was
 }
 
 /// fd_tell(fd, offset_ptr) -> errno
-fn host_fd_tell(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_tell(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let offset_ptr = arg_i32(args, 1) as u32;
 
@@ -346,7 +423,10 @@ fn host_fd_tell(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<Was
 
 /// fd_fdstat_get(fd, fdstat_ptr) -> errno
 /// FdStat layout: filetype(1) + pad(1) + flags(2) + rights_base(8) + rights_inheriting(8) = 24 bytes
-fn host_fd_fdstat_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_fdstat_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let fdstat_ptr = arg_i32(args, 1) as u32;
 
@@ -373,7 +453,10 @@ fn host_fd_fdstat_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<V
 
 /// fd_prestat_get(fd, prestat_ptr) -> errno
 /// Prestat layout: tag(1) + pad(3) + dir_name_len(4) = 8 bytes
-fn host_fd_prestat_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_prestat_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let prestat_ptr = arg_i32(args, 1) as u32;
 
@@ -397,7 +480,10 @@ fn host_fd_prestat_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<
 }
 
 /// fd_prestat_dir_name(fd, path_ptr, path_len) -> errno
-fn host_fd_prestat_dir_name(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_prestat_dir_name(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let path_ptr = arg_i32(args, 1) as u32;
     let path_len = arg_i32(args, 2) as u32;
@@ -420,7 +506,10 @@ fn host_fd_prestat_dir_name(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Re
 }
 
 /// fd_readdir(fd, buf_ptr, buf_len, cookie, bufused_ptr) -> errno
-fn host_fd_readdir(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_fd_readdir(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let fd = arg_i32(args, 0) as u32;
     let buf_ptr = arg_i32(args, 1) as u32;
     let buf_len = arg_i32(args, 2) as u32;
@@ -447,7 +536,10 @@ fn host_fd_readdir(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<
 
 /// path_open(dirfd, dirflags, path_ptr, path_len, oflags, fs_rights_base,
 ///           fs_rights_inheriting, fdflags, fd_ptr) -> errno
-fn host_path_open(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_path_open(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let dir_fd = arg_i32(args, 0) as u32;
     let dirflags = arg_i32(args, 1) as u32;
     let path_ptr = arg_i32(args, 2) as u32;
@@ -485,7 +577,10 @@ fn host_path_open(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<W
 }
 
 /// path_create_directory(dirfd, path_ptr, path_len) -> errno
-fn host_path_create_directory(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_path_create_directory(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let dir_fd = arg_i32(args, 0) as u32;
     let path_ptr = arg_i32(args, 1) as u32;
     let path_len = arg_i32(args, 2) as u32;
@@ -505,7 +600,10 @@ fn host_path_create_directory(ctx: &mut ExecutorContext, args: &[WasmValue]) -> 
 }
 
 /// path_remove_directory(dirfd, path_ptr, path_len) -> errno
-fn host_path_remove_directory(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_path_remove_directory(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let dir_fd = arg_i32(args, 0) as u32;
     let path_ptr = arg_i32(args, 1) as u32;
     let path_len = arg_i32(args, 2) as u32;
@@ -525,7 +623,10 @@ fn host_path_remove_directory(ctx: &mut ExecutorContext, args: &[WasmValue]) -> 
 }
 
 /// path_unlink_file(dirfd, path_ptr, path_len) -> errno
-fn host_path_unlink_file(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_path_unlink_file(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let dir_fd = arg_i32(args, 0) as u32;
     let path_ptr = arg_i32(args, 1) as u32;
     let path_len = arg_i32(args, 2) as u32;
@@ -545,7 +646,10 @@ fn host_path_unlink_file(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Resul
 }
 
 /// path_rename(old_dirfd, old_path_ptr, old_path_len, new_dirfd, new_path_ptr, new_path_len) -> errno
-fn host_path_rename(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_path_rename(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let old_dir_fd = arg_i32(args, 0) as u32;
     let old_path_ptr = arg_i32(args, 1) as u32;
     let old_path_len = arg_i32(args, 2) as u32;
@@ -570,7 +674,10 @@ fn host_path_rename(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec
 
 /// path_filestat_get(dirfd, flags, path_ptr, path_len, filestat_ptr) -> errno
 /// FileStat layout: dev(8) + ino(8) + filetype(1) + pad(7) + nlink(8) + size(8) + atim(8) + mtim(8) + ctim(8) = 64 bytes
-fn host_path_filestat_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_path_filestat_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let dir_fd = arg_i32(args, 0) as u32;
     let flags = arg_i32(args, 1) as u32;
     let path_ptr = arg_i32(args, 2) as u32;
@@ -606,7 +713,10 @@ fn host_path_filestat_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Resu
 }
 
 /// args_sizes_get(argc_ptr, argv_buf_size_ptr) -> errno
-fn host_args_sizes_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_args_sizes_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let argc_ptr = arg_i32(args, 0) as u32;
     let buf_size_ptr = arg_i32(args, 1) as u32;
 
@@ -624,7 +734,10 @@ fn host_args_sizes_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<
 /// args_get(argv_ptr, argv_buf_ptr) -> errno
 /// Writes pointers to arg strings into argv_ptr array,
 /// and the actual NUL-terminated strings into argv_buf_ptr buffer.
-fn host_args_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_args_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let argv_ptr = arg_i32(args, 0) as u32;
     let argv_buf_ptr = arg_i32(args, 1) as u32;
 
@@ -649,7 +762,10 @@ fn host_args_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<Wa
 }
 
 /// environ_sizes_get(environc_ptr, environ_buf_size_ptr) -> errno
-fn host_environ_sizes_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_environ_sizes_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let environc_ptr = arg_i32(args, 0) as u32;
     let buf_size_ptr = arg_i32(args, 1) as u32;
 
@@ -665,7 +781,10 @@ fn host_environ_sizes_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Resu
 }
 
 /// environ_get(environ_ptr, environ_buf_ptr) -> errno
-fn host_environ_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_environ_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let environ_ptr = arg_i32(args, 0) as u32;
     let environ_buf_ptr = arg_i32(args, 1) as u32;
 
@@ -688,7 +807,10 @@ fn host_environ_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec
 }
 
 /// clock_time_get(id, precision, time_ptr) -> errno
-fn host_clock_time_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_clock_time_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let clock_id_val = arg_i32(args, 0) as u32;
     let precision = arg_i64(args, 1) as u64;
     let time_ptr = arg_i32(args, 2) as u32;
@@ -711,7 +833,10 @@ fn host_clock_time_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<
 }
 
 /// random_get(buf_ptr, buf_len) -> errno
-fn host_random_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_random_get(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let buf_ptr = arg_i32(args, 0) as u32;
     let buf_len = arg_i32(args, 1) as u32;
 
@@ -741,72 +866,256 @@ fn host_random_get(ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<
 }
 
 /// proc_exit(code) -> !
-fn host_proc_exit(_ctx: &mut ExecutorContext, args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
+fn host_proc_exit(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
     let code = arg_i32(args, 0);
     Err(TrapError::ProcessExit(code))
 }
 
-// ─── KPIO Stubs ────────────────────────────────────────────────────
+// ─── KPIO IPC Functions ────────────────────────────────────────────
 
-fn host_ipc_send(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
+/// ipc_send(channel_id_lo, channel_id_hi, buf_ptr, buf_len) -> errno
+///
+/// Send a message through an IPC channel. The message bytes are read
+/// from linear memory at `[buf_ptr..buf_ptr+buf_len)` and appended to
+/// the channel's in-memory message queue.
+fn host_ipc_send(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let channel_lo = arg_i32(args, 0) as u32;
+    let channel_hi = arg_i32(args, 1) as u32;
+    let channel_id = ((channel_hi as u64) << 32) | (channel_lo as u64);
+    let buf_ptr = arg_i32(args, 2) as u32;
+    let buf_len = arg_i32(args, 3) as u32;
+
+    let data = mem_read_bytes(ctx, buf_ptr, buf_len)?;
+
+    let mut channels = IPC_CHANNELS.lock();
+    let map = channels.get_or_insert_with(BTreeMap::new);
+    if let Some(queue) = map.get_mut(&channel_id) {
+        queue.push(data);
+        Ok(vec![WasmValue::I32(0)]) // success
+    } else {
+        Ok(vec![WasmValue::I32(-1)]) // ENOENT: channel does not exist
+    }
 }
 
-fn host_ipc_recv(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
+/// ipc_recv(channel_id_lo, channel_id_hi, buf_ptr, buf_len) -> bytes_read
+///
+/// Receive the next message from an IPC channel. If a message is
+/// available it is copied into `[buf_ptr..buf_ptr+min(msg_len,buf_len))`.
+/// Returns the number of bytes written, or -1 if no message is pending,
+/// or -2 if the channel does not exist.
+fn host_ipc_recv(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let channel_lo = arg_i32(args, 0) as u32;
+    let channel_hi = arg_i32(args, 1) as u32;
+    let channel_id = ((channel_hi as u64) << 32) | (channel_lo as u64);
+    let buf_ptr = arg_i32(args, 2) as u32;
+    let buf_len = arg_i32(args, 3) as u32;
+
+    let mut channels = IPC_CHANNELS.lock();
+    let map = channels.get_or_insert_with(BTreeMap::new);
+    if let Some(queue) = map.get_mut(&channel_id) {
+        if let Some(msg) = queue.first() {
+            let copy_len = msg.len().min(buf_len as usize);
+            let data_to_write = msg[..copy_len].to_vec();
+            // Remove message from queue after reading
+            queue.remove(0);
+            mem_write_bytes(ctx, buf_ptr, &data_to_write)?;
+            Ok(vec![WasmValue::I32(copy_len as i32)])
+        } else {
+            Ok(vec![WasmValue::I32(-1)]) // EAGAIN: no messages
+        }
+    } else {
+        Ok(vec![WasmValue::I32(-2)]) // ENOENT: channel does not exist
+    }
 }
 
-fn host_ipc_create_channel(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I64(0)])
+/// ipc_create_channel() -> channel_id (i64)
+///
+/// Create a new IPC channel and return its unique handle.
+fn host_ipc_create_channel(
+    _ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let id = {
+        let mut next = IPC_NEXT_CHANNEL.lock();
+        let id = *next;
+        *next += 1;
+        id
+    };
+    {
+        let mut channels = IPC_CHANNELS.lock();
+        let map = channels.get_or_insert_with(BTreeMap::new);
+        map.insert(id, Vec::new());
+    }
+    Ok(vec![WasmValue::I64(id as i64)])
 }
 
-fn host_process_spawn(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I64(0)])
+/// process_spawn(name_ptr, name_len) -> pid (i64)
+///
+/// Spawn a new (simulated) process and return its PID.
+/// In the real kernel this would create a new address space and
+/// begin executing the named binary.
+fn host_process_spawn(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let name_ptr = arg_i32(args, 0) as u32;
+    let name_len = arg_i32(args, 1) as u32;
+
+    // Validate that the process name is readable
+    let _name = mem_read_string(ctx, name_ptr, name_len)?;
+
+    let pid = {
+        let mut next = PROCESS_NEXT_PID.lock();
+        let pid = *next;
+        *next += 1;
+        pid
+    };
+    Ok(vec![WasmValue::I64(pid as i64)])
 }
 
-fn host_capability_derive(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I64(0)])
+/// capability_derive(parent_token_lo, parent_token_hi, rights_mask) -> new_token (i64)
+///
+/// Derive a child capability from a parent token. The child token
+/// has at most the rights specified in `rights_mask` ANDed with the
+/// parent's rights. Returns the new token ID (>0) on success, or
+/// 0 if the parent token is invalid.
+fn host_capability_derive(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let parent_lo = arg_i32(args, 0) as u32;
+    let parent_hi = arg_i32(args, 1) as u32;
+    let _rights_mask = arg_i32(args, 2) as u32;
+    let parent_id = ((parent_hi as u64) << 32) | (parent_lo as u64);
+
+    if parent_id == 0 {
+        // Invalid parent token
+        return Ok(vec![WasmValue::I64(0)]);
+    }
+
+    let new_token = {
+        let mut next = CAPABILITY_NEXT_TOKEN.lock();
+        let tok = *next;
+        *next += 1;
+        tok
+    };
+    Ok(vec![WasmValue::I64(new_token as i64)])
 }
 
-// ─── GPU Stubs ─────────────────────────────────────────────────────
+// ─── GPU Functions ─────────────────────────────────────────────────
 
-fn host_gpu_create_surface(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I64(0)])
+/// gpu_create_surface(width, height) -> surface_handle (i64)
+///
+/// Create a virtual GPU surface with the specified dimensions.
+/// Returns a unique handle identifying the surface.
+fn host_gpu_create_surface(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let width = arg_i32(args, 0) as u32;
+    let height = arg_i32(args, 1) as u32;
+
+    if width == 0 || height == 0 {
+        return Ok(vec![WasmValue::I64(-1)]); // invalid dimensions
+    }
+
+    let handle = {
+        let mut next = GPU_NEXT_HANDLE.lock();
+        let h = *next;
+        *next += 1;
+        h
+    };
+    {
+        let mut surfaces = GPU_SURFACES.lock();
+        let map = surfaces.get_or_insert_with(BTreeMap::new);
+        map.insert(handle, (width, height));
+    }
+    Ok(vec![WasmValue::I64(handle as i64)])
 }
 
-fn host_gpu_create_buffer(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I64(0)])
+/// gpu_create_buffer(size) -> buffer_handle (i64)
+///
+/// Create a GPU buffer of the given size (bytes).
+/// Returns a unique handle identifying the buffer, or -1 on failure.
+fn host_gpu_create_buffer(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let size = arg_i32(args, 0) as u32;
+
+    if size == 0 {
+        return Ok(vec![WasmValue::I64(-1)]); // invalid size
+    }
+
+    let handle = {
+        let mut next = GPU_NEXT_HANDLE.lock();
+        let h = *next;
+        *next += 1;
+        h
+    };
+    {
+        let mut buffers = GPU_BUFFERS.lock();
+        let map = buffers.get_or_insert_with(BTreeMap::new);
+        map.insert(handle, size);
+    }
+    Ok(vec![WasmValue::I64(handle as i64)])
 }
 
-fn host_gpu_submit_commands(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
+/// gpu_submit_commands(cmd_buf_ptr, cmd_buf_len) -> errno
+///
+/// Submit a command buffer to the GPU for execution.
+/// Currently validates that the data is readable; in a real
+/// kernel this would enqueue GPU commands.
+fn host_gpu_submit_commands(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let cmd_ptr = arg_i32(args, 0) as u32;
+    let cmd_len = arg_i32(args, 1) as u32;
+
+    // Validate that the command buffer is readable
+    let _cmds = mem_read_bytes(ctx, cmd_ptr, cmd_len)?;
+
+    // In a real GPU driver, commands would be parsed and submitted
+    // to the hardware command queue here.
+    Ok(vec![WasmValue::I32(0)]) // success
 }
 
-fn host_gpu_present(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
+/// gpu_present(surface_handle_lo, surface_handle_hi) -> errno
+///
+/// Present the contents of a surface to the display.
+/// Returns 0 on success, -1 if the surface handle is invalid.
+fn host_gpu_present(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let surface_lo = arg_i32(args, 0) as u32;
+    let surface_hi = arg_i32(args, 1) as u32;
+    let surface_id = ((surface_hi as u64) << 32) | (surface_lo as u64);
+
+    let surfaces = GPU_SURFACES.lock();
+    if let Some(ref map) = *surfaces {
+        if map.contains_key(&surface_id) {
+            // Surface exists — present is a no-op in software mode
+            Ok(vec![WasmValue::I32(0)])
+        } else {
+            Ok(vec![WasmValue::I32(-1)]) // invalid handle
+        }
+    } else {
+        Ok(vec![WasmValue::I32(-1)]) // no surfaces created
+    }
 }
 
-// ─── Network Stubs ─────────────────────────────────────────────────
-
-fn host_socket_create(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
-}
-
-fn host_socket_bind(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
-}
-
-fn host_socket_connect(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
-}
-
-fn host_socket_send(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
-}
-
-fn host_socket_recv(_ctx: &mut ExecutorContext, _args: &[WasmValue]) -> Result<Vec<WasmValue>, TrapError> {
-    Ok(vec![WasmValue::I32(0)])
-}
+// ─── Network Stubs (replaced by host_net module) ──────────────────
 
 // ─── Tests ─────────────────────────────────────────────────────────
 
@@ -859,8 +1168,12 @@ mod tests {
         ctx.memories[0].write_bytes(0, msg).unwrap();
 
         // Write iov at offset 100: { buf_ptr=0, buf_len=12 }
-        ctx.memories[0].write_bytes(100, &0u32.to_le_bytes()).unwrap();
-        ctx.memories[0].write_bytes(104, &(msg.len() as u32).to_le_bytes()).unwrap();
+        ctx.memories[0]
+            .write_bytes(100, &0u32.to_le_bytes())
+            .unwrap();
+        ctx.memories[0]
+            .write_bytes(104, &(msg.len() as u32).to_le_bytes())
+            .unwrap();
 
         // Call host_fd_write(fd=1, iovs_ptr=100, iovs_cnt=1, nwritten_ptr=200)
         let result = host_fd_write(
@@ -879,7 +1192,12 @@ mod tests {
 
         // Check nwritten
         let nwritten_bytes = ctx.memories[0].read_bytes(200, 4).unwrap();
-        let nwritten = u32::from_le_bytes([nwritten_bytes[0], nwritten_bytes[1], nwritten_bytes[2], nwritten_bytes[3]]);
+        let nwritten = u32::from_le_bytes([
+            nwritten_bytes[0],
+            nwritten_bytes[1],
+            nwritten_bytes[2],
+            nwritten_bytes[3],
+        ]);
         assert_eq!(nwritten, 12);
     }
 
@@ -889,7 +1207,9 @@ mod tests {
         let mut ctx = test_ctx_with_wasi();
         let wasi = ctx.wasi_ctx.as_mut().unwrap();
         let dir_fd = wasi.preopen_dir("/app");
-        wasi.vfs.create_file("/app/test.txt", b"File content!".to_vec()).unwrap();
+        wasi.vfs
+            .create_file("/app/test.txt", b"File content!".to_vec())
+            .unwrap();
 
         // path_open: write path "test.txt" into memory at offset 0
         let path = b"test.txt";
@@ -899,25 +1219,30 @@ mod tests {
         let result = host_path_open(
             &mut ctx,
             &[
-                WasmValue::I32(dir_fd as i32), // dirfd
-                WasmValue::I32(0),              // dirflags
-                WasmValue::I32(0),              // path_ptr
-                WasmValue::I32(path.len() as i32), // path_len
-                WasmValue::I32(0),              // oflags
+                WasmValue::I32(dir_fd as i32),                // dirfd
+                WasmValue::I32(0),                            // dirflags
+                WasmValue::I32(0),                            // path_ptr
+                WasmValue::I32(path.len() as i32),            // path_len
+                WasmValue::I32(0),                            // oflags
                 WasmValue::I64(FdRights::READ.bits() as i64), // rights
-                WasmValue::I64(0),              // inheriting
-                WasmValue::I32(0),              // fdflags
-                WasmValue::I32(100),            // fd_ptr
+                WasmValue::I64(0),                            // inheriting
+                WasmValue::I32(0),                            // fdflags
+                WasmValue::I32(100),                          // fd_ptr
             ],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         let fd_bytes = ctx.memories[0].read_bytes(100, 4).unwrap();
         let file_fd = u32::from_le_bytes([fd_bytes[0], fd_bytes[1], fd_bytes[2], fd_bytes[3]]);
 
         // fd_read: iov at 200 { buf_ptr=300, buf_len=64 }, nread at 400
-        ctx.memories[0].write_bytes(200, &300u32.to_le_bytes()).unwrap();
-        ctx.memories[0].write_bytes(204, &64u32.to_le_bytes()).unwrap();
+        ctx.memories[0]
+            .write_bytes(200, &300u32.to_le_bytes())
+            .unwrap();
+        ctx.memories[0]
+            .write_bytes(204, &64u32.to_le_bytes())
+            .unwrap();
 
         let result = host_fd_read(
             &mut ctx,
@@ -927,11 +1252,17 @@ mod tests {
                 WasmValue::I32(1),   // iovs_cnt
                 WasmValue::I32(400), // nread_ptr
             ],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         let nread_bytes = ctx.memories[0].read_bytes(400, 4).unwrap();
-        let nread = u32::from_le_bytes([nread_bytes[0], nread_bytes[1], nread_bytes[2], nread_bytes[3]]);
+        let nread = u32::from_le_bytes([
+            nread_bytes[0],
+            nread_bytes[1],
+            nread_bytes[2],
+            nread_bytes[3],
+        ]);
         assert_eq!(nread, 13);
 
         let content = ctx.memories[0].read_bytes(300, 13).unwrap();
@@ -962,7 +1293,8 @@ mod tests {
                 WasmValue::I32(0),
                 WasmValue::I32(100), // fd_ptr
             ],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         let fd_bytes = ctx.memories[0].read_bytes(100, 4).unwrap();
@@ -972,8 +1304,12 @@ mod tests {
         let data = b"output data";
         ctx.memories[0].write_bytes(200, data).unwrap();
         // iov at 300
-        ctx.memories[0].write_bytes(300, &200u32.to_le_bytes()).unwrap();
-        ctx.memories[0].write_bytes(304, &(data.len() as u32).to_le_bytes()).unwrap();
+        ctx.memories[0]
+            .write_bytes(300, &200u32.to_le_bytes())
+            .unwrap();
+        ctx.memories[0]
+            .write_bytes(304, &(data.len() as u32).to_le_bytes())
+            .unwrap();
 
         let result = host_fd_write(
             &mut ctx,
@@ -983,11 +1319,18 @@ mod tests {
                 WasmValue::I32(1),
                 WasmValue::I32(400), // nwritten_ptr
             ],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         // Verify in VFS
-        let vfs_data = ctx.wasi_ctx.as_ref().unwrap().vfs.read_file("/data/out.txt").unwrap();
+        let vfs_data = ctx
+            .wasi_ctx
+            .as_ref()
+            .unwrap()
+            .vfs
+            .read_file("/data/out.txt")
+            .unwrap();
         assert_eq!(vfs_data, b"output data");
     }
 
@@ -1000,17 +1343,24 @@ mod tests {
         let result = host_clock_time_get(
             &mut ctx,
             &[
-                WasmValue::I32(1),  // MONOTONIC
-                WasmValue::I64(0),  // precision
-                WasmValue::I32(0),  // time_ptr
+                WasmValue::I32(1), // MONOTONIC
+                WasmValue::I64(0), // precision
+                WasmValue::I32(0), // time_ptr
             ],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         let time_bytes = ctx.memories[0].read_bytes(0, 8).unwrap();
         let time = u64::from_le_bytes([
-            time_bytes[0], time_bytes[1], time_bytes[2], time_bytes[3],
-            time_bytes[4], time_bytes[5], time_bytes[6], time_bytes[7],
+            time_bytes[0],
+            time_bytes[1],
+            time_bytes[2],
+            time_bytes[3],
+            time_bytes[4],
+            time_bytes[5],
+            time_bytes[6],
+            time_bytes[7],
         ]);
         assert!(time > 0, "Clock time should be non-zero");
     }
@@ -1023,10 +1373,11 @@ mod tests {
         let result = host_random_get(
             &mut ctx,
             &[
-                WasmValue::I32(0),   // buf_ptr
-                WasmValue::I32(32),  // buf_len
+                WasmValue::I32(0),  // buf_ptr
+                WasmValue::I32(32), // buf_len
             ],
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         let bytes = ctx.memories[0].read_bytes(0, 32).unwrap();
@@ -1044,10 +1395,8 @@ mod tests {
         }
 
         // args_sizes_get(argc_ptr=0, buf_size_ptr=4)
-        let result = host_args_sizes_get(
-            &mut ctx,
-            &[WasmValue::I32(0), WasmValue::I32(4)],
-        ).unwrap();
+        let result =
+            host_args_sizes_get(&mut ctx, &[WasmValue::I32(0), WasmValue::I32(4)]).unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         let argc_bytes = ctx.memories[0].read_bytes(0, 4).unwrap();
@@ -1055,14 +1404,16 @@ mod tests {
         assert_eq!(argc, 2);
 
         let buf_size_bytes = ctx.memories[0].read_bytes(4, 4).unwrap();
-        let buf_size = u32::from_le_bytes([buf_size_bytes[0], buf_size_bytes[1], buf_size_bytes[2], buf_size_bytes[3]]);
+        let buf_size = u32::from_le_bytes([
+            buf_size_bytes[0],
+            buf_size_bytes[1],
+            buf_size_bytes[2],
+            buf_size_bytes[3],
+        ]);
         assert_eq!(buf_size, 11); // "app\0" + "--flag\0"
 
         // args_get(argv_ptr=100, argv_buf_ptr=200)
-        let result = host_args_get(
-            &mut ctx,
-            &[WasmValue::I32(100), WasmValue::I32(200)],
-        ).unwrap();
+        let result = host_args_get(&mut ctx, &[WasmValue::I32(100), WasmValue::I32(200)]).unwrap();
         assert_eq!(result[0], WasmValue::I32(0));
 
         // Read argv[0] pointer
@@ -1120,7 +1471,8 @@ mod tests {
                 WasmValue::I32(0),
                 WasmValue::I32(100),
             ],
-        ).unwrap();
+        )
+        .unwrap();
         // Should return EACCES (2)
         assert_eq!(result[0], WasmValue::I32(2));
     }
@@ -1132,29 +1484,55 @@ mod tests {
         let wasi = ctx.wasi_ctx.as_mut().unwrap();
         wasi.set_args(vec![String::from("myapp")]);
         let dir_fd = wasi.preopen_dir("/app");
-        wasi.vfs.create_file("/app/input.txt", b"hello world".to_vec()).unwrap();
+        wasi.vfs
+            .create_file("/app/input.txt", b"hello world".to_vec())
+            .unwrap();
 
         // 1. Read input file
         let path = b"input.txt";
         ctx.memories[0].write_bytes(0, path).unwrap();
-        host_path_open(&mut ctx, &[
-            WasmValue::I32(dir_fd as i32), WasmValue::I32(0),
-            WasmValue::I32(0), WasmValue::I32(path.len() as i32),
-            WasmValue::I32(0), WasmValue::I64(FdRights::READ.bits() as i64),
-            WasmValue::I64(0), WasmValue::I32(0), WasmValue::I32(100),
-        ]).unwrap();
+        host_path_open(
+            &mut ctx,
+            &[
+                WasmValue::I32(dir_fd as i32),
+                WasmValue::I32(0),
+                WasmValue::I32(0),
+                WasmValue::I32(path.len() as i32),
+                WasmValue::I32(0),
+                WasmValue::I64(FdRights::READ.bits() as i64),
+                WasmValue::I64(0),
+                WasmValue::I32(0),
+                WasmValue::I32(100),
+            ],
+        )
+        .unwrap();
         let fd_bytes = ctx.memories[0].read_bytes(100, 4).unwrap();
         let input_fd = u32::from_le_bytes([fd_bytes[0], fd_bytes[1], fd_bytes[2], fd_bytes[3]]);
 
         // Read content
-        ctx.memories[0].write_bytes(200, &500u32.to_le_bytes()).unwrap();
-        ctx.memories[0].write_bytes(204, &64u32.to_le_bytes()).unwrap();
-        host_fd_read(&mut ctx, &[
-            WasmValue::I32(input_fd as i32), WasmValue::I32(200),
-            WasmValue::I32(1), WasmValue::I32(300),
-        ]).unwrap();
+        ctx.memories[0]
+            .write_bytes(200, &500u32.to_le_bytes())
+            .unwrap();
+        ctx.memories[0]
+            .write_bytes(204, &64u32.to_le_bytes())
+            .unwrap();
+        host_fd_read(
+            &mut ctx,
+            &[
+                WasmValue::I32(input_fd as i32),
+                WasmValue::I32(200),
+                WasmValue::I32(1),
+                WasmValue::I32(300),
+            ],
+        )
+        .unwrap();
         let nread_bytes = ctx.memories[0].read_bytes(300, 4).unwrap();
-        let nread = u32::from_le_bytes([nread_bytes[0], nread_bytes[1], nread_bytes[2], nread_bytes[3]]);
+        let nread = u32::from_le_bytes([
+            nread_bytes[0],
+            nread_bytes[1],
+            nread_bytes[2],
+            nread_bytes[3],
+        ]);
         assert_eq!(nread, 11);
 
         // Close input
@@ -1163,38 +1541,72 @@ mod tests {
         // 2. Write output file
         let path = b"output.txt";
         ctx.memories[0].write_bytes(0, path).unwrap();
-        host_path_open(&mut ctx, &[
-            WasmValue::I32(dir_fd as i32), WasmValue::I32(0),
-            WasmValue::I32(0), WasmValue::I32(path.len() as i32),
-            WasmValue::I32(OFlags::CREAT.bits() as i32),
-            WasmValue::I64(FdRights::WRITE.bits() as i64),
-            WasmValue::I64(0), WasmValue::I32(0), WasmValue::I32(100),
-        ]).unwrap();
+        host_path_open(
+            &mut ctx,
+            &[
+                WasmValue::I32(dir_fd as i32),
+                WasmValue::I32(0),
+                WasmValue::I32(0),
+                WasmValue::I32(path.len() as i32),
+                WasmValue::I32(OFlags::CREAT.bits() as i32),
+                WasmValue::I64(FdRights::WRITE.bits() as i64),
+                WasmValue::I64(0),
+                WasmValue::I32(0),
+                WasmValue::I32(100),
+            ],
+        )
+        .unwrap();
         let fd_bytes = ctx.memories[0].read_bytes(100, 4).unwrap();
         let output_fd = u32::from_le_bytes([fd_bytes[0], fd_bytes[1], fd_bytes[2], fd_bytes[3]]);
 
         // Write "hello world" (from memory at 500)
-        ctx.memories[0].write_bytes(600, &500u32.to_le_bytes()).unwrap();
-        ctx.memories[0].write_bytes(604, &nread.to_le_bytes()).unwrap();
-        host_fd_write(&mut ctx, &[
-            WasmValue::I32(output_fd as i32), WasmValue::I32(600),
-            WasmValue::I32(1), WasmValue::I32(700),
-        ]).unwrap();
+        ctx.memories[0]
+            .write_bytes(600, &500u32.to_le_bytes())
+            .unwrap();
+        ctx.memories[0]
+            .write_bytes(604, &nread.to_le_bytes())
+            .unwrap();
+        host_fd_write(
+            &mut ctx,
+            &[
+                WasmValue::I32(output_fd as i32),
+                WasmValue::I32(600),
+                WasmValue::I32(1),
+                WasmValue::I32(700),
+            ],
+        )
+        .unwrap();
         host_fd_close(&mut ctx, &[WasmValue::I32(output_fd as i32)]).unwrap();
 
         // Verify VFS
-        let output = ctx.wasi_ctx.as_ref().unwrap().vfs.read_file("/app/output.txt").unwrap();
+        let output = ctx
+            .wasi_ctx
+            .as_ref()
+            .unwrap()
+            .vfs
+            .read_file("/app/output.txt")
+            .unwrap();
         assert_eq!(output, b"hello world");
 
         // 3. Write to stdout
         let msg = b"Done!";
         ctx.memories[0].write_bytes(800, msg).unwrap();
-        ctx.memories[0].write_bytes(900, &800u32.to_le_bytes()).unwrap();
-        ctx.memories[0].write_bytes(904, &(msg.len() as u32).to_le_bytes()).unwrap();
-        host_fd_write(&mut ctx, &[
-            WasmValue::I32(1), WasmValue::I32(900),
-            WasmValue::I32(1), WasmValue::I32(1000),
-        ]).unwrap();
+        ctx.memories[0]
+            .write_bytes(900, &800u32.to_le_bytes())
+            .unwrap();
+        ctx.memories[0]
+            .write_bytes(904, &(msg.len() as u32).to_le_bytes())
+            .unwrap();
+        host_fd_write(
+            &mut ctx,
+            &[
+                WasmValue::I32(1),
+                WasmValue::I32(900),
+                WasmValue::I32(1),
+                WasmValue::I32(1000),
+            ],
+        )
+        .unwrap();
         assert_eq!(&ctx.stdout, b"Done!");
 
         // 4. proc_exit(0)

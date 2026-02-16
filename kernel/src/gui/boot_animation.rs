@@ -55,7 +55,7 @@ impl BootAnimation {
         }
 
         self.frame += 1;
-        
+
         // Update dot animation every 10 frames
         if self.frame % 10 == 0 {
             self.dot_phase = (self.dot_phase + 1) % 5;
@@ -82,7 +82,7 @@ impl BootAnimation {
     pub fn render(&self, renderer: &mut Renderer) {
         // Dark purple/navy background (Ubuntu-like)
         let bg_color = Color::rgb(48, 10, 36); // Dark purple
-        
+
         // Fill entire screen with background
         renderer.fill_rect(0, 0, self.width, self.height, bg_color);
 
@@ -109,63 +109,46 @@ impl BootAnimation {
 
         // Draw "KPIO" text with pixel art
         let scale = 6;
-        
+
         // K
         let k_pattern: [u8; 8] = [
-            0b10000100,
-            0b10001000,
-            0b10010000,
-            0b10100000,
-            0b11100000,
-            0b10010000,
-            0b10001000,
+            0b10000100, 0b10001000, 0b10010000, 0b10100000, 0b11100000, 0b10010000, 0b10001000,
             0b10000100,
         ];
         self.draw_char_scaled(renderer, x, y, &k_pattern, white, scale);
 
         // P
         let p_pattern: [u8; 8] = [
-            0b11111000,
-            0b10000100,
-            0b10000100,
-            0b11111000,
-            0b10000000,
-            0b10000000,
-            0b10000000,
+            0b11111000, 0b10000100, 0b10000100, 0b11111000, 0b10000000, 0b10000000, 0b10000000,
             0b10000000,
         ];
         self.draw_char_scaled(renderer, x + 50, y, &p_pattern, white, scale);
 
         // I
         let i_pattern: [u8; 8] = [
-            0b11111110,
-            0b00010000,
-            0b00010000,
-            0b00010000,
-            0b00010000,
-            0b00010000,
-            0b00010000,
+            0b11111110, 0b00010000, 0b00010000, 0b00010000, 0b00010000, 0b00010000, 0b00010000,
             0b11111110,
         ];
         self.draw_char_scaled(renderer, x + 100, y, &i_pattern, white, scale);
 
         // O
         let o_pattern: [u8; 8] = [
-            0b00111100,
-            0b01000010,
-            0b10000001,
-            0b10000001,
-            0b10000001,
-            0b10000001,
-            0b01000010,
+            0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010,
             0b00111100,
         ];
         self.draw_char_scaled(renderer, x + 150, y, &o_pattern, orange, scale);
     }
 
     /// Draw a character with scaling
-    fn draw_char_scaled(&self, renderer: &mut Renderer, x: i32, y: i32, 
-                        pattern: &[u8; 8], color: Color, scale: i32) {
+    fn draw_char_scaled(
+        &self,
+        renderer: &mut Renderer,
+        x: i32,
+        y: i32,
+        pattern: &[u8; 8],
+        color: Color,
+        scale: i32,
+    ) {
         for (row, &bits) in pattern.iter().enumerate() {
             for col in 0..8 {
                 if (bits >> (7 - col)) & 1 == 1 {
@@ -192,7 +175,7 @@ impl BootAnimation {
 
         for i in 0..num_dots {
             let x = start_x + i * dot_spacing;
-            
+
             // Calculate alpha based on animation phase
             let distance_from_active = ((i as isize) - (self.dot_phase as isize)).abs() as usize;
             let brightness = match distance_from_active {
@@ -201,9 +184,9 @@ impl BootAnimation {
                 2 => 100,
                 _ => 50,
             };
-            
+
             let color = Color::rgb(brightness as u8, brightness as u8, brightness as u8);
-            
+
             // Draw circle (filled)
             self.draw_filled_circle(renderer, x, y, dot_radius, color);
         }
@@ -239,7 +222,13 @@ impl BootAnimation {
         let bar_x = center_x - bar_width / 2;
 
         // Background
-        renderer.fill_rect(bar_x, y, bar_width as u32, bar_height as u32, Color::DARK_GRAY);
+        renderer.fill_rect(
+            bar_x,
+            y,
+            bar_width as u32,
+            bar_height as u32,
+            Color::DARK_GRAY,
+        );
 
         // Progress
         let progress = (self.current_message + 1) as i32 * bar_width / self.messages.len() as i32;

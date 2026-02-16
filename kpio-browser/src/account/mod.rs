@@ -207,7 +207,7 @@ impl ProfileManager {
     /// Create new manager
     pub fn new() -> Self {
         let default_profile = LocalProfile::default_profile();
-        
+
         Self {
             profiles: RwLock::new(alloc::vec![default_profile]),
             active_id: RwLock::new(0),
@@ -219,10 +219,8 @@ impl ProfileManager {
     pub fn active(&self) -> Option<LocalProfile> {
         let profiles = self.profiles.read();
         let active_id = *self.active_id.read();
-        
-        profiles.iter()
-            .find(|p| p.id == active_id)
-            .cloned()
+
+        profiles.iter().find(|p| p.id == active_id).cloned()
     }
 
     /// Get all profiles
@@ -232,10 +230,7 @@ impl ProfileManager {
 
     /// Get profile by ID
     pub fn get(&self, id: u32) -> Option<LocalProfile> {
-        self.profiles.read()
-            .iter()
-            .find(|p| p.id == id)
-            .cloned()
+        self.profiles.read().iter().find(|p| p.id == id).cloned()
     }
 
     /// Create new profile
@@ -247,7 +242,7 @@ impl ProfileManager {
         }
 
         let mut profiles = self.profiles.write();
-        
+
         // Check limit
         if profiles.len() >= MAX_PROFILES {
             return Err(AccountError::TooManyProfiles);
@@ -272,7 +267,7 @@ impl ProfileManager {
     /// Update profile
     pub fn update(&self, profile: LocalProfile) -> Result<(), AccountError> {
         let mut profiles = self.profiles.write();
-        
+
         if let Some(existing) = profiles.iter_mut().find(|p| p.id == profile.id) {
             *existing = profile;
             Ok(())
@@ -284,9 +279,10 @@ impl ProfileManager {
     /// Delete profile
     pub fn delete(&self, id: u32) -> Result<(), AccountError> {
         let mut profiles = self.profiles.write();
-        
+
         // Find profile
-        let idx = profiles.iter()
+        let idx = profiles
+            .iter()
             .position(|p| p.id == id)
             .ok_or(AccountError::ProfileNotFound)?;
 
@@ -311,7 +307,7 @@ impl ProfileManager {
     /// Switch active profile
     pub fn switch(&self, id: u32) -> Result<(), AccountError> {
         let profiles = self.profiles.read();
-        
+
         if !profiles.iter().any(|p| p.id == id) {
             return Err(AccountError::ProfileNotFound);
         }

@@ -55,22 +55,22 @@ This document summarizes recommended changes based on a review of the "kernel-pe
 
 ### 1.2 WASM Execution Model Improvement
 
-**Current Design**: Cranelift JIT compiler
+**Current Implementation (as of 2026-02-15)**: Interpreter-first runtime with tiered JIT scaffolding in `runtime/` (not a full Wasmtime-based stack)
 
-**Recommendation**: Add AOT (Ahead-of-Time) compilation option
+**Recommendation**: Keep a tiered execution strategy and phase in persistent compiled-cache/AOT only after current JIT path stabilizes.
 
 ```
 [Execution Model Recommendation]
 
-1. System applications -> AOT compilation (loaded at boot)
-2. User applications -> JIT compilation (dynamically loaded)
-3. One-time scripts -> Interpreter mode (Wasmtime baseline)
+1. System applications -> precompiled cache/AOT (when toolchain is stable)
+2. User applications -> tiered mode (interpreter warmup + JIT when profitable)
+3. Utility/short-lived scripts -> interpreter-first mode
 ```
 
 **Implementation Approach**:
-- AOT compile system apps to native code at install time
-- Cache compiled results for reuse on restart
-- Utilize Wasmtime's `serialize`/`deserialize` functionality
+- Maintain interpreter as correctness baseline and fallback path
+- Introduce persistent compiled artifacts incrementally with strict version/hash invalidation
+- Reuse runtime-native cache format (avoid coupling docs to a specific third-party engine API)
 
 **AOT Recompilation Mechanism** (for system app updates/bug fixes):
 

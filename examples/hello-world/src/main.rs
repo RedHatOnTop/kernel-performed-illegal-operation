@@ -17,16 +17,16 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     // Print greeting
     println("Hello from KPIO OS userspace!");
     println("");
-    
+
     // Get our process ID
     let pid = getpid();
     print("My PID is: ");
     print_number(pid);
     println("");
-    
+
     // Test debug print (goes directly to serial)
     userlib::io::debug_print("[DEBUG] This message goes to serial\n");
-    
+
     // Print some more info
     println("Successfully executed system calls:");
     println("  - write (for printing)");
@@ -34,7 +34,7 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     println("  - debug_print (serial output)");
     println("");
     println("Exiting with code 0...");
-    
+
     // Exit successfully
     0
 }
@@ -45,17 +45,17 @@ fn print_number(n: u64) {
         print("0");
         return;
     }
-    
+
     let mut buf = [0u8; 20];
     let mut i = buf.len();
     let mut n = n;
-    
+
     while n > 0 && i > 0 {
         i -= 1;
         buf[i] = b'0' + (n % 10) as u8;
         n /= 10;
     }
-    
+
     if let Ok(s) = core::str::from_utf8(&buf[i..]) {
         print(s);
     }

@@ -2,13 +2,13 @@
 //!
 //! This module provides hardware discovery and management for KPIO OS.
 
-pub mod detect;
 pub mod acpi;
+pub mod detect;
 pub mod pci;
 pub mod usb;
 
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Hardware device information
 #[derive(Debug, Clone)]
@@ -63,24 +63,13 @@ pub enum DeviceStatus {
 #[derive(Debug, Clone)]
 pub enum DeviceResource {
     /// Memory mapped I/O region
-    Memory {
-        base: u64,
-        size: u64,
-    },
+    Memory { base: u64, size: u64 },
     /// I/O port region
-    IoPort {
-        base: u16,
-        size: u16,
-    },
+    IoPort { base: u16, size: u16 },
     /// Interrupt line
-    Irq {
-        irq: u8,
-        shared: bool,
-    },
+    Irq { irq: u8, shared: bool },
     /// DMA channel
-    Dma {
-        channel: u8,
-    },
+    Dma { channel: u8 },
 }
 
 /// Hardware manager singleton
@@ -123,11 +112,16 @@ impl HardwareManager {
 
     /// Find devices by type
     pub fn find_by_type(&self, device_type: DeviceType) -> Vec<&HardwareDevice> {
-        self.devices.iter().filter(|d| d.device_type == device_type).collect()
+        self.devices
+            .iter()
+            .filter(|d| d.device_type == device_type)
+            .collect()
     }
 
     /// Find device by vendor and device ID
     pub fn find_by_id(&self, vendor_id: u16, device_id: u16) -> Option<&HardwareDevice> {
-        self.devices.iter().find(|d| d.vendor_id == vendor_id && d.device_id == device_id)
+        self.devices
+            .iter()
+            .find(|d| d.vendor_id == vendor_id && d.device_id == device_id)
     }
 }

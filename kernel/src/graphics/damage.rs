@@ -18,7 +18,12 @@ pub struct DamageRect {
 impl DamageRect {
     /// Create a new damage rectangle
     pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Create from bounds
@@ -27,7 +32,12 @@ impl DamageRect {
         let y = y1.min(y2);
         let width = (x1.max(x2) - x) as u32;
         let height = (y1.max(y2) - y) as u32;
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Get the right edge
@@ -242,7 +252,7 @@ impl DamageTracker {
     pub fn clear(&mut self) {
         // Update stats
         self.stats.last_damage_pixels = self.total_damage_area();
-        
+
         self.rects.clear();
         self.full_damage = false;
     }
@@ -345,9 +355,9 @@ mod tests {
     fn test_rect_intersection() {
         let r1 = DamageRect::new(0, 0, 100, 100);
         let r2 = DamageRect::new(50, 50, 100, 100);
-        
+
         assert!(r1.intersects(&r2));
-        
+
         let intersection = r1.intersection(&r2).unwrap();
         assert_eq!(intersection.x, 50);
         assert_eq!(intersection.y, 50);
@@ -359,7 +369,7 @@ mod tests {
     fn test_rect_union() {
         let r1 = DamageRect::new(0, 0, 50, 50);
         let r2 = DamageRect::new(100, 100, 50, 50);
-        
+
         let union = r1.union(&r2);
         assert_eq!(union.x, 0);
         assert_eq!(union.y, 0);

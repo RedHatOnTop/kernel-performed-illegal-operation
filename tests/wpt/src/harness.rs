@@ -2,9 +2,9 @@
 //!
 //! Implements the testharness.js API for running WPT tests.
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 
 use crate::{SubtestStatus, TestStatus};
 
@@ -132,10 +132,7 @@ impl WptTestHarness {
     {
         for (name, param) in parameters {
             let func_clone = func.clone();
-            self.test(
-                move |ctx| func_clone(ctx, &param),
-                &name,
-            );
+            self.test(move |ctx| func_clone(ctx, &param), &name);
         }
     }
 
@@ -323,24 +320,14 @@ impl TestContext {
     }
 
     /// Assert regexp match
-    pub fn assert_regexp_match(
-        &mut self,
-        actual: &str,
-        pattern: &str,
-        description: &str,
-    ) {
+    pub fn assert_regexp_match(&mut self, actual: &str, pattern: &str, description: &str) {
         // Simplified: just check contains for now
         let passed = actual.contains(pattern);
         self.add_assertion(passed, String::from(description));
     }
 
     /// Assert class string
-    pub fn assert_class_string(
-        &mut self,
-        object_class: &str,
-        expected: &str,
-        description: &str,
-    ) {
+    pub fn assert_class_string(&mut self, object_class: &str, expected: &str, description: &str) {
         let passed = object_class == expected;
         self.add_assertion(passed, String::from(description));
     }
@@ -450,12 +437,18 @@ pub struct HarnessResult {
 impl HarnessResult {
     /// Get pass count
     pub fn pass_count(&self) -> usize {
-        self.subtests.iter().filter(|s| s.status == SubtestStatus::Pass).count()
+        self.subtests
+            .iter()
+            .filter(|s| s.status == SubtestStatus::Pass)
+            .count()
     }
 
     /// Get fail count
     pub fn fail_count(&self) -> usize {
-        self.subtests.iter().filter(|s| s.status == SubtestStatus::Fail).count()
+        self.subtests
+            .iter()
+            .filter(|s| s.status == SubtestStatus::Fail)
+            .count()
     }
 
     /// Get pass rate

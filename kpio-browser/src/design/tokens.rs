@@ -166,7 +166,7 @@ pub struct Typography {
     pub size: u32,
     pub line_height: u32,
     pub weight: FontWeight,
-    pub letter_spacing: i32,  // in 1/100 em
+    pub letter_spacing: i32, // in 1/100 em
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,7 +188,7 @@ impl Default for FontWeight {
 
 /// Typography presets
 pub mod typography {
-    use super::{Typography, FontWeight};
+    use super::{FontWeight, Typography};
 
     /// Display - Large headlines
     pub const DISPLAY_LG: Typography = Typography {
@@ -298,46 +298,34 @@ pub struct Shadow {
 
 impl Shadow {
     pub const fn new(x: i32, y: i32, blur: u32, spread: i32, color: Color) -> Self {
-        Self { x, y, blur, spread, color }
+        Self {
+            x,
+            y,
+            blur,
+            spread,
+            color,
+        }
     }
 }
 
 /// Shadow presets
 pub mod shadows {
-    use super::{Shadow, Color};
+    use super::{Color, Shadow};
 
     pub const NONE: Shadow = Shadow::new(0, 0, 0, 0, Color::transparent());
 
-    pub const SM: Shadow = Shadow::new(
-        0, 1, 2, 0,
-        Color::new(0, 0, 0, 15)
-    );
+    pub const SM: Shadow = Shadow::new(0, 1, 2, 0, Color::new(0, 0, 0, 15));
 
-    pub const MD: Shadow = Shadow::new(
-        0, 4, 6, -1,
-        Color::new(0, 0, 0, 25)
-    );
+    pub const MD: Shadow = Shadow::new(0, 4, 6, -1, Color::new(0, 0, 0, 25));
 
-    pub const LG: Shadow = Shadow::new(
-        0, 10, 15, -3,
-        Color::new(0, 0, 0, 25)
-    );
+    pub const LG: Shadow = Shadow::new(0, 10, 15, -3, Color::new(0, 0, 0, 25));
 
-    pub const XL: Shadow = Shadow::new(
-        0, 20, 25, -5,
-        Color::new(0, 0, 0, 25)
-    );
+    pub const XL: Shadow = Shadow::new(0, 20, 25, -5, Color::new(0, 0, 0, 25));
 
-    pub const XXL: Shadow = Shadow::new(
-        0, 25, 50, -12,
-        Color::new(0, 0, 0, 64)
-    );
+    pub const XXL: Shadow = Shadow::new(0, 25, 50, -12, Color::new(0, 0, 0, 64));
 
     /// Inner shadow for inset effects
-    pub const INNER: Shadow = Shadow::new(
-        0, 2, 4, 0,
-        Color::new(0, 0, 0, 15)
-    );
+    pub const INNER: Shadow = Shadow::new(0, 2, 4, 0, Color::new(0, 0, 0, 15));
 }
 
 /// Z-index layers
@@ -386,7 +374,7 @@ pub mod easing {
     pub const EASE_IN: Easing = Easing::new(0.42, 0.0, 1.0, 1.0);
     pub const EASE_OUT: Easing = Easing::new(0.0, 0.0, 0.58, 1.0);
     pub const EASE_IN_OUT: Easing = Easing::new(0.42, 0.0, 0.58, 1.0);
-    
+
     // Custom easing curves
     pub const BOUNCE_OUT: Easing = Easing::new(0.34, 1.56, 0.64, 1.0);
     pub const SMOOTH: Easing = Easing::new(0.4, 0.0, 0.2, 1.0);

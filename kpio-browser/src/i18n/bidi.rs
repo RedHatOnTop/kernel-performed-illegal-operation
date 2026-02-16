@@ -73,33 +73,33 @@ impl BidiClass {
         match c {
             // ASCII letters
             'A'..='Z' | 'a'..='z' => Self::L,
-            
+
             // Digits
             '0'..='9' => Self::EN,
-            
+
             // Common punctuation
             '.' | ',' => Self::CS,
             '+' | '-' => Self::ES,
             '#' | '$' | '%' => Self::ET,
-            
+
             // Whitespace
             ' ' | '\t' => Self::WS,
             '\n' | '\r' => Self::B,
-            
+
             // Hebrew
             '\u{0590}'..='\u{05FF}' => Self::R,
-            
+
             // Arabic
             '\u{0600}'..='\u{06FF}' => Self::AL,
             '\u{0750}'..='\u{077F}' => Self::AL,
             '\u{08A0}'..='\u{08FF}' => Self::AL,
             '\u{FB50}'..='\u{FDFF}' => Self::AL,
             '\u{FE70}'..='\u{FEFF}' => Self::AL,
-            
+
             // Arabic-Indic digits
             '\u{0660}'..='\u{0669}' => Self::AN,
             '\u{06F0}'..='\u{06F9}' => Self::AN,
-            
+
             // CJK characters — all classified as L (strong left-to-right)
             // Hangul Jamo
             '\u{1100}'..='\u{11FF}' => Self::L,
@@ -137,10 +137,10 @@ impl BidiClass {
             '\u{0E00}'..='\u{0E7F}' => Self::L,
             // Devanagari
             '\u{0900}'..='\u{097F}' => Self::L,
-            
+
             // Explicit directional marks
-            '\u{200E}' => Self::L,  // LRM
-            '\u{200F}' => Self::R,  // RLM
+            '\u{200E}' => Self::L, // LRM
+            '\u{200F}' => Self::R, // RLM
             '\u{202A}' => Self::LRE,
             '\u{202B}' => Self::RLE,
             '\u{202C}' => Self::PDF,
@@ -150,7 +150,7 @@ impl BidiClass {
             '\u{2067}' => Self::RLI,
             '\u{2068}' => Self::FSI,
             '\u{2069}' => Self::PDI,
-            
+
             // Other neutral
             _ => Self::ON,
         }
@@ -213,7 +213,9 @@ impl BidiParagraph {
         for c in text.chars() {
             match BidiClass::for_char(c) {
                 BidiClass::L | BidiClass::LRE | BidiClass::LRO => return BidiDirection::Ltr,
-                BidiClass::R | BidiClass::AL | BidiClass::RLE | BidiClass::RLO => return BidiDirection::Rtl,
+                BidiClass::R | BidiClass::AL | BidiClass::RLE | BidiClass::RLO => {
+                    return BidiDirection::Rtl
+                }
                 _ => continue,
             }
         }
@@ -226,7 +228,7 @@ impl BidiParagraph {
         let mut current_start = 0;
         let mut current_direction = base;
         let chars: Vec<char> = text.chars().collect();
-        
+
         if chars.is_empty() {
             return runs;
         }
@@ -234,14 +236,18 @@ impl BidiParagraph {
         for (i, &c) in chars.iter().enumerate() {
             let class = BidiClass::for_char(c);
             let direction = class.direction().unwrap_or(BidiDirection::Neutral);
-            
+
             if direction != BidiDirection::Neutral && direction != current_direction {
                 if i > current_start {
                     runs.push(BidiRun {
                         start: current_start,
                         end: i,
                         direction: current_direction,
-                        level: if current_direction == BidiDirection::Rtl { 1 } else { 0 },
+                        level: if current_direction == BidiDirection::Rtl {
+                            1
+                        } else {
+                            0
+                        },
                     });
                 }
                 current_start = i;
@@ -255,7 +261,11 @@ impl BidiParagraph {
                 start: current_start,
                 end: chars.len(),
                 direction: current_direction,
-                level: if current_direction == BidiDirection::Rtl { 1 } else { 0 },
+                level: if current_direction == BidiDirection::Rtl {
+                    1
+                } else {
+                    0
+                },
             });
         }
 
@@ -288,7 +298,7 @@ impl BidiParagraph {
 
         // For LTR base, display runs in order, reversing RTL runs
         // For RTL base, reverse order of runs, reversing each LTR run
-        
+
         if self.base_direction == BidiDirection::Ltr {
             for run in &self.runs {
                 let segment: String = chars[run.start..run.end].iter().collect();

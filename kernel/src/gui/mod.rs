@@ -20,9 +20,9 @@ pub mod framebuffer;
 pub mod html_render;
 pub mod input;
 pub mod mouse;
-pub mod render;
 pub mod notification;
 pub mod notification_panel;
+pub mod render;
 pub mod splash;
 pub mod taskbar;
 pub mod theme;
@@ -301,11 +301,14 @@ impl GuiSystem {
                             desktop::IconType::InstalledApp { app_id, .. } => {
                                 // Look up the app descriptor to get launch info
                                 let reg = crate::app::registry::APP_REGISTRY.lock();
-                                if let Some(desc) = reg.get(crate::app::registry::KernelAppId(*app_id)) {
+                                if let Some(desc) =
+                                    reg.get(crate::app::registry::KernelAppId(*app_id))
+                                {
                                     let (scope, _) = match &desc.app_type {
-                                        crate::app::registry::KernelAppType::WebApp { scope, offline_capable } => {
-                                            (scope.clone(), *offline_capable)
-                                        }
+                                        crate::app::registry::KernelAppType::WebApp {
+                                            scope,
+                                            offline_capable,
+                                        } => (scope.clone(), *offline_capable),
                                         _ => (alloc::string::String::new(), false),
                                     };
                                     taskbar::AppType::WebApp {

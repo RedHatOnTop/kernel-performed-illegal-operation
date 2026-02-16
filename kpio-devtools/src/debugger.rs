@@ -6,11 +6,11 @@
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 
-use crate::console::{RemoteObject, RemoteObjectId, StackTrace, CallFrame};
+use crate::console::{CallFrame, RemoteObject, RemoteObjectId, StackTrace};
 
 /// Debugger ID.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -48,7 +48,7 @@ impl Location {
             column_number: None,
         }
     }
-    
+
     /// Create a location with column.
     pub fn with_column(script_id: u32, line: i32, column: i32) -> Self {
         Self {
@@ -165,14 +165,14 @@ impl Breakpoint {
             locations: Vec::new(),
         }
     }
-    
+
     /// Create a conditional breakpoint.
     pub fn conditional(id: BreakpointId, url: &str, line: i32, condition: &str) -> Self {
         let mut bp = Self::new(id, url, line);
         bp.condition = Some(condition.to_string());
         bp
     }
-    
+
     /// Create a logpoint.
     pub fn logpoint(id: BreakpointId, url: &str, line: i32, log_message: &str) -> Self {
         // Logpoints are implemented as conditional breakpoints that always return false
@@ -418,13 +418,13 @@ impl Debugger {
             blackboxed_scripts: BTreeMap::new(),
         }
     }
-    
+
     /// Enable the debugger.
     pub fn enable(&mut self) -> DebuggerId {
         self.enabled = true;
         DebuggerId(alloc::format!("debugger-{}", 1))
     }
-    
+
     /// Disable the debugger.
     pub fn disable(&mut self) {
         self.enabled = false;
@@ -432,42 +432,43 @@ impl Debugger {
         self.call_frames.clear();
         self.state = DebuggerState::Running;
     }
-    
+
     /// Is enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
-    
+
     /// Register a script.
     pub fn register_script(&mut self, url: &str, source: &str) -> ScriptId {
         let id = ScriptId(alloc::format!("{}", self.next_script_id));
         self.next_script_id += 1;
-        
+
         let lines: Vec<&str> = source.lines().collect();
         let end_line = lines.len() as i32 - 1;
         let end_column = lines.last().map(|l| l.len() as i32).unwrap_or(0);
-        
+
         let mut info = ScriptInfo::new(id.clone(), url);
         info.end_line = end_line;
         info.end_column = end_column;
         info.length = source.len() as i32;
         info.source = Some(source.to_string());
-        
+
         self.scripts.insert(id.0.clone(), info);
         id
     }
-    
+
     /// Get script info.
     pub fn get_script(&self, script_id: &ScriptId) -> Option<&ScriptInfo> {
         self.scripts.get(&script_id.0)
     }
-    
+
     /// Get script source.
     pub fn get_script_source(&self, script_id: &ScriptId) -> Option<&str> {
-        self.scripts.get(&script_id.0)
+        self.scripts
+            .get(&script_id.0)
             .and_then(|s| s.source.as_deref())
     }
-    
+
     /// Set a breakpoint.
     pub fn set_breakpoint(&mut self, url: &str, line: i32) -> BreakpointId {
         let id = BreakpointId(alloc::format!("{}:{}", url, line));
@@ -475,7 +476,7 @@ impl Debugger {
         self.breakpoints.insert(id.0.clone(), breakpoint);
         id
     }
-    
+
     /// Set a breakpoint with condition.
     pub fn set_breakpoint_conditional(
         &mut self,
@@ -488,46 +489,46 @@ impl Debugger {
         self.breakpoints.insert(id.0.clone(), breakpoint);
         id
     }
-    
+
     /// Remove a breakpoint.
     pub fn remove_breakpoint(&mut self, breakpoint_id: &BreakpointId) -> bool {
         self.breakpoints.remove(&breakpoint_id.0).is_some()
     }
-    
+
     /// Get all breakpoints.
     pub fn breakpoints(&self) -> impl Iterator<Item = &Breakpoint> {
         self.breakpoints.values()
     }
-    
+
     /// Enable/disable a breakpoint.
     pub fn set_breakpoint_enabled(&mut self, breakpoint_id: &BreakpointId, enabled: bool) {
         if let Some(bp) = self.breakpoints.get_mut(&breakpoint_id.0) {
             bp.enabled = enabled;
         }
     }
-    
+
     /// Set exception pause mode.
     pub fn set_pause_on_exceptions(&mut self, mode: ExceptionPauseMode) {
         self.exception_pause_mode = mode;
     }
-    
+
     /// Get exception pause mode.
     pub fn pause_on_exceptions(&self) -> ExceptionPauseMode {
         self.exception_pause_mode
     }
-    
+
     /// Check if should pause at location.
     pub fn should_pause_at(&self, script_id: &ScriptId, line: i32, _column: i32) -> bool {
         if !self.enabled {
             return false;
         }
-        
+
         if let Some(script) = self.scripts.get(&script_id.0) {
             for bp in self.breakpoints.values() {
                 if !bp.enabled {
                     continue;
                 }
-                
+
                 if bp.line_number == line {
                     if let Some(ref url) = bp.url {
                         if script.url == *url {
@@ -537,20 +538,20 @@ impl Debugger {
                 }
             }
         }
-        
+
         false
     }
-    
+
     /// Pause execution.
     pub fn pause(&mut self, reason: PauseReason, call_frames: Vec<DebugCallFrame>) {
         self.state = DebuggerState::Paused;
         self.pause_reason = Some(reason);
         self.call_frames = call_frames;
-        
+
         // Evaluate watch expressions
         self.evaluate_watches();
     }
-    
+
     /// Resume execution.
     pub fn resume(&mut self) {
         self.state = DebuggerState::Running;
@@ -558,68 +559,69 @@ impl Debugger {
         self.pause_data = None;
         self.call_frames.clear();
     }
-    
+
     /// Step.
     pub fn step(&mut self, _action: StepAction) {
         // Would set step mode in the JS engine
         self.resume();
     }
-    
+
     /// Step into.
     pub fn step_into(&mut self) {
         self.step(StepAction::StepInto);
     }
-    
+
     /// Step over.
     pub fn step_over(&mut self) {
         self.step(StepAction::StepOver);
     }
-    
+
     /// Step out.
     pub fn step_out(&mut self) {
         self.step(StepAction::StepOut);
     }
-    
+
     /// Get current state.
     pub fn state(&self) -> DebuggerState {
         self.state
     }
-    
+
     /// Is paused.
     pub fn is_paused(&self) -> bool {
         self.state == DebuggerState::Paused
     }
-    
+
     /// Get call frames.
     pub fn call_frames(&self) -> &[DebugCallFrame] {
         &self.call_frames
     }
-    
+
     /// Get pause reason.
     pub fn pause_reason(&self) -> Option<&PauseReason> {
         self.pause_reason.as_ref()
     }
-    
+
     /// Add watch expression.
     pub fn add_watch(&mut self, expression: &str) {
-        self.watch_expressions.push(WatchExpression::new(expression));
+        self.watch_expressions
+            .push(WatchExpression::new(expression));
         if self.is_paused() {
             self.evaluate_watches();
         }
     }
-    
+
     /// Remove watch expression.
     pub fn remove_watch(&mut self, index: usize) {
         if index < self.watch_expressions.len() {
             self.watch_expressions.remove(index);
         }
     }
-    
+
     /// Get watch expressions.
     pub fn watch_expressions(&self) -> &[WatchExpression] {
         &self.watch_expressions
     }
-    
+
     /// Evaluate watch expressions.
     fn evaluate_watches(&mut self) {
         // Would evaluate each expression in the current execution context
@@ -628,7 +630,7 @@ impl Debugger {
             watch.value = Some(RemoteObject::undefined());
         }
     }
-    
+
     /// Evaluate expression.
     pub fn evaluate_on_call_frame(
         &self,
@@ -638,7 +640,7 @@ impl Debugger {
         // Would evaluate in the context of the call frame
         Ok(RemoteObject::undefined())
     }
-    
+
     /// Set variable value.
     pub fn set_variable_value(
         &self,
@@ -650,28 +652,29 @@ impl Debugger {
         // Would set the variable in the scope
         Ok(())
     }
-    
+
     /// Restart frame.
     pub fn restart_frame(&mut self, _call_frame_id: &CallFrameId) -> Result<(), String> {
         // Would restart execution at the beginning of the frame
         Ok(())
     }
-    
+
     /// Blackbox script.
     pub fn blackbox_script(&mut self, script_id: &ScriptId) {
-        self.blackboxed_scripts.insert(script_id.0.clone(), Vec::new());
+        self.blackboxed_scripts
+            .insert(script_id.0.clone(), Vec::new());
     }
-    
+
     /// Is script blackboxed.
     pub fn is_blackboxed(&self, script_id: &ScriptId) -> bool {
         self.blackboxed_scripts.contains_key(&script_id.0)
     }
-    
+
     /// Set skip list.
     pub fn set_skip_list(&mut self, patterns: Vec<String>) {
         self.skip_list = patterns;
     }
-    
+
     /// Should skip URL.
     pub fn should_skip(&self, url: &str) -> bool {
         self.skip_list.iter().any(|pattern| {
@@ -777,33 +780,33 @@ impl SourceMap {
             mappings: String::new(),
         }
     }
-    
+
     /// Parse VLQ-encoded mappings.
     pub fn parse_mappings(&self) -> Vec<SourceMapping> {
         let mut mappings = Vec::new();
-        
+
         let mut generated_line = 0i32;
         let mut generated_column = 0i32;
         let mut source_index = 0i32;
         let mut source_line = 0i32;
         let mut source_column = 0i32;
         let mut name_index = 0i32;
-        
+
         for group in self.mappings.split(';') {
             generated_column = 0;
-            
+
             for segment in group.split(',') {
                 if segment.is_empty() {
                     continue;
                 }
-                
+
                 let values = decode_vlq(segment);
                 if values.is_empty() {
                     continue;
                 }
-                
+
                 generated_column += values[0];
-                
+
                 let mut mapping = SourceMapping {
                     generated_line,
                     generated_column,
@@ -812,28 +815,28 @@ impl SourceMap {
                     source_column: None,
                     name: None,
                 };
-                
+
                 if values.len() >= 4 {
                     source_index += values[1];
                     source_line += values[2];
                     source_column += values[3];
-                    
+
                     mapping.source = self.sources.get(source_index as usize).cloned();
                     mapping.source_line = Some(source_line);
                     mapping.source_column = Some(source_column);
-                    
+
                     if values.len() >= 5 {
                         name_index += values[4];
                         mapping.name = self.names.get(name_index as usize).cloned();
                     }
                 }
-                
+
                 mappings.push(mapping);
             }
-            
+
             generated_line += 1;
         }
-        
+
         mappings
     }
 }
@@ -864,20 +867,20 @@ pub struct SourceMapping {
 /// Decode VLQ-encoded segment.
 fn decode_vlq(segment: &str) -> Vec<i32> {
     const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    
+
     let mut values = Vec::new();
     let mut value = 0i32;
     let mut shift = 0;
-    
+
     for ch in segment.chars() {
         let digit = match BASE64_CHARS.iter().position(|&c| c == ch as u8) {
             Some(pos) => pos as i32,
             None => continue,
         };
-        
+
         let continuation = digit & 32;
         value += (digit & 31) << shift;
-        
+
         if continuation != 0 {
             shift += 5;
         } else {
@@ -892,50 +895,50 @@ fn decode_vlq(segment: &str) -> Vec<i32> {
             shift = 0;
         }
     }
-    
+
     values
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_debugger() {
         let mut debugger = Debugger::new();
         let id = debugger.enable();
         assert!(debugger.is_enabled());
-        
+
         let script_id = debugger.register_script("test.js", "function test() { return 1; }");
         assert!(debugger.get_script(&script_id).is_some());
     }
-    
+
     #[test]
     fn test_breakpoints() {
         let mut debugger = Debugger::new();
         debugger.enable();
-        
+
         let bp_id = debugger.set_breakpoint("test.js", 10);
         assert!(debugger.breakpoints.contains_key(&bp_id.0));
-        
+
         debugger.remove_breakpoint(&bp_id);
         assert!(!debugger.breakpoints.contains_key(&bp_id.0));
     }
-    
+
     #[test]
     fn test_vlq_decode() {
         let values = decode_vlq("AAAA");
         assert_eq!(values, vec![0, 0, 0, 0]);
-        
+
         let values = decode_vlq("AACA");
         assert_eq!(values, vec![0, 0, 1, 0]);
     }
-    
+
     #[test]
     fn test_exception_pause() {
         let mut debugger = Debugger::new();
         debugger.enable();
-        
+
         debugger.set_pause_on_exceptions(ExceptionPauseMode::All);
         assert_eq!(debugger.pause_on_exceptions(), ExceptionPauseMode::All);
     }

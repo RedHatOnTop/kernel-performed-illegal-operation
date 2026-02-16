@@ -5,8 +5,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::syscall;
 use super::net::IoError;
+use crate::syscall;
 
 /// File handle
 pub struct File {
@@ -18,7 +18,7 @@ impl File {
     pub fn open(path: &str) -> Result<File, IoError> {
         OpenOptions::new().read(true).open(path)
     }
-    
+
     /// Create file for writing
     pub fn create(path: &str) -> Result<File, IoError> {
         OpenOptions::new()
@@ -27,14 +27,14 @@ impl File {
             .truncate(true)
             .open(path)
     }
-    
+
     /// Read from file
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
         syscall::fs_read(self.fd, buf)
             .map(|n| n as usize)
             .map_err(|_| IoError::Other)
     }
-    
+
     /// Read exact bytes
     pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), IoError> {
         let mut total = 0;
@@ -47,7 +47,7 @@ impl File {
         }
         Ok(())
     }
-    
+
     /// Read all to Vec
     pub fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, IoError> {
         let mut tmp = [0u8; 4096];
@@ -64,7 +64,7 @@ impl File {
         }
         Ok(total)
     }
-    
+
     /// Read to string
     pub fn read_to_string(&mut self, buf: &mut String) -> Result<usize, IoError> {
         let mut bytes = Vec::new();
@@ -77,14 +77,14 @@ impl File {
             Err(_) => Err(IoError::InvalidData),
         }
     }
-    
+
     /// Write to file
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, IoError> {
         syscall::fs_write(self.fd, buf)
             .map(|n| n as usize)
             .map_err(|_| IoError::Other)
     }
-    
+
     /// Write all bytes
     pub fn write_all(&mut self, buf: &[u8]) -> Result<(), IoError> {
         let mut written = 0;
@@ -97,14 +97,14 @@ impl File {
         }
         Ok(())
     }
-    
+
     /// Flush
     pub fn flush(&mut self) -> Result<(), IoError> {
         syscall::fs_sync(self.fd)
             .map(|_| ())
             .map_err(|_| IoError::Other)
     }
-    
+
     /// Seek
     pub fn seek(&mut self, pos: SeekFrom) -> Result<u64, IoError> {
         let (whence, offset) = match pos {
@@ -112,16 +112,14 @@ impl File {
             SeekFrom::End(n) => (2, n),
             SeekFrom::Current(n) => (1, n),
         };
-        
-        syscall::fs_seek(self.fd, offset, whence)
-            .map_err(|_| IoError::Other)
+
+        syscall::fs_seek(self.fd, offset, whence).map_err(|_| IoError::Other)
     }
-    
+
     /// Get metadata
     pub fn metadata(&self) -> Result<Metadata, IoError> {
-        let (size, is_dir, is_file) = syscall::fs_stat_fd(self.fd)
-            .map_err(|_| IoError::Other)?;
-        
+        let (size, is_dir, is_file) = syscall::fs_stat_fd(self.fd).map_err(|_| IoError::Other)?;
+
         Ok(Metadata {
             size,
             is_dir,
@@ -159,60 +157,71 @@ impl OpenOptions {
     pub fn new() -> Self {
         OpenOptions::default()
     }
-    
+
     pub fn read(&mut self, read: bool) -> &mut Self {
         self.read = read;
         self
     }
-    
+
     pub fn write(&mut self, write: bool) -> &mut Self {
         self.write = write;
         self
     }
-    
+
     pub fn append(&mut self, append: bool) -> &mut Self {
         self.append = append;
         self
     }
-    
+
     pub fn truncate(&mut self, truncate: bool) -> &mut Self {
         self.truncate = truncate;
         self
     }
-    
+
     pub fn create(&mut self, create: bool) -> &mut Self {
         self.create = create;
         self
     }
-    
+
     pub fn create_new(&mut self, create_new: bool) -> &mut Self {
         self.create_new = create_new;
         self
     }
-    
+
     pub fn open(&self, path: &str) -> Result<File, IoError> {
         let flags = encode_flags(self);
-        
-        let fd = syscall::fs_open(path, flags)
-            .map_err(|e| match e {
-                syscall::SyscallError::NotFound => IoError::NotFound,
-                syscall::SyscallError::PermissionDenied => IoError::PermissionDenied,
-                syscall::SyscallError::AlreadyExists => IoError::AlreadyExists,
-                _ => IoError::Other,
-            })?;
-        
+
+        let fd = syscall::fs_open(path, flags).map_err(|e| match e {
+            syscall::SyscallError::NotFound => IoError::NotFound,
+            syscall::SyscallError::PermissionDenied => IoError::PermissionDenied,
+            syscall::SyscallError::AlreadyExists => IoError::AlreadyExists,
+            _ => IoError::Other,
+        })?;
+
         Ok(File { fd })
     }
 }
 
 fn encode_flags(opts: &OpenOptions) -> u32 {
     let mut flags = 0u32;
-    if opts.read { flags |= 0x01; }
-    if opts.write { flags |= 0x02; }
-    if opts.append { flags |= 0x04; }
-    if opts.truncate { flags |= 0x08; }
-    if opts.create { flags |= 0x10; }
-    if opts.create_new { flags |= 0x20; }
+    if opts.read {
+        flags |= 0x01;
+    }
+    if opts.write {
+        flags |= 0x02;
+    }
+    if opts.append {
+        flags |= 0x04;
+    }
+    if opts.truncate {
+        flags |= 0x08;
+    }
+    if opts.create {
+        flags |= 0x10;
+    }
+    if opts.create_new {
+        flags |= 0x20;
+    }
     flags
 }
 
@@ -228,15 +237,15 @@ impl Metadata {
     pub fn len(&self) -> u64 {
         self.size
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.size == 0
     }
-    
+
     pub fn is_dir(&self) -> bool {
         self.is_dir
     }
-    
+
     pub fn is_file(&self) -> bool {
         self.is_file
     }
@@ -282,17 +291,21 @@ pub fn exists(path: &str) -> bool {
 
 /// Get metadata for path
 pub fn metadata(path: &str) -> Result<Metadata, IoError> {
-    let (size, is_dir, is_file) = syscall::fs_stat(path)
-        .map_err(|_| IoError::NotFound)?;
-    
-    Ok(Metadata { size, is_dir, is_file })
+    let (size, is_dir, is_file) = syscall::fs_stat(path).map_err(|_| IoError::NotFound)?;
+
+    Ok(Metadata {
+        size,
+        is_dir,
+        is_file,
+    })
 }
 
 /// Read directory
 pub fn read_dir(path: &str) -> Result<Vec<DirEntry>, IoError> {
     syscall::fs_readdir(path)
         .map(|entries| {
-            entries.into_iter()
+            entries
+                .into_iter()
                 .map(|(name, is_dir)| DirEntry { name, is_dir })
                 .collect()
         })

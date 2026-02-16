@@ -18,21 +18,21 @@ pub struct ProcessId(pub u64);
 impl ProcessId {
     /// Kernel process ID (always 0)
     pub const KERNEL: ProcessId = ProcessId(0);
-    
+
     /// Init process ID (always 1)
     pub const INIT: ProcessId = ProcessId(1);
-    
+
     /// Generate a new unique process ID
     pub fn new() -> Self {
         static NEXT_PID: AtomicU64 = AtomicU64::new(2);
         ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
     }
-    
+
     /// Create a ProcessId from a raw u64 value
     pub fn from_u64(val: u64) -> Self {
         ProcessId(val)
     }
-    
+
     /// Get the raw ID value
     pub fn as_u64(&self) -> u64 {
         self.0
@@ -214,33 +214,38 @@ impl Process {
     }
 
     /// Create a new user process
-    pub fn new(
-        name: String,
-        parent: ProcessId,
-        page_table_root: u64,
-    ) -> Self {
+    pub fn new(name: String, parent: ProcessId, page_table_root: u64) -> Self {
         let pid = ProcessId::new();
-        
+
         // Set up standard file descriptors
         let mut file_descriptors = BTreeMap::new();
-        file_descriptors.insert(0, FileDescriptor {
-            fd: 0,
-            resource: FileResource::Stdio(StdioType::Stdin),
-            flags: 0,
-            offset: 0,
-        });
-        file_descriptors.insert(1, FileDescriptor {
-            fd: 1,
-            resource: FileResource::Stdio(StdioType::Stdout),
-            flags: 0,
-            offset: 0,
-        });
-        file_descriptors.insert(2, FileDescriptor {
-            fd: 2,
-            resource: FileResource::Stdio(StdioType::Stderr),
-            flags: 0,
-            offset: 0,
-        });
+        file_descriptors.insert(
+            0,
+            FileDescriptor {
+                fd: 0,
+                resource: FileResource::Stdio(StdioType::Stdin),
+                flags: 0,
+                offset: 0,
+            },
+        );
+        file_descriptors.insert(
+            1,
+            FileDescriptor {
+                fd: 1,
+                resource: FileResource::Stdio(StdioType::Stdout),
+                flags: 0,
+                offset: 0,
+            },
+        );
+        file_descriptors.insert(
+            2,
+            FileDescriptor {
+                fd: 2,
+                resource: FileResource::Stdio(StdioType::Stderr),
+                flags: 0,
+                offset: 0,
+            },
+        );
 
         Self {
             pid,
@@ -358,7 +363,10 @@ impl ProcessTable {
     }
 
     /// Get a process by PID (read-only)
-    pub fn get(&self, pid: ProcessId) -> Option<spin::RwLockReadGuard<'_, BTreeMap<ProcessId, Process>>> {
+    pub fn get(
+        &self,
+        pid: ProcessId,
+    ) -> Option<spin::RwLockReadGuard<'_, BTreeMap<ProcessId, Process>>> {
         let guard = self.processes.read();
         if guard.contains_key(&pid) {
             Some(guard)
@@ -410,12 +418,8 @@ mod tests {
 
     #[test]
     fn test_process_creation() {
-        let proc = Process::new(
-            String::from("test"),
-            ProcessId::KERNEL,
-            0x1000,
-        );
-        
+        let proc = Process::new(String::from("test"), ProcessId::KERNEL, 0x1000);
+
         assert_ne!(proc.pid, ProcessId::KERNEL);
         assert_eq!(proc.parent, ProcessId::KERNEL);
         assert_eq!(proc.state, ProcessState::Creating);

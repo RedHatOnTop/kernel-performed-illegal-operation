@@ -217,7 +217,9 @@ impl SyncManager {
 
     /// Get pending syncs
     pub fn pending(&self) -> impl Iterator<Item = &SyncRegistration> {
-        self.registrations.values().filter(|r| r.state == SyncState::Pending)
+        self.registrations
+            .values()
+            .filter(|r| r.state == SyncState::Pending)
     }
 
     /// Fire pending syncs
@@ -225,8 +227,8 @@ impl SyncManager {
         let mut events = Vec::new();
 
         for registration in self.registrations.values_mut() {
-            if registration.state == SyncState::Pending 
-                || registration.state == SyncState::Reregistering 
+            if registration.state == SyncState::Pending
+                || registration.state == SyncState::Reregistering
             {
                 registration.mark_firing();
                 events.push(SyncEvent::new(
@@ -388,9 +390,13 @@ impl SyncManagerRegistry {
     }
 
     /// Get or create periodic sync manager
-    pub fn get_or_create_periodic(&mut self, worker_id: ServiceWorkerId) -> &mut PeriodicSyncManager {
+    pub fn get_or_create_periodic(
+        &mut self,
+        worker_id: ServiceWorkerId,
+    ) -> &mut PeriodicSyncManager {
         if !self.periodic_managers.contains_key(&worker_id) {
-            self.periodic_managers.insert(worker_id, PeriodicSyncManager::new(worker_id));
+            self.periodic_managers
+                .insert(worker_id, PeriodicSyncManager::new(worker_id));
         }
         self.periodic_managers.get_mut(&worker_id).unwrap()
     }
@@ -410,3 +416,195 @@ impl Default for SyncManagerRegistry {
 
 /// Global registry
 pub static SYNC_REGISTRY: RwLock<SyncManagerRegistry> = RwLock::new(SyncManagerRegistry::new());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sync_registration_initial_state() {
+        let reg = SyncRegistration::new("my-sync");
+        assert_eq!(reg.tag(), "my-sync");
+        assert_eq!(reg.state(), SyncState::Pending);
+        assert!(!reg.last_chance());
+    }
+
+    #[test]
+    fn test_sync_mark_firing() {
+        let mut reg = SyncRegistration::new("sync");
+        reg.mark_firing();
+        assert_eq!(reg.state(), SyncState::Firing);
+    }
+
+    #[test]
+    fn test_sync_mark_success() {
+        let mut reg = SyncRegistration::new("sync");
+        reg.mark_firing();
+        reg.mark_success();
+        assert_eq!(reg.state(), SyncState::Success);
+    }
+
+    #[test]
+    fn test_sync_mark_failed_retries() {
+        let mut reg = SyncRegistration::new("sync");
+        // First failure → Reregistering (will retry)
+        let will_retry = reg.mark_failed();
+        assert!(will_retry);
+        assert_eq!(reg.state(), SyncState::Reregistering);
+
+        // Second failure → Reregistering
+        let will_retry = reg.mark_failed();
+        assert!(will_retry);
+        assert_eq!(reg.state(), SyncState::Reregistering);
+
+        // Third failure → last chance (retry_count == max_retries)
+        let will_retry = reg.mark_failed();
+        assert!(!will_retry);
+        assert!(reg.last_chance());
+        assert_eq!(reg.state(), SyncState::Firing); // one last try
+    }
+
+    #[test]
+    fn test_sync_permanently_failed() {
+        let mut reg = SyncRegistration::new("sync");
+        reg.mark_permanently_failed();
+        assert_eq!(reg.state(), SyncState::Failed);
+    }
+
+    #[test]
+    fn test_sync_event() {
+        let event = SyncEvent::new("my-tag", false);
+        assert_eq!(event.tag, "my-tag");
+        assert!(!event.last_chance);
+        assert!(!event.wait_until);
+    }
+
+    #[test]
+    fn test_sync_event_wait_until() {
+        let mut event = SyncEvent::new("t", false);
+        event.wait_until();
+        assert!(event.wait_until);
+    }
+
+    #[test]
+    fn test_sync_manager_register_dedup() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = SyncManager::new(worker_id);
+        let id1 = manager.register("sync-tag");
+        let id2 = manager.register("sync-tag"); // same tag
+        assert_eq!(id1, id2); // should return same ID
+    }
+
+    #[test]
+    fn test_sync_manager_get_tags() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = SyncManager::new(worker_id);
+        manager.register("a");
+        manager.register("b");
+        let tags = manager.get_tags();
+        assert_eq!(tags.len(), 2);
+        assert!(tags.contains(&"a".into()));
+        assert!(tags.contains(&"b".into()));
+    }
+
+    #[test]
+    fn test_sync_manager_unregister() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = SyncManager::new(worker_id);
+        manager.register("tag1");
+        assert!(manager.unregister("tag1"));
+        assert!(!manager.unregister("tag1")); // already removed
+    }
+
+    #[test]
+    fn test_sync_manager_fire_pending() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = SyncManager::new(worker_id);
+        manager.register("a");
+        manager.register("b");
+
+        let events = manager.fire_pending();
+        assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn test_sync_manager_fire_pending_skips_non_pending() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = SyncManager::new(worker_id);
+        manager.register("a");
+        manager.register("b");
+
+        // Fire once: both become Firing
+        manager.fire_pending();
+
+        // Fire again: none should fire (both are Firing, not Pending)
+        let events = manager.fire_pending();
+        assert_eq!(events.len(), 0);
+    }
+
+    #[test]
+    fn test_sync_manager_complete_success_removes() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = SyncManager::new(worker_id);
+        manager.register("tag1");
+        manager.fire_pending();
+        manager.complete("tag1", true);
+        assert!(manager.get("tag1").is_none());
+    }
+
+    #[test]
+    fn test_sync_manager_complete_failure_retries() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = SyncManager::new(worker_id);
+        manager.register("tag1");
+        manager.fire_pending();
+        manager.complete("tag1", false);
+        // Should still exist (reregistered for retry)
+        let reg = manager.get("tag1").unwrap();
+        assert_eq!(reg.state(), SyncState::Reregistering);
+    }
+
+    #[test]
+    fn test_periodic_sync_registration() {
+        let opts = PeriodicSyncOptions {
+            min_interval: 60_000,
+        };
+        let reg = PeriodicSyncRegistration::new("periodic", opts);
+        assert_eq!(reg.tag(), "periodic");
+        assert_eq!(reg.min_interval(), 60_000);
+    }
+
+    #[test]
+    fn test_periodic_sync_ready_to_fire() {
+        let opts = PeriodicSyncOptions {
+            min_interval: 60_000,
+        };
+        let mut reg = PeriodicSyncRegistration::new("p", opts);
+        assert!(reg.ready_to_fire(0)); // next_fire_time is 0
+
+        reg.mark_success(100_000);
+        assert!(!reg.ready_to_fire(100_001)); // too soon
+        assert!(reg.ready_to_fire(160_000)); // past interval
+    }
+
+    #[test]
+    fn test_periodic_sync_manager() {
+        let worker_id = ServiceWorkerId::new();
+        let mut manager = PeriodicSyncManager::new(worker_id);
+        manager.register("daily", PeriodicSyncOptions::default());
+        let tags = manager.get_tags();
+        assert_eq!(tags.len(), 1);
+        assert!(manager.unregister("daily"));
+        assert!(manager.get_tags().is_empty());
+    }
+
+    #[test]
+    fn test_sync_manager_registry() {
+        let mut registry = SyncManagerRegistry::new();
+        let worker_id = ServiceWorkerId::new();
+        let mgr = registry.get_or_create(worker_id);
+        mgr.register("test");
+        assert_eq!(registry.get_or_create(worker_id).get_tags().len(), 1);
+        registry.remove(worker_id);
+    }
+}

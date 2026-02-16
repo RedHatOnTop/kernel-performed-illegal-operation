@@ -2,14 +2,14 @@
 //!
 //! Provides JavaScript bindings to DOM-like functionality.
 
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::rc::Rc;
 use core::cell::RefCell;
 
 use crate::error::JsResult;
 use crate::interpreter::Interpreter;
-use crate::object::{JsObject, PropertyKey, Callable, NativeFunction, PropertyDescriptor};
+use crate::object::{Callable, JsObject, NativeFunction, PropertyDescriptor, PropertyKey};
 use crate::value::Value;
 
 /// DOM node types.
@@ -55,7 +55,7 @@ impl DomElement {
     /// Create a new element.
     pub fn new(tag_name: &str) -> Self {
         static COUNTER: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
-        
+
         DomElement {
             tag_name: tag_name.to_uppercase(),
             id: None,
@@ -70,14 +70,15 @@ impl DomElement {
             event_listeners: Vec::new(),
         }
     }
-    
+
     /// Get attribute.
     pub fn get_attribute(&self, name: &str) -> Option<&str> {
-        self.attributes.iter()
+        self.attributes
+            .iter()
             .find(|(n, _)| n == name)
             .map(|(_, v)| v.as_str())
     }
-    
+
     /// Set attribute.
     pub fn set_attribute(&mut self, name: &str, value: &str) {
         if let Some(attr) = self.attributes.iter_mut().find(|(n, _)| n == name) {
@@ -85,7 +86,7 @@ impl DomElement {
         } else {
             self.attributes.push((name.into(), value.into()));
         }
-        
+
         // Update special attributes
         if name == "id" {
             self.id = Some(value.into());
@@ -93,29 +94,29 @@ impl DomElement {
             self.class_name = value.into();
         }
     }
-    
+
     /// Remove attribute.
     pub fn remove_attribute(&mut self, name: &str) {
         self.attributes.retain(|(n, _)| n != name);
-        
+
         if name == "id" {
             self.id = None;
         } else if name == "class" {
             self.class_name.clear();
         }
     }
-    
+
     /// Has attribute.
     pub fn has_attribute(&self, name: &str) -> bool {
         self.attributes.iter().any(|(n, _)| n == name)
     }
-    
+
     /// Add child.
     pub fn append_child(&mut self, mut child: DomElement) {
         child.parent_id = Some(self.unique_id);
         self.children.push(child);
     }
-    
+
     /// Remove child by index.
     pub fn remove_child(&mut self, index: usize) -> Option<DomElement> {
         if index < self.children.len() {
@@ -124,68 +125,76 @@ impl DomElement {
             None
         }
     }
-    
+
     /// Add event listener.
     pub fn add_event_listener(&mut self, event: &str, handler: Value) {
         self.event_listeners.push((event.into(), handler));
     }
-    
+
     /// Remove event listener.
     pub fn remove_event_listener(&mut self, event: &str) {
         self.event_listeners.retain(|(e, _)| e != event);
     }
-    
+
     /// Convert to JavaScript object.
     pub fn to_js_object(&self) -> JsObject {
         let mut obj = JsObject::new();
-        
+
         // Node type
         obj.define_property(
             PropertyKey::string("nodeType"),
-            PropertyDescriptor::data(Value::number(NodeType::Element as i32 as f64), false, true, true),
+            PropertyDescriptor::data(
+                Value::number(NodeType::Element as i32 as f64),
+                false,
+                true,
+                true,
+            ),
         );
-        
+
         // Tag name
         obj.define_property(
             PropertyKey::string("tagName"),
             PropertyDescriptor::data(Value::string(self.tag_name.clone()), false, true, true),
         );
-        
+
         // ID
         obj.define_property(
             PropertyKey::string("id"),
             PropertyDescriptor::data(
-                self.id.as_ref().map(|s| Value::string(s.clone())).unwrap_or(Value::string("")),
+                self.id
+                    .as_ref()
+                    .map(|s| Value::string(s.clone()))
+                    .unwrap_or(Value::string("")),
                 true,
                 true,
                 true,
             ),
         );
-        
+
         // Class name
         obj.define_property(
             PropertyKey::string("className"),
             PropertyDescriptor::data(Value::string(self.class_name.clone()), true, true, true),
         );
-        
+
         // Inner HTML
         obj.define_property(
             PropertyKey::string("innerHTML"),
             PropertyDescriptor::data(Value::string(self.inner_html.clone()), true, true, true),
         );
-        
+
         // Inner text
         obj.define_property(
             PropertyKey::string("innerText"),
             PropertyDescriptor::data(Value::string(self.inner_text.clone()), true, true, true),
         );
-        
+
         // Child element count
         obj.define_property(
             PropertyKey::string("childElementCount"),
             PropertyDescriptor::data(Value::number(self.children.len() as f64), false, true, true),
         );
-        
+
         obj
     }
 }
@@ -204,14 +213,15 @@ impl DomStyle {
             properties: Vec::new(),
         }
     }
-    
+
     /// Get property.
     pub fn get(&self, name: &str) -> Option<&str> {
-        self.properties.iter()
+        self.properties
+            .iter()
             .find(|(n, _)| n == name)
             .map(|(_, v)| v.as_str())
     }
-    
+
     /// Set property.
     pub fn set(&mut self, name: &str, value: &str) {
         if let Some(prop) = self.properties.iter_mut().find(|(n, _)| n == name) {
@@ -220,15 +230,16 @@ impl DomStyle {
             self.properties.push((name.into(), value.into()));
         }
     }
-    
+
     /// Remove property.
     pub fn remove(&mut self, name: &str) {
         self.properties.retain(|(n, _)| n != name);
     }
-    
+
     /// Convert to CSS string.
     pub fn to_css_string(&self) -> String {
-        self.properties.iter()
+        self.properties
+            .iter()
             .map(|(n, v)| alloc::format!("{}: {}", n, v))
             .collect::<Vec<_>>()
             .join("; ")
@@ -258,26 +269,27 @@ impl DomDocument {
             elements_by_id: Vec::new(),
         }
     }
-    
+
     /// Create an element.
     pub fn create_element(&self, tag_name: &str) -> DomElement {
         DomElement::new(tag_name)
     }
-    
+
     /// Create text node.
     pub fn create_text_node(&self, text: &str) -> DomElement {
         let mut elem = DomElement::new("#text");
         elem.inner_text = text.into();
         elem
     }
-    
+
     /// Get element by ID.
     pub fn get_element_by_id(&self, id: &str) -> Option<&DomElement> {
-        self.elements_by_id.iter()
+        self.elements_by_id
+            .iter()
             .find(|(i, _)| i == id)
             .map(|(_, e)| e)
     }
-    
+
     /// Register element by ID.
     pub fn register_element(&mut self, element: DomElement) {
         if let Some(id) = &element.id {
@@ -349,18 +361,18 @@ impl DomLocation {
     pub fn new() -> Self {
         DomLocation::default()
     }
-    
+
     /// Set from URL.
     pub fn set_url(&mut self, url: &str) {
         self.href = url.into();
         // Parse URL components (simplified)
         // TODO: Proper URL parsing
     }
-    
+
     /// Convert to JavaScript object.
     pub fn to_js_object(&self) -> JsObject {
         let mut obj = JsObject::new();
-        
+
         obj.define_property(
             PropertyKey::string("href"),
             PropertyDescriptor::data(Value::string(self.href.clone()), true, true, true),
@@ -389,7 +401,7 @@ impl DomLocation {
             PropertyKey::string("hash"),
             PropertyDescriptor::data(Value::string(self.hash.clone()), true, true, true),
         );
-        
+
         obj
     }
 }
@@ -411,12 +423,12 @@ impl DomHistory {
             index: 0,
         }
     }
-    
+
     /// Get length.
     pub fn length(&self) -> usize {
         self.entries.len()
     }
-    
+
     /// Push state.
     pub fn push_state(&mut self, url: String) {
         // Remove forward entries
@@ -424,7 +436,7 @@ impl DomHistory {
         self.entries.push(url);
         self.index = self.entries.len() - 1;
     }
-    
+
     /// Replace state.
     pub fn replace_state(&mut self, url: String) {
         if !self.entries.is_empty() {
@@ -433,21 +445,21 @@ impl DomHistory {
             self.entries.push(url);
         }
     }
-    
+
     /// Go back.
     pub fn back(&mut self) {
         if self.index > 0 {
             self.index -= 1;
         }
     }
-    
+
     /// Go forward.
     pub fn forward(&mut self) {
         if self.index < self.entries.len() - 1 {
             self.index += 1;
         }
     }
-    
+
     /// Go to specific position.
     pub fn go(&mut self, delta: i32) {
         let new_index = self.index as i32 + delta;
@@ -475,19 +487,20 @@ impl DomStorage {
     pub fn new() -> Self {
         DomStorage { data: Vec::new() }
     }
-    
+
     /// Get length.
     pub fn length(&self) -> usize {
         self.data.len()
     }
-    
+
     /// Get item.
     pub fn get_item(&self, key: &str) -> Option<&str> {
-        self.data.iter()
+        self.data
+            .iter()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.as_str())
     }
-    
+
     /// Set item.
     pub fn set_item(&mut self, key: &str, value: &str) {
         if let Some(item) = self.data.iter_mut().find(|(k, _)| k == key) {
@@ -496,31 +509,31 @@ impl DomStorage {
             self.data.push((key.into(), value.into()));
         }
     }
-    
+
     /// Remove item.
     pub fn remove_item(&mut self, key: &str) {
         self.data.retain(|(k, _)| k != key);
     }
-    
+
     /// Clear all.
     pub fn clear(&mut self) {
         self.data.clear();
     }
-    
+
     /// Get key by index.
     pub fn key(&self, index: usize) -> Option<&str> {
         self.data.get(index).map(|(k, _)| k.as_str())
     }
-    
+
     /// Convert to JavaScript object.
     pub fn to_js_object(&self) -> JsObject {
         let mut obj = JsObject::new();
-        
+
         obj.define_property(
             PropertyKey::string("length"),
             PropertyDescriptor::data(Value::number(self.data.len() as f64), false, true, true),
         );
-        
+
         // Add methods
         obj.define_property(
             PropertyKey::string("getItem"),
@@ -535,7 +548,7 @@ impl DomStorage {
                 true,
             ),
         );
-        
+
         obj.define_property(
             PropertyKey::string("setItem"),
             PropertyDescriptor::data(
@@ -549,7 +562,7 @@ impl DomStorage {
                 true,
             ),
         );
-        
+
         obj.define_property(
             PropertyKey::string("removeItem"),
             PropertyDescriptor::data(
@@ -563,7 +576,7 @@ impl DomStorage {
                 true,
             ),
         );
-        
+
         obj.define_property(
             PropertyKey::string("clear"),
             PropertyDescriptor::data(
@@ -577,7 +590,7 @@ impl DomStorage {
                 true,
             ),
         );
-        
+
         obj
     }
 }
@@ -617,14 +630,14 @@ fn storage_clear(_this: &Value, _args: &[Value]) -> JsResult<Value> {
 pub fn init_dom(interp: &mut Interpreter) {
     // Document object
     init_document(interp);
-    
+
     // Window object
     init_window(interp);
 }
 
 fn init_document(interp: &mut Interpreter) {
     let mut doc = JsObject::new();
-    
+
     // createElement
     doc.define_property(
         PropertyKey::string("createElement"),
@@ -639,7 +652,7 @@ fn init_document(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // createTextNode
     doc.define_property(
         PropertyKey::string("createTextNode"),
@@ -654,7 +667,7 @@ fn init_document(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // getElementById
     doc.define_property(
         PropertyKey::string("getElementById"),
@@ -669,7 +682,7 @@ fn init_document(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // querySelector
     doc.define_property(
         PropertyKey::string("querySelector"),
@@ -684,7 +697,7 @@ fn init_document(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // querySelectorAll
     doc.define_property(
         PropertyKey::string("querySelectorAll"),
@@ -699,13 +712,13 @@ fn init_document(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     interp.define_global("document", Value::object(doc));
 }
 
 fn init_window(interp: &mut Interpreter) {
     let mut window = JsObject::new();
-    
+
     // setTimeout
     window.define_property(
         PropertyKey::string("setTimeout"),
@@ -720,7 +733,7 @@ fn init_window(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // setInterval
     window.define_property(
         PropertyKey::string("setInterval"),
@@ -735,7 +748,7 @@ fn init_window(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // clearTimeout
     window.define_property(
         PropertyKey::string("clearTimeout"),
@@ -750,7 +763,7 @@ fn init_window(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // clearInterval
     window.define_property(
         PropertyKey::string("clearInterval"),
@@ -765,7 +778,7 @@ fn init_window(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // alert
     window.define_property(
         PropertyKey::string("alert"),
@@ -780,7 +793,7 @@ fn init_window(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // confirm
     window.define_property(
         PropertyKey::string("confirm"),
@@ -795,7 +808,7 @@ fn init_window(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // prompt
     window.define_property(
         PropertyKey::string("prompt"),
@@ -810,29 +823,29 @@ fn init_window(interp: &mut Interpreter) {
             true,
         ),
     );
-    
+
     // location
     let location = DomLocation::new();
     window.define_property(
         PropertyKey::string("location"),
         PropertyDescriptor::data(Value::object(location.to_js_object()), true, true, true),
     );
-    
+
     // localStorage
     let storage = DomStorage::new();
     window.define_property(
         PropertyKey::string("localStorage"),
         PropertyDescriptor::data(Value::object(storage.to_js_object()), false, true, true),
     );
-    
+
     // sessionStorage
     window.define_property(
         PropertyKey::string("sessionStorage"),
         PropertyDescriptor::data(Value::object(storage.to_js_object()), false, true, true),
     );
-    
+
     interp.define_global("window", Value::object(window));
-    
+
     // Also define global functions
     interp.define_native_function("setTimeout", 2, window_set_timeout);
     interp.define_native_function("setInterval", 2, window_set_interval);
@@ -855,7 +868,12 @@ fn document_create_text_node(_this: &Value, args: &[Value]) -> JsResult<Value> {
     let mut obj = JsObject::new();
     obj.define_property(
         PropertyKey::string("nodeType"),
-        PropertyDescriptor::data(Value::number(NodeType::Text as i32 as f64), false, true, true),
+        PropertyDescriptor::data(
+            Value::number(NodeType::Text as i32 as f64),
+            false,
+            true,
+            true,
+        ),
     );
     obj.define_property(
         PropertyKey::string("textContent"),
@@ -886,21 +904,21 @@ fn document_query_selector_all(_this: &Value, args: &[Value]) -> JsResult<Value>
 fn window_set_timeout(_this: &Value, args: &[Value]) -> JsResult<Value> {
     let _callback = args.first().cloned().unwrap_or(Value::undefined());
     let _delay = args.get(1).unwrap_or(&Value::number(0.0)).to_number()?;
-    
+
     // Return timer ID
     static TIMER_ID: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
     let id = TIMER_ID.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-    
+
     Ok(Value::number(id as f64))
 }
 
 fn window_set_interval(_this: &Value, args: &[Value]) -> JsResult<Value> {
     let _callback = args.first().cloned().unwrap_or(Value::undefined());
     let _delay = args.get(1).unwrap_or(&Value::number(0.0)).to_number()?;
-    
+
     static TIMER_ID: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
     let id = TIMER_ID.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-    
+
     Ok(Value::number(id as f64))
 }
 
@@ -923,11 +941,12 @@ fn window_confirm(_this: &Value, args: &[Value]) -> JsResult<Value> {
 
 fn window_prompt(_this: &Value, args: &[Value]) -> JsResult<Value> {
     let _message = args.first().unwrap_or(&Value::undefined()).to_string()?;
-    let default_value = args.get(1)
+    let default_value = args
+        .get(1)
         .map(|v| v.to_string())
         .transpose()?
         .unwrap_or_default();
-    
+
     // In a real implementation, this would show a prompt dialog
     Ok(Value::string(default_value))
 }

@@ -10,17 +10,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::app::registry::KernelAppId;
-use crate::app::permissions::{AppPermissions, FsScope, PermissionChecker};
-use crate::terminal::fs;
 use super::VfsError;
+use crate::app::permissions::{AppPermissions, FsScope, PermissionChecker};
+use crate::app::registry::KernelAppId;
+use crate::terminal::fs;
 
 /// Globally-readable system paths available to every app (read-only).
-const GLOBAL_READ_PATHS: &[&str] = &[
-    "/system/fonts",
-    "/system/locale",
-    "/system/theme",
-];
+const GLOBAL_READ_PATHS: &[&str] = &["/system/fonts", "/system/locale", "/system/theme"];
 
 /// Base directory under which all app data directories are created.
 const APP_DATA_ROOT: &str = "/apps/data";
@@ -196,13 +192,13 @@ pub fn create_app_directory(app_id: KernelAppId) {
     fs::with_fs(|f| {
         // Ensure /apps exists
         let root = f.resolve("/").unwrap_or(0);
-        let apps_ino = f.resolve("/apps").unwrap_or_else(|| {
-            f.mkdir(root, "apps").unwrap_or(0)
-        });
+        let apps_ino = f
+            .resolve("/apps")
+            .unwrap_or_else(|| f.mkdir(root, "apps").unwrap_or(0));
         // Ensure /apps/data exists
-        let data_ino = f.resolve("/apps/data").unwrap_or_else(|| {
-            f.mkdir(apps_ino, "data").unwrap_or(0)
-        });
+        let data_ino = f
+            .resolve("/apps/data")
+            .unwrap_or_else(|| f.mkdir(apps_ino, "data").unwrap_or(0));
         // Create /apps/data/{app_id}
         let dir_name = alloc::format!("{}", app_id.0);
         let _ = f.mkdir(data_ino, &dir_name);
@@ -231,8 +227,8 @@ pub fn remove_app_directory(app_id: KernelAppId) {
 mod tests {
     use super::*;
     use crate::app::permissions::{AppPermissions, FsScope, NetScope};
-    use alloc::vec;
     use alloc::string::String;
+    use alloc::vec;
 
     fn default_perms() -> AppPermissions {
         AppPermissions::default_web_app()

@@ -2,9 +2,9 @@
 //!
 //! Automatic detection of hardware components.
 
-use alloc::vec::Vec;
+use super::{DeviceResource, DeviceStatus, DeviceType, HardwareDevice};
 use alloc::string::String;
-use super::{HardwareDevice, DeviceType, DeviceStatus, DeviceResource};
+use alloc::vec::Vec;
 
 /// CPU information
 #[derive(Debug, Clone)]
@@ -177,7 +177,7 @@ pub fn detect_cpu() -> CpuInfo {
         let cpuid_result = core::arch::x86_64::__cpuid_count(7, 0);
         let ebx = cpuid_result.ebx;
         info.features.avx2 = (ebx & (1 << 5)) != 0;
-        info.features.avx512 = (ebx & (1 << 16)) != 0;  // AVX-512F
+        info.features.avx512 = (ebx & (1 << 16)) != 0; // AVX-512F
         info.features.smap = (ebx & (1 << 20)) != 0;
         info.features.smep = (ebx & (1 << 7)) != 0;
 

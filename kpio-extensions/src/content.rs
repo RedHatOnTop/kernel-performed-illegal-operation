@@ -6,14 +6,14 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use alloc::vec;
 use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 use spin::RwLock;
 
-use crate::ExtensionId;
 use crate::manifest::{ContentScript, RunAt};
+use crate::ExtensionId;
 
 /// Frame ID type.
 pub type FrameId = i32;
@@ -147,18 +147,18 @@ impl MatchPattern {
                 path: "/*".to_string(),
             });
         }
-        
+
         // Parse scheme://host/path
         let scheme_end = pattern.find("://")?;
         let scheme_str = &pattern[..scheme_end];
         let rest = &pattern[scheme_end + 3..];
-        
+
         let scheme = if scheme_str == "*" {
             MatchScheme::All
         } else {
             MatchScheme::Specific(scheme_str.to_string())
         };
-        
+
         // Find path separator
         let path_start = rest.find('/').unwrap_or(rest.len());
         let host_str = &rest[..path_start];
@@ -167,7 +167,7 @@ impl MatchPattern {
         } else {
             "/*".to_string()
         };
-        
+
         let host = if host_str == "*" {
             MatchHost::All
         } else if host_str.starts_with("*.") {
@@ -175,7 +175,7 @@ impl MatchPattern {
         } else {
             MatchHost::Specific(host_str.to_string())
         };
-        
+
         Some(Self {
             pattern: pattern.to_string(),
             scheme,
@@ -183,7 +183,7 @@ impl MatchPattern {
             path,
         })
     }
-    
+
     /// Test if URL matches this pattern.
     pub fn matches(&self, url: &str) -> bool {
         // Parse URL
@@ -193,7 +193,7 @@ impl MatchPattern {
         };
         let url_scheme = &url[..scheme_end];
         let rest = &url[scheme_end + 3..];
-        
+
         // Check scheme
         match &self.scheme {
             MatchScheme::All => {
@@ -208,7 +208,7 @@ impl MatchPattern {
                 }
             }
         }
-        
+
         // Extract host and path
         let path_start = rest.find('/').unwrap_or(rest.len());
         let url_host = &rest[..path_start];
@@ -217,7 +217,7 @@ impl MatchPattern {
         } else {
             "/"
         };
-        
+
         // Check host
         match &self.host {
             MatchHost::All => {}
@@ -232,22 +232,22 @@ impl MatchPattern {
                 }
             }
         }
-        
+
         // Check path (simple glob matching)
         self.path_matches(url_path, &self.path)
     }
-    
+
     /// Simple path glob matching.
     fn path_matches(&self, url_path: &str, pattern: &str) -> bool {
         if pattern == "/*" || pattern == "*" {
             return true;
         }
-        
+
         let parts: Vec<&str> = pattern.split('*').collect();
         if parts.is_empty() {
             return url_path == pattern;
         }
-        
+
         let mut pos = 0;
         for (i, part) in parts.iter().enumerate() {
             if part.is_empty() {
@@ -262,12 +262,12 @@ impl MatchPattern {
                 return false;
             }
         }
-        
+
         // If pattern doesn't end with *, path must end at current position
         if !pattern.ends_with('*') && pos != url_path.len() {
             return false;
         }
-        
+
         true
     }
 }
@@ -306,14 +306,18 @@ pub struct RegisteredScript {
 impl RegisteredScript {
     /// Create from manifest content script.
     pub fn from_manifest(id: &str, cs: &ContentScript) -> Self {
-        let matches: Vec<MatchPattern> = cs.matches.iter()
+        let matches: Vec<MatchPattern> = cs
+            .matches
+            .iter()
             .filter_map(|p| MatchPattern::parse(p))
             .collect();
-        
-        let exclude_matches: Vec<MatchPattern> = cs.exclude_matches.iter()
+
+        let exclude_matches: Vec<MatchPattern> = cs
+            .exclude_matches
+            .iter()
             .filter_map(|p| MatchPattern::parse(p))
             .collect();
-        
+
         Self {
             id: id.to_string(),
             matches,
@@ -330,7 +334,7 @@ impl RegisteredScript {
             persist_across_sessions: true,
         }
     }
-    
+
     /// Check if script should be injected for URL.
     pub fn should_inject(&self, url: &str) -> bool {
         // Check exclude first
@@ -339,14 +343,14 @@ impl RegisteredScript {
                 return false;
             }
         }
-        
+
         // Check include
         for pattern in &self.matches {
             if pattern.matches(url) {
                 return true;
             }
         }
-        
+
         false
     }
 }
@@ -373,46 +377,53 @@ impl ContentScriptManager {
             extension_worlds: RwLock::new(BTreeMap::new()),
         }
     }
-    
+
     /// Register extension content scripts from manifest.
-    pub fn register_extension(&self, extension_id: ExtensionId, content_scripts: Vec<ContentScript>) {
-        let scripts: Vec<RegisteredScript> = content_scripts.iter()
+    pub fn register_extension(
+        &self,
+        extension_id: ExtensionId,
+        content_scripts: Vec<ContentScript>,
+    ) {
+        let scripts: Vec<RegisteredScript> = content_scripts
+            .iter()
             .enumerate()
             .map(|(i, cs)| RegisteredScript::from_manifest(&alloc::format!("manifest_{}", i), cs))
             .collect();
-        
+
         // Allocate isolated world
         if !scripts.is_empty() {
             let mut next_id = self.next_world_id.write();
-            self.extension_worlds.write().insert(extension_id.clone(), *next_id);
+            self.extension_worlds
+                .write()
+                .insert(extension_id.clone(), *next_id);
             *next_id += 1;
         }
-        
+
         self.scripts.write().insert(extension_id, scripts);
     }
-    
+
     /// Unregister extension.
     pub fn unregister_extension(&self, extension_id: &ExtensionId) {
         self.scripts.write().remove(extension_id);
         self.extension_worlds.write().remove(extension_id);
     }
-    
+
     /// Register dynamic script.
     pub fn register_script(&self, extension_id: &ExtensionId, script: RegisteredScript) -> String {
         let id = alloc::format!("{}_{}", extension_id.as_str(), script.id);
         self.dynamic_scripts.write().insert(id.clone(), script);
         id
     }
-    
+
     /// Unregister dynamic script.
     pub fn unregister_script(&self, script_id: &str) {
         self.dynamic_scripts.write().remove(script_id);
     }
-    
+
     /// Get scripts to inject for URL.
     pub fn get_scripts_for_url(&self, url: &str) -> Vec<(ExtensionId, RegisteredScript)> {
         let mut results = Vec::new();
-        
+
         // Check manifest scripts
         let scripts = self.scripts.read();
         for (ext_id, ext_scripts) in scripts.iter() {
@@ -422,7 +433,7 @@ impl ContentScriptManager {
                 }
             }
         }
-        
+
         // Check dynamic scripts
         let dynamic = self.dynamic_scripts.read();
         for (_id, script) in dynamic.iter() {
@@ -432,15 +443,15 @@ impl ContentScriptManager {
                 results.push((ExtensionId::new("dynamic"), script.clone()));
             }
         }
-        
+
         results
     }
-    
+
     /// Get world ID for extension.
     pub fn get_world_id(&self, extension_id: &ExtensionId) -> Option<WorldId> {
         self.extension_worlds.read().get(extension_id).copied()
     }
-    
+
     /// Inject script into frame.
     pub fn inject_script(
         &self,
@@ -454,7 +465,7 @@ impl ContentScriptManager {
             error: None,
         }]
     }
-    
+
     /// Inject CSS into frame.
     pub fn inject_css(
         &self,
@@ -468,7 +479,7 @@ impl ContentScriptManager {
             error: None,
         }]
     }
-    
+
     /// Remove CSS from frame.
     pub fn remove_css(
         &self,
@@ -501,7 +512,7 @@ pub fn match_pattern(pattern: &str, url: &str) -> bool {
 pub fn matches_glob(text: &str, pattern: &str) -> bool {
     let mut text_chars = text.chars().peekable();
     let mut pattern_chars = pattern.chars().peekable();
-    
+
     while let Some(p) = pattern_chars.next() {
         match p {
             '*' => {
@@ -509,7 +520,7 @@ pub fn matches_glob(text: &str, pattern: &str) -> bool {
                 if pattern_chars.peek().is_none() {
                     return true; // * at end matches everything
                 }
-                
+
                 // Try matching rest of pattern at each position
                 let remaining: String = pattern_chars.collect();
                 while text_chars.peek().is_some() {
@@ -535,7 +546,7 @@ pub fn matches_glob(text: &str, pattern: &str) -> bool {
             }
         }
     }
-    
+
     // Pattern consumed, text should also be consumed
     text_chars.next().is_none()
 }
@@ -543,33 +554,33 @@ pub fn matches_glob(text: &str, pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_match_pattern() {
         // All URLs
         let pattern = MatchPattern::parse("<all_urls>").unwrap();
         assert!(pattern.matches("https://example.com/path"));
         assert!(pattern.matches("http://test.org/"));
-        
+
         // Specific host
         let pattern = MatchPattern::parse("https://example.com/*").unwrap();
         assert!(pattern.matches("https://example.com/path"));
         assert!(pattern.matches("https://example.com/"));
         assert!(!pattern.matches("https://other.com/path"));
         assert!(!pattern.matches("http://example.com/path"));
-        
+
         // Wildcard scheme
         let pattern = MatchPattern::parse("*://example.com/*").unwrap();
         assert!(pattern.matches("https://example.com/path"));
         assert!(pattern.matches("http://example.com/path"));
-        
+
         // Subdomain wildcard
         let pattern = MatchPattern::parse("*://*.example.com/*").unwrap();
         assert!(pattern.matches("https://sub.example.com/path"));
         assert!(pattern.matches("https://example.com/path"));
         assert!(!pattern.matches("https://notexample.com/path"));
     }
-    
+
     #[test]
     fn test_glob_matching() {
         assert!(matches_glob("hello", "hello"));
@@ -580,13 +591,13 @@ mod tests {
         assert!(!matches_glob("hello", "world"));
         assert!(!matches_glob("hello", "h?o"));
     }
-    
+
     #[test]
     fn test_content_script_manager() {
         use crate::manifest::ContentScriptWorld;
-        
+
         let manager = ContentScriptManager::new();
-        
+
         let cs = ContentScript {
             matches: vec!["*://example.com/*".to_string()],
             exclude_matches: Vec::new(),
@@ -598,16 +609,16 @@ mod tests {
             match_origin_as_fallback: false,
             world: ContentScriptWorld::Isolated,
         };
-        
+
         let ext_id = ExtensionId::new("test");
         manager.register_extension(ext_id.clone(), vec![cs]);
-        
+
         let scripts = manager.get_scripts_for_url("https://example.com/page");
         assert_eq!(scripts.len(), 1);
-        
+
         let scripts = manager.get_scripts_for_url("https://other.com/page");
         assert!(scripts.is_empty());
-        
+
         manager.unregister_extension(&ext_id);
     }
 }

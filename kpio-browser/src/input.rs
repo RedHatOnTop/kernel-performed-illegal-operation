@@ -8,7 +8,7 @@ use alloc::collections::VecDeque;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::events::{Event, EventType, EventPhase, MouseEvent, KeyboardEvent};
+use crate::events::{Event, EventPhase, EventType, KeyboardEvent, MouseEvent};
 
 /// Raw keyboard scancode to key mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,7 +187,7 @@ impl ModifierState {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Update modifier state based on scancode.
     pub fn update(&mut self, scancode: Scancode, pressed: bool) {
         match scancode {
@@ -198,7 +198,7 @@ impl ModifierState {
             _ => {}
         }
     }
-    
+
     /// Check if any modifier is pressed.
     pub fn any(&self) -> bool {
         self.ctrl || self.alt || self.shift || self.meta
@@ -209,10 +209,7 @@ impl ModifierState {
 #[derive(Debug, Clone)]
 pub enum RawInputEvent {
     /// Keyboard scancode event.
-    Keyboard {
-        scancode: Scancode,
-        pressed: bool,
-    },
+    Keyboard { scancode: Scancode, pressed: bool },
     /// Mouse button event.
     MouseButton {
         button: u8,
@@ -221,12 +218,7 @@ pub enum RawInputEvent {
         y: i32,
     },
     /// Mouse move event.
-    MouseMove {
-        x: i32,
-        y: i32,
-        dx: i32,
-        dy: i32,
-    },
+    MouseMove { x: i32, y: i32, dx: i32, dy: i32 },
     /// Mouse wheel event.
     MouseWheel {
         delta_x: i32,
@@ -334,19 +326,28 @@ impl InputManager {
             current_time: 0,
         }
     }
-    
+
     /// Update current timestamp.
     pub fn set_time(&mut self, time: u64) {
         self.current_time = time;
     }
-    
+
     /// Process a raw input event.
-    pub fn process_raw_event(&mut self, event: RawInputEvent, hit_test: impl Fn(i32, i32) -> Option<HitTestResult>) {
+    pub fn process_raw_event(
+        &mut self,
+        event: RawInputEvent,
+        hit_test: impl Fn(i32, i32) -> Option<HitTestResult>,
+    ) {
         match event {
             RawInputEvent::Keyboard { scancode, pressed } => {
                 self.process_keyboard(scancode, pressed);
             }
-            RawInputEvent::MouseButton { button, pressed, x, y } => {
+            RawInputEvent::MouseButton {
+                button,
+                pressed,
+                x,
+                y,
+            } => {
                 self.mouse_x = x;
                 self.mouse_y = y;
                 self.process_mouse_button(button, pressed, &hit_test);
@@ -356,24 +357,33 @@ impl InputManager {
                 self.mouse_y = y;
                 self.process_mouse_move(&hit_test);
             }
-            RawInputEvent::MouseWheel { delta_x, delta_y, x, y } => {
+            RawInputEvent::MouseWheel {
+                delta_x,
+                delta_y,
+                x,
+                y,
+            } => {
                 self.mouse_x = x;
                 self.mouse_y = y;
                 self.process_mouse_wheel(delta_x, delta_y, &hit_test);
             }
         }
     }
-    
+
     /// Process keyboard event.
     fn process_keyboard(&mut self, scancode: Scancode, pressed: bool) {
         // Update modifiers
         self.modifiers.update(scancode, pressed);
-        
+
         // Convert scancode to virtual key and key string
         let (vkey, key, code) = self.scancode_to_key(scancode);
-        
+
         // Create keyboard event
-        let event_type = if pressed { EventType::KeyDown } else { EventType::KeyUp };
+        let event_type = if pressed {
+            EventType::KeyDown
+        } else {
+            EventType::KeyUp
+        };
         let mut kb_event = KeyboardEvent::new(event_type, &key, &code, vkey.0);
         kb_event.ctrl_key = self.modifiers.ctrl;
         kb_event.shift_key = self.modifiers.shift;
@@ -381,37 +391,48 @@ impl InputManager {
         kb_event.meta_key = self.modifiers.meta;
         kb_event.event.timestamp = self.current_time;
         kb_event.event.is_trusted = true;
-        
+
         // Set target to focused element
         if let Some(focused) = self.focused_element {
             kb_event.event.target_id = focused;
         }
-        
-        self.event_queue.push_back(DomInputEvent::Keyboard(kb_event.clone()));
-        
+
+        self.event_queue
+            .push_back(DomInputEvent::Keyboard(kb_event.clone()));
+
         // Generate keypress event for printable characters
         if pressed && self.is_printable_key(vkey) {
             let mut keypress = kb_event;
             keypress.event.event_type = EventType::KeyPress;
             keypress.char_code = self.key_to_char(vkey, self.modifiers.shift);
-            self.event_queue.push_back(DomInputEvent::Keyboard(keypress));
+            self.event_queue
+                .push_back(DomInputEvent::Keyboard(keypress));
         }
     }
-    
+
     /// Process mouse button event.
-    fn process_mouse_button(&mut self, button: u8, pressed: bool, hit_test: impl Fn(i32, i32) -> Option<HitTestResult>) {
+    fn process_mouse_button(
+        &mut self,
+        button: u8,
+        pressed: bool,
+        hit_test: impl Fn(i32, i32) -> Option<HitTestResult>,
+    ) {
         let target = hit_test(self.mouse_x, self.mouse_y);
         let target_id = target.as_ref().map(|t| t.element_id).unwrap_or(0);
-        
+
         // Update button state
         if pressed {
             self.mouse_buttons |= 1 << button;
         } else {
             self.mouse_buttons &= !(1 << button);
         }
-        
+
         // Generate mousedown/mouseup event
-        let event_type = if pressed { EventType::MouseDown } else { EventType::MouseUp };
+        let event_type = if pressed {
+            EventType::MouseDown
+        } else {
+            EventType::MouseUp
+        };
         let mut mouse_event = MouseEvent::new(event_type, self.mouse_x, self.mouse_y, button);
         mouse_event.buttons = self.mouse_buttons;
         mouse_event.ctrl_key = self.modifiers.ctrl;
@@ -421,13 +442,14 @@ impl InputManager {
         mouse_event.event.target_id = target_id;
         mouse_event.event.timestamp = self.current_time;
         mouse_event.event.is_trusted = true;
-        
-        self.event_queue.push_back(DomInputEvent::Mouse(mouse_event));
-        
+
+        self.event_queue
+            .push_back(DomInputEvent::Mouse(mouse_event));
+
         // Generate click event on mouse up
         if !pressed && button == 0 {
             self.generate_click_event(target_id);
-            
+
             // Update focus
             if let Some(ref hit) = target {
                 if hit.focusable && self.focused_element != Some(hit.element_id) {
@@ -436,23 +458,23 @@ impl InputManager {
             }
         }
     }
-    
+
     /// Generate click event.
     fn generate_click_event(&mut self, target_id: u64) {
         // Check for double click
         let time_diff = self.current_time.saturating_sub(self.last_click_time);
         let dist_x = (self.mouse_x - self.last_click_pos.0).abs();
         let dist_y = (self.mouse_y - self.last_click_pos.1).abs();
-        
+
         if time_diff < self.double_click_threshold && dist_x < 5 && dist_y < 5 {
             self.click_count += 1;
         } else {
             self.click_count = 1;
         }
-        
+
         self.last_click_time = self.current_time;
         self.last_click_pos = (self.mouse_x, self.mouse_y);
-        
+
         // Generate click event
         let mut click_event = MouseEvent::new(EventType::Click, self.mouse_x, self.mouse_y, 0);
         click_event.event.target_id = target_id;
@@ -462,73 +484,86 @@ impl InputManager {
         click_event.shift_key = self.modifiers.shift;
         click_event.alt_key = self.modifiers.alt;
         click_event.meta_key = self.modifiers.meta;
-        
-        self.event_queue.push_back(DomInputEvent::Mouse(click_event));
-        
+
+        self.event_queue
+            .push_back(DomInputEvent::Mouse(click_event));
+
         // Generate dblclick on second click
         if self.click_count == 2 {
-            let mut dblclick_event = MouseEvent::new(EventType::DblClick, self.mouse_x, self.mouse_y, 0);
+            let mut dblclick_event =
+                MouseEvent::new(EventType::DblClick, self.mouse_x, self.mouse_y, 0);
             dblclick_event.event.target_id = target_id;
             dblclick_event.event.timestamp = self.current_time;
             dblclick_event.event.is_trusted = true;
-            
-            self.event_queue.push_back(DomInputEvent::Mouse(dblclick_event));
+
+            self.event_queue
+                .push_back(DomInputEvent::Mouse(dblclick_event));
             self.click_count = 0;
         }
     }
-    
+
     /// Process mouse move event.
     fn process_mouse_move(&mut self, hit_test: impl Fn(i32, i32) -> Option<HitTestResult>) {
         let target = hit_test(self.mouse_x, self.mouse_y);
         let target_id = target.as_ref().map(|t| t.element_id).unwrap_or(0);
-        
+
         // Generate mousemove event
         let mut move_event = MouseEvent::new(EventType::MouseMove, self.mouse_x, self.mouse_y, 0);
         move_event.buttons = self.mouse_buttons;
         move_event.event.target_id = target_id;
         move_event.event.timestamp = self.current_time;
         move_event.event.is_trusted = true;
-        
+
         self.event_queue.push_back(DomInputEvent::Mouse(move_event));
-        
+
         // Generate mouseenter/mouseleave events
         let new_hovered = Some(target_id);
         if self.hovered_element != new_hovered {
             // Mouse leave old element
             if let Some(old_id) = self.hovered_element {
-                let mut leave_event = MouseEvent::new(EventType::MouseLeave, self.mouse_x, self.mouse_y, 0);
+                let mut leave_event =
+                    MouseEvent::new(EventType::MouseLeave, self.mouse_x, self.mouse_y, 0);
                 leave_event.event.target_id = old_id;
                 leave_event.event.timestamp = self.current_time;
                 leave_event.event.is_trusted = true;
-                self.event_queue.push_back(DomInputEvent::Mouse(leave_event));
+                self.event_queue
+                    .push_back(DomInputEvent::Mouse(leave_event));
             }
-            
+
             // Mouse enter new element
             if target_id != 0 {
-                let mut enter_event = MouseEvent::new(EventType::MouseEnter, self.mouse_x, self.mouse_y, 0);
+                let mut enter_event =
+                    MouseEvent::new(EventType::MouseEnter, self.mouse_x, self.mouse_y, 0);
                 enter_event.event.target_id = target_id;
                 enter_event.event.timestamp = self.current_time;
                 enter_event.event.is_trusted = true;
-                self.event_queue.push_back(DomInputEvent::Mouse(enter_event));
+                self.event_queue
+                    .push_back(DomInputEvent::Mouse(enter_event));
             }
-            
+
             self.hovered_element = new_hovered;
         }
     }
-    
+
     /// Process mouse wheel event.
-    fn process_mouse_wheel(&mut self, delta_x: i32, delta_y: i32, hit_test: impl Fn(i32, i32) -> Option<HitTestResult>) {
+    fn process_mouse_wheel(
+        &mut self,
+        delta_x: i32,
+        delta_y: i32,
+        hit_test: impl Fn(i32, i32) -> Option<HitTestResult>,
+    ) {
         let target = hit_test(self.mouse_x, self.mouse_y);
         let target_id = target.as_ref().map(|t| t.element_id).unwrap_or(0);
-        
+
         // Generate wheel event as mouse event
         let mut wheel_event = MouseEvent::new(EventType::Wheel, self.mouse_x, self.mouse_y, 0);
         wheel_event.event.target_id = target_id;
         wheel_event.event.timestamp = self.current_time;
         wheel_event.event.is_trusted = true;
-        
-        self.event_queue.push_back(DomInputEvent::Mouse(wheel_event));
-        
+
+        self.event_queue
+            .push_back(DomInputEvent::Mouse(wheel_event));
+
         // Also queue scroll event
         self.event_queue.push_back(DomInputEvent::Scroll {
             delta_x,
@@ -536,19 +571,19 @@ impl InputManager {
             target_id,
         });
     }
-    
+
     /// Set focus to an element.
     pub fn set_focus(&mut self, element_id: Option<u64>) {
         if self.focused_element == element_id {
             return;
         }
-        
+
         // Blur old element
         if let Some(old_id) = self.focused_element {
             let mut blur_event = Event::new(EventType::Blur, old_id);
             blur_event.timestamp = self.current_time;
             blur_event.is_trusted = true;
-            
+
             let kb_event = KeyboardEvent {
                 event: blur_event,
                 key_code: 0,
@@ -561,15 +596,16 @@ impl InputManager {
                 meta_key: false,
                 repeat: false,
             };
-            self.event_queue.push_back(DomInputEvent::Keyboard(kb_event));
+            self.event_queue
+                .push_back(DomInputEvent::Keyboard(kb_event));
         }
-        
+
         // Focus new element
         if let Some(new_id) = element_id {
             let mut focus_event = Event::new(EventType::Focus, new_id);
             focus_event.timestamp = self.current_time;
             focus_event.is_trusted = true;
-            
+
             let kb_event = KeyboardEvent {
                 event: focus_event,
                 key_code: 0,
@@ -582,51 +618,92 @@ impl InputManager {
                 meta_key: false,
                 repeat: false,
             };
-            self.event_queue.push_back(DomInputEvent::Keyboard(kb_event));
+            self.event_queue
+                .push_back(DomInputEvent::Keyboard(kb_event));
         }
-        
+
         self.focused_element = element_id;
     }
-    
+
     /// Get pending events.
     pub fn poll_events(&mut self) -> Vec<DomInputEvent> {
         self.event_queue.drain(..).collect()
     }
-    
+
     /// Get current mouse position.
     pub fn mouse_position(&self) -> (i32, i32) {
         (self.mouse_x, self.mouse_y)
     }
-    
+
     /// Get focused element.
     pub fn focused_element(&self) -> Option<u64> {
         self.focused_element
     }
-    
+
     /// Get hovered element.
     pub fn hovered_element(&self) -> Option<u64> {
         self.hovered_element
     }
-    
+
     /// Get current modifiers.
     pub fn modifiers(&self) -> ModifierState {
         self.modifiers
     }
-    
+
     /// Convert scancode to virtual key and key strings.
     fn scancode_to_key(&self, scancode: Scancode) -> (VirtualKey, String, String) {
         let (vkey, key, code) = match scancode {
             Scancode::ESCAPE => (VirtualKey::ESCAPE, "Escape", "Escape"),
-            Scancode::KEY_1 => (VirtualKey::KEY_1, if self.modifiers.shift { "!" } else { "1" }, "Digit1"),
-            Scancode::KEY_2 => (VirtualKey::KEY_2, if self.modifiers.shift { "@" } else { "2" }, "Digit2"),
-            Scancode::KEY_3 => (VirtualKey::KEY_3, if self.modifiers.shift { "#" } else { "3" }, "Digit3"),
-            Scancode::KEY_4 => (VirtualKey::KEY_4, if self.modifiers.shift { "$" } else { "4" }, "Digit4"),
-            Scancode::KEY_5 => (VirtualKey::KEY_5, if self.modifiers.shift { "%" } else { "5" }, "Digit5"),
-            Scancode::KEY_6 => (VirtualKey::KEY_6, if self.modifiers.shift { "^" } else { "6" }, "Digit6"),
-            Scancode::KEY_7 => (VirtualKey::KEY_7, if self.modifiers.shift { "&" } else { "7" }, "Digit7"),
-            Scancode::KEY_8 => (VirtualKey::KEY_8, if self.modifiers.shift { "*" } else { "8" }, "Digit8"),
-            Scancode::KEY_9 => (VirtualKey::KEY_9, if self.modifiers.shift { "(" } else { "9" }, "Digit9"),
-            Scancode::KEY_0 => (VirtualKey::KEY_0, if self.modifiers.shift { ")" } else { "0" }, "Digit0"),
+            Scancode::KEY_1 => (
+                VirtualKey::KEY_1,
+                if self.modifiers.shift { "!" } else { "1" },
+                "Digit1",
+            ),
+            Scancode::KEY_2 => (
+                VirtualKey::KEY_2,
+                if self.modifiers.shift { "@" } else { "2" },
+                "Digit2",
+            ),
+            Scancode::KEY_3 => (
+                VirtualKey::KEY_3,
+                if self.modifiers.shift { "#" } else { "3" },
+                "Digit3",
+            ),
+            Scancode::KEY_4 => (
+                VirtualKey::KEY_4,
+                if self.modifiers.shift { "$" } else { "4" },
+                "Digit4",
+            ),
+            Scancode::KEY_5 => (
+                VirtualKey::KEY_5,
+                if self.modifiers.shift { "%" } else { "5" },
+                "Digit5",
+            ),
+            Scancode::KEY_6 => (
+                VirtualKey::KEY_6,
+                if self.modifiers.shift { "^" } else { "6" },
+                "Digit6",
+            ),
+            Scancode::KEY_7 => (
+                VirtualKey::KEY_7,
+                if self.modifiers.shift { "&" } else { "7" },
+                "Digit7",
+            ),
+            Scancode::KEY_8 => (
+                VirtualKey::KEY_8,
+                if self.modifiers.shift { "*" } else { "8" },
+                "Digit8",
+            ),
+            Scancode::KEY_9 => (
+                VirtualKey::KEY_9,
+                if self.modifiers.shift { "(" } else { "9" },
+                "Digit9",
+            ),
+            Scancode::KEY_0 => (
+                VirtualKey::KEY_0,
+                if self.modifiers.shift { ")" } else { "0" },
+                "Digit0",
+            ),
             Scancode::BACKSPACE => (VirtualKey::BACKSPACE, "Backspace", "Backspace"),
             Scancode::TAB => (VirtualKey::TAB, "Tab", "Tab"),
             Scancode::KEY_Q => (VirtualKey::KEY_Q, self.key_char("q"), "KeyQ"),
@@ -686,20 +763,40 @@ impl InputManager {
             Scancode::DELETE => (VirtualKey::DELETE, "Delete", "Delete"),
             _ => (VirtualKey(0), "Unidentified", "Unidentified"),
         };
-        
+
         (vkey, key.to_string(), code.to_string())
     }
-    
+
     /// Get key character considering shift/caps lock.
     fn key_char<'a>(&self, base: &'a str) -> &'a str {
         let uppercase = self.modifiers.shift ^ self.modifiers.caps_lock;
         if uppercase {
             match base {
-                "a" => "A", "b" => "B", "c" => "C", "d" => "D", "e" => "E",
-                "f" => "F", "g" => "G", "h" => "H", "i" => "I", "j" => "J",
-                "k" => "K", "l" => "L", "m" => "M", "n" => "N", "o" => "O",
-                "p" => "P", "q" => "Q", "r" => "R", "s" => "S", "t" => "T",
-                "u" => "U", "v" => "V", "w" => "W", "x" => "X", "y" => "Y",
+                "a" => "A",
+                "b" => "B",
+                "c" => "C",
+                "d" => "D",
+                "e" => "E",
+                "f" => "F",
+                "g" => "G",
+                "h" => "H",
+                "i" => "I",
+                "j" => "J",
+                "k" => "K",
+                "l" => "L",
+                "m" => "M",
+                "n" => "N",
+                "o" => "O",
+                "p" => "P",
+                "q" => "Q",
+                "r" => "R",
+                "s" => "S",
+                "t" => "T",
+                "u" => "U",
+                "v" => "V",
+                "w" => "W",
+                "x" => "X",
+                "y" => "Y",
                 "z" => "Z",
                 _ => base,
             }
@@ -707,16 +804,16 @@ impl InputManager {
             base
         }
     }
-    
+
     /// Check if key produces printable character.
     fn is_printable_key(&self, vkey: VirtualKey) -> bool {
         matches!(vkey.0, 32 | 48..=57 | 65..=90 | 186..=192 | 219..=222)
     }
-    
+
     /// Convert virtual key to character code.
     fn key_to_char(&self, vkey: VirtualKey, shift: bool) -> u32 {
         match vkey.0 {
-            32 => 32, // Space
+            32 => 32,                    // Space
             48..=57 if !shift => vkey.0, // 0-9
             48 if shift => ')' as u32,
             49 if shift => '!' as u32,
@@ -761,31 +858,36 @@ impl HitTester {
             scroll_y: 0,
         }
     }
-    
+
     /// Set scroll offset.
     pub fn set_scroll(&mut self, x: i32, y: i32) {
         self.scroll_x = x;
         self.scroll_y = y;
     }
-    
+
     /// Perform hit test at a point.
     /// Returns element ID path from root to deepest element at the point.
-    pub fn hit_test_point(&self, x: i32, y: i32, elements: &[(u64, i32, i32, i32, i32, bool, bool, CursorType)]) -> Option<HitTestResult> {
+    pub fn hit_test_point(
+        &self,
+        x: i32,
+        y: i32,
+        elements: &[(u64, i32, i32, i32, i32, bool, bool, CursorType)],
+    ) -> Option<HitTestResult> {
         // Elements are (id, x, y, width, height, focusable, clickable, cursor)
         // Find deepest element containing the point
         let test_x = x + self.scroll_x;
         let test_y = y + self.scroll_y;
-        
+
         let mut path = Vec::new();
         let mut result: Option<(u64, bool, bool, CursorType)> = None;
-        
+
         for &(id, ex, ey, ew, eh, focusable, clickable, cursor) in elements {
             if test_x >= ex && test_x < ex + ew && test_y >= ey && test_y < ey + eh {
                 path.push(id);
                 result = Some((id, focusable, clickable, cursor));
             }
         }
-        
+
         result.map(|(element_id, focusable, clickable, cursor)| HitTestResult {
             element_id,
             path,

@@ -67,8 +67,7 @@ impl Vfs {
         if norm_root == "/" {
             return true;
         }
-        norm_path == norm_root
-            || norm_path.starts_with(&alloc::format!("{}/", norm_root))
+        norm_path == norm_root || norm_path.starts_with(&alloc::format!("{}/", norm_root))
     }
 
     /// Create a file with given contents. Parent directory must exist.
@@ -86,7 +85,10 @@ impl Vfs {
     /// Read file contents.
     pub fn read_file(&self, path: &str) -> Result<&[u8], WasiError> {
         let path = Self::normalize(path);
-        self.files.get(&path).map(|v| v.as_slice()).ok_or(WasiError::NoEnt)
+        self.files
+            .get(&path)
+            .map(|v| v.as_slice())
+            .ok_or(WasiError::NoEnt)
     }
 
     /// Write to a file at a specific offset. Extends file if needed.
@@ -806,12 +808,7 @@ impl WasiCtx {
     }
 
     /// fd_readdir - Read directory entries.
-    pub fn fd_readdir(
-        &self,
-        fd: u32,
-        buf: &mut [u8],
-        cookie: u64,
-    ) -> Result<usize, WasiError> {
+    pub fn fd_readdir(&self, fd: u32, buf: &mut [u8], cookie: u64) -> Result<usize, WasiError> {
         let file = self.fds.get(&fd).ok_or(WasiError::BadF)?;
         if file.fd_type != FdType::Directory {
             return Err(WasiError::NotDir);
@@ -838,14 +835,12 @@ impl WasiCtx {
             let d_next = (i as u64) + 1;
             buf[offset..offset + 8].copy_from_slice(&d_next.to_le_bytes());
             buf[offset + 8..offset + 16].copy_from_slice(&entry.d_ino.to_le_bytes());
-            buf[offset + 16..offset + 20]
-                .copy_from_slice(&(entry.name.len() as u32).to_le_bytes());
+            buf[offset + 16..offset + 20].copy_from_slice(&(entry.name.len() as u32).to_le_bytes());
             buf[offset + 20] = entry.d_type as u8;
             buf[offset + 21] = 0;
             buf[offset + 22] = 0;
             buf[offset + 23] = 0;
-            buf[offset + 24..offset + 24 + entry.name.len()]
-                .copy_from_slice(entry.name.as_bytes());
+            buf[offset + 24..offset + 24 + entry.name.len()].copy_from_slice(entry.name.as_bytes());
 
             offset += entry_size;
         }
@@ -885,11 +880,7 @@ impl WasiCtx {
     }
 
     /// clock_time_get - Get current time in nanoseconds.
-    pub fn clock_time_get(
-        &mut self,
-        clock_id: ClockId,
-        _precision: u64,
-    ) -> Result<u64, WasiError> {
+    pub fn clock_time_get(&mut self, clock_id: ClockId, _precision: u64) -> Result<u64, WasiError> {
         match clock_id {
             ClockId::Realtime => {
                 self.monotonic_counter += 1_000_000; // +1ms per call
@@ -1502,8 +1493,13 @@ mod tests {
             .unwrap();
         let file_fd = ctx
             .path_open(
-                dir_fd, LookupFlags::empty(), "hello.txt", OFlags::empty(),
-                FdRights::READ | FdRights::SEEK, FdRights::empty(), FdFlags::empty(),
+                dir_fd,
+                LookupFlags::empty(),
+                "hello.txt",
+                OFlags::empty(),
+                FdRights::READ | FdRights::SEEK,
+                FdRights::empty(),
+                FdFlags::empty(),
             )
             .unwrap();
         let mut buf = [0u8; 64];
@@ -1519,13 +1515,21 @@ mod tests {
         let dir_fd = ctx.preopen_dir("/data");
         let file_fd = ctx
             .path_open(
-                dir_fd, LookupFlags::empty(), "output.txt", OFlags::CREAT,
-                FdRights::WRITE | FdRights::SEEK, FdRights::empty(), FdFlags::empty(),
+                dir_fd,
+                LookupFlags::empty(),
+                "output.txt",
+                OFlags::CREAT,
+                FdRights::WRITE | FdRights::SEEK,
+                FdRights::empty(),
+                FdFlags::empty(),
             )
             .unwrap();
         let n = ctx.fd_write(file_fd, b"Written data!").unwrap();
         assert_eq!(n, 13);
-        assert_eq!(ctx.vfs.read_file("/data/output.txt").unwrap(), b"Written data!");
+        assert_eq!(
+            ctx.vfs.read_file("/data/output.txt").unwrap(),
+            b"Written data!"
+        );
     }
 
     // C-QG4: Directory create + readdir
@@ -1590,15 +1594,25 @@ mod tests {
 
         // Path traversal outside /app
         let result = ctx.path_open(
-            dir_fd, LookupFlags::empty(), "../etc/passwd", OFlags::empty(),
-            FdRights::READ, FdRights::empty(), FdFlags::empty(),
+            dir_fd,
+            LookupFlags::empty(),
+            "../etc/passwd",
+            OFlags::empty(),
+            FdRights::READ,
+            FdRights::empty(),
+            FdFlags::empty(),
         );
         assert_eq!(result, Err(WasiError::Access));
 
         // Absolute path outside /app
         let result = ctx.path_open(
-            dir_fd, LookupFlags::empty(), "/etc/passwd", OFlags::empty(),
-            FdRights::READ, FdRights::empty(), FdFlags::empty(),
+            dir_fd,
+            LookupFlags::empty(),
+            "/etc/passwd",
+            OFlags::empty(),
+            FdRights::READ,
+            FdRights::empty(),
+            FdFlags::empty(),
         );
         assert_eq!(result, Err(WasiError::Access));
     }
@@ -1612,29 +1626,51 @@ mod tests {
         let dir_fd = ctx.preopen_dir("/app");
 
         // Create input file
-        ctx.vfs.create_file("/app/input.txt", b"input data 12345".to_vec()).unwrap();
+        ctx.vfs
+            .create_file("/app/input.txt", b"input data 12345".to_vec())
+            .unwrap();
 
         // Read input
-        let input_fd = ctx.path_open(
-            dir_fd, LookupFlags::empty(), "input.txt", OFlags::empty(),
-            FdRights::READ | FdRights::SEEK, FdRights::empty(), FdFlags::empty(),
-        ).unwrap();
+        let input_fd = ctx
+            .path_open(
+                dir_fd,
+                LookupFlags::empty(),
+                "input.txt",
+                OFlags::empty(),
+                FdRights::READ | FdRights::SEEK,
+                FdRights::empty(),
+                FdFlags::empty(),
+            )
+            .unwrap();
         let mut read_buf = [0u8; 256];
         let n = ctx.fd_read(input_fd, &mut read_buf).unwrap();
         assert_eq!(&read_buf[..n], b"input data 12345");
         ctx.fd_close(input_fd).unwrap();
 
         // Write output
-        let output_fd = ctx.path_open(
-            dir_fd, LookupFlags::empty(), "output.txt", OFlags::CREAT,
-            FdRights::WRITE, FdRights::empty(), FdFlags::empty(),
-        ).unwrap();
-        let output = alloc::format!("processed: {}", core::str::from_utf8(&read_buf[..n]).unwrap());
+        let output_fd = ctx
+            .path_open(
+                dir_fd,
+                LookupFlags::empty(),
+                "output.txt",
+                OFlags::CREAT,
+                FdRights::WRITE,
+                FdRights::empty(),
+                FdFlags::empty(),
+            )
+            .unwrap();
+        let output = alloc::format!(
+            "processed: {}",
+            core::str::from_utf8(&read_buf[..n]).unwrap()
+        );
         ctx.fd_write(output_fd, output.as_bytes()).unwrap();
         ctx.fd_close(output_fd).unwrap();
 
         // Verify VFS
-        assert_eq!(ctx.vfs.read_file("/app/output.txt").unwrap(), b"processed: input data 12345");
+        assert_eq!(
+            ctx.vfs.read_file("/app/output.txt").unwrap(),
+            b"processed: input data 12345"
+        );
 
         // Stdout
         ctx.fd_write(1, b"Done!\n").unwrap();
@@ -1664,12 +1700,20 @@ mod tests {
     fn test_fd_seek() {
         let mut ctx = WasiCtx::new();
         let dir_fd = ctx.preopen_dir("/app");
-        ctx.vfs.create_file("/app/data.bin", vec![1, 2, 3, 4, 5]).unwrap();
-        let fd = ctx.path_open(
-            dir_fd, LookupFlags::empty(), "data.bin", OFlags::empty(),
-            FdRights::READ | FdRights::SEEK | FdRights::TELL,
-            FdRights::empty(), FdFlags::empty(),
-        ).unwrap();
+        ctx.vfs
+            .create_file("/app/data.bin", vec![1, 2, 3, 4, 5])
+            .unwrap();
+        let fd = ctx
+            .path_open(
+                dir_fd,
+                LookupFlags::empty(),
+                "data.bin",
+                OFlags::empty(),
+                FdRights::READ | FdRights::SEEK | FdRights::TELL,
+                FdRights::empty(),
+                FdFlags::empty(),
+            )
+            .unwrap();
         let pos = ctx.fd_seek(fd, 2, Whence::Set).unwrap();
         assert_eq!(pos, 2);
         let mut buf = [0u8; 3];
@@ -1712,9 +1756,13 @@ mod tests {
         let dir_fd = ctx.preopen_dir("/d");
         ctx.vfs.create_file("/d/exists.txt", vec![]).unwrap();
         let result = ctx.path_open(
-            dir_fd, LookupFlags::empty(), "exists.txt",
+            dir_fd,
+            LookupFlags::empty(),
+            "exists.txt",
             OFlags::CREAT | OFlags::EXCL,
-            FdRights::WRITE, FdRights::empty(), FdFlags::empty(),
+            FdRights::WRITE,
+            FdRights::empty(),
+            FdFlags::empty(),
         );
         assert_eq!(result, Err(WasiError::Exist));
     }
@@ -1723,11 +1771,20 @@ mod tests {
     fn test_path_open_trunc() {
         let mut ctx = WasiCtx::new();
         let dir_fd = ctx.preopen_dir("/d");
-        ctx.vfs.create_file("/d/file.txt", b"old content".to_vec()).unwrap();
-        let fd = ctx.path_open(
-            dir_fd, LookupFlags::empty(), "file.txt", OFlags::TRUNC,
-            FdRights::READ | FdRights::WRITE, FdRights::empty(), FdFlags::empty(),
-        ).unwrap();
+        ctx.vfs
+            .create_file("/d/file.txt", b"old content".to_vec())
+            .unwrap();
+        let fd = ctx
+            .path_open(
+                dir_fd,
+                LookupFlags::empty(),
+                "file.txt",
+                OFlags::TRUNC,
+                FdRights::READ | FdRights::WRITE,
+                FdRights::empty(),
+                FdFlags::empty(),
+            )
+            .unwrap();
         let mut buf = [0u8; 64];
         let n = ctx.fd_read(fd, &mut buf).unwrap();
         assert_eq!(n, 0); // File was truncated

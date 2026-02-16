@@ -30,24 +30,24 @@
 //! └─────────────────────────────────────────────────────────────┘
 //! ```
 
-pub mod display_list;
-pub mod compositor;
-pub mod tile_cache;
-pub mod renderer;
-pub mod primitives;
 pub mod batch;
+pub mod compositor;
+pub mod display_list;
+pub mod primitives;
+pub mod renderer;
+pub mod tile_cache;
 
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::sync::Arc;
 use spin::RwLock;
 
-pub use display_list::{DisplayList, DisplayListBuilder, DisplayItem};
-pub use compositor::{WebRenderCompositor, CompositeMode};
-pub use tile_cache::{TileCache, TileKey, CachedTile};
-pub use renderer::WebRenderRenderer;
+pub use batch::{BatchKey, PrimitiveBatch};
+pub use compositor::{CompositeMode, WebRenderCompositor};
+pub use display_list::{DisplayItem, DisplayList, DisplayListBuilder};
 pub use primitives::*;
-pub use batch::{PrimitiveBatch, BatchKey};
+pub use renderer::WebRenderRenderer;
+pub use tile_cache::{CachedTile, TileCache, TileKey};
 
 /// WebRender configuration.
 #[derive(Debug, Clone)]
@@ -101,28 +101,28 @@ impl WebRenderPipeline {
             current_frame: 0,
         }
     }
-    
+
     /// Render a display list to a framebuffer.
     pub fn render(&mut self, display_list: &DisplayList, width: u32, height: u32) -> RenderResult {
         self.current_frame += 1;
-        
+
         // Build frame from display list
         let frame = self.build_frame(display_list, width, height);
-        
+
         // Update tile cache
         {
             let mut cache = self.tile_cache.write();
             cache.update(&frame);
         }
-        
+
         // Render to GPU
         self.renderer.render(&frame, &self.tile_cache.read())
     }
-    
+
     /// Build a frame from a display list.
     fn build_frame(&self, display_list: &DisplayList, width: u32, height: u32) -> Frame {
         let mut frame = Frame::new(width, height, self.current_frame);
-        
+
         // Process display items
         for item in display_list.items() {
             match item {
@@ -132,17 +132,43 @@ impl WebRenderPipeline {
                 DisplayItem::RoundedRectangle { rect, color, radii } => {
                     frame.add_rounded_rect(*rect, *color, *radii);
                 }
-                DisplayItem::Text { rect, glyphs, color, font_size } => {
+                DisplayItem::Text {
+                    rect,
+                    glyphs,
+                    color,
+                    font_size,
+                } => {
                     frame.add_text(*rect, glyphs, *color, *font_size);
                 }
-                DisplayItem::Image { rect, image_key, .. } => {
+                DisplayItem::Image {
+                    rect, image_key, ..
+                } => {
                     frame.add_image(*rect, *image_key);
                 }
-                DisplayItem::Border { rect, widths, colors, styles } => {
+                DisplayItem::Border {
+                    rect,
+                    widths,
+                    colors,
+                    styles,
+                } => {
                     frame.add_border(*rect, *widths, *colors, *styles);
                 }
-                DisplayItem::BoxShadow { rect, offset, color, blur_radius, spread_radius, inset } => {
-                    frame.add_box_shadow(*rect, *offset, *color, *blur_radius, *spread_radius, *inset);
+                DisplayItem::BoxShadow {
+                    rect,
+                    offset,
+                    color,
+                    blur_radius,
+                    spread_radius,
+                    inset,
+                } => {
+                    frame.add_box_shadow(
+                        *rect,
+                        *offset,
+                        *color,
+                        *blur_radius,
+                        *spread_radius,
+                        *inset,
+                    );
                 }
                 DisplayItem::PushClip { rect } => {
                     frame.push_clip(*rect);
@@ -167,25 +193,25 @@ impl WebRenderPipeline {
                 }
             }
         }
-        
+
         // Batch primitives
         frame.finalize();
-        
+
         frame
     }
-    
+
     /// Invalidate a region for repainting.
     pub fn invalidate(&mut self, rect: Rect) {
         let mut cache = self.tile_cache.write();
         cache.invalidate(rect);
     }
-    
+
     /// Clear all caches.
     pub fn clear_caches(&mut self) {
         self.tile_cache.write().clear();
         self.renderer.clear_caches();
     }
-    
+
     /// Get statistics.
     pub fn stats(&self) -> RenderStats {
         RenderStats {
@@ -234,28 +260,34 @@ impl Frame {
             height,
             frame_number,
             batches: Vec::new(),
-            clip_stack: vec![Rect { x: 0.0, y: 0.0, w: width as f32, h: height as f32 }],
+            clip_stack: vec![Rect {
+                x: 0.0,
+                y: 0.0,
+                w: width as f32,
+                h: height as f32,
+            }],
             context_stack: vec![StackingContext::default()],
             primitives: Vec::new(),
         }
     }
-    
+
     fn current_clip(&self) -> Rect {
         self.clip_stack.last().copied().unwrap_or(Rect::ZERO)
     }
-    
+
     fn current_context(&self) -> &StackingContext {
         self.context_stack.last().unwrap()
     }
-    
+
     fn add_rect(&mut self, rect: Rect, color: Color) {
         self.primitives.push(Primitive::Rect { rect, color });
     }
-    
+
     fn add_rounded_rect(&mut self, rect: Rect, color: Color, radii: BorderRadius) {
-        self.primitives.push(Primitive::RoundedRect { rect, color, radii });
+        self.primitives
+            .push(Primitive::RoundedRect { rect, color, radii });
     }
-    
+
     fn add_text(&mut self, rect: Rect, glyphs: &[GlyphInstance], color: Color, font_size: f32) {
         self.primitives.push(Primitive::Text {
             rect,
@@ -264,19 +296,45 @@ impl Frame {
             font_size,
         });
     }
-    
+
     fn add_image(&mut self, rect: Rect, image_key: ImageKey) {
         self.primitives.push(Primitive::Image { rect, image_key });
     }
-    
-    fn add_border(&mut self, rect: Rect, widths: SideOffsets, colors: BorderColors, styles: BorderStyles) {
-        self.primitives.push(Primitive::Border { rect, widths, colors, styles });
+
+    fn add_border(
+        &mut self,
+        rect: Rect,
+        widths: SideOffsets,
+        colors: BorderColors,
+        styles: BorderStyles,
+    ) {
+        self.primitives.push(Primitive::Border {
+            rect,
+            widths,
+            colors,
+            styles,
+        });
     }
-    
-    fn add_box_shadow(&mut self, rect: Rect, offset: Point, color: Color, blur_radius: f32, spread_radius: f32, inset: bool) {
-        self.primitives.push(Primitive::BoxShadow { rect, offset, color, blur_radius, spread_radius, inset });
+
+    fn add_box_shadow(
+        &mut self,
+        rect: Rect,
+        offset: Point,
+        color: Color,
+        blur_radius: f32,
+        spread_radius: f32,
+        inset: bool,
+    ) {
+        self.primitives.push(Primitive::BoxShadow {
+            rect,
+            offset,
+            color,
+            blur_radius,
+            spread_radius,
+            inset,
+        });
     }
-    
+
     fn add_linear_gradient(&mut self, rect: Rect, gradient: &display_list::LinearGradient) {
         self.primitives.push(Primitive::LinearGradient {
             rect,
@@ -285,7 +343,7 @@ impl Frame {
             stops: gradient.stops.iter().map(|s| (s.offset, s.color)).collect(),
         });
     }
-    
+
     fn add_radial_gradient(&mut self, rect: Rect, gradient: &display_list::RadialGradient) {
         self.primitives.push(Primitive::RadialGradient {
             rect,
@@ -294,43 +352,43 @@ impl Frame {
             stops: gradient.stops.iter().map(|s| (s.offset, s.color)).collect(),
         });
     }
-    
+
     fn push_clip(&mut self, rect: Rect) {
         let current = self.current_clip();
         let clipped = rect.intersect(&current);
         self.clip_stack.push(clipped);
     }
-    
+
     fn pop_clip(&mut self) {
         if self.clip_stack.len() > 1 {
             self.clip_stack.pop();
         }
     }
-    
+
     fn push_stacking_context(&mut self, transform: Transform, opacity: f32) {
         let mut ctx = self.current_context().clone();
         ctx.transform = ctx.transform.then(&transform);
         ctx.opacity *= opacity;
         self.context_stack.push(ctx);
     }
-    
+
     fn pop_stacking_context(&mut self) {
         if self.context_stack.len() > 1 {
             self.context_stack.pop();
         }
     }
-    
+
     fn finalize(&mut self) {
         // Sort and batch primitives
         self.batch_primitives();
     }
-    
+
     fn batch_primitives(&mut self) {
         // Group primitives by type for efficient GPU batching
         let mut rect_primitives = Vec::new();
         let mut text_primitives = Vec::new();
         let mut image_primitives = Vec::new();
-        
+
         for prim in self.primitives.drain(..) {
             match prim {
                 Primitive::Rect { .. } | Primitive::RoundedRect { .. } => {
@@ -348,16 +406,25 @@ impl Frame {
                 }
             }
         }
-        
+
         // Create batches
         if !rect_primitives.is_empty() {
-            self.batches.push(PrimitiveBatch::from_primitives(BatchKey::Rects, rect_primitives));
+            self.batches.push(PrimitiveBatch::from_primitives(
+                BatchKey::Rects,
+                rect_primitives,
+            ));
         }
         if !text_primitives.is_empty() {
-            self.batches.push(PrimitiveBatch::from_primitives(BatchKey::Text, text_primitives));
+            self.batches.push(PrimitiveBatch::from_primitives(
+                BatchKey::Text,
+                text_primitives,
+            ));
         }
         if !image_primitives.is_empty() {
-            self.batches.push(PrimitiveBatch::from_primitives(BatchKey::Images, image_primitives));
+            self.batches.push(PrimitiveBatch::from_primitives(
+                BatchKey::Images,
+                image_primitives,
+            ));
         }
     }
 }

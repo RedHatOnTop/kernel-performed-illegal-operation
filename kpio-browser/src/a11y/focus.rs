@@ -144,20 +144,23 @@ impl FocusManager {
             return None;
         }
 
-        let current_idx = self.current
+        let current_idx = self
+            .current
             .and_then(|id| self.tab_order.iter().position(|&i| i == id));
 
         let new_idx = match direction {
-            FocusDirection::Forward => {
-                current_idx
-                    .map(|i| (i + 1) % self.tab_order.len())
-                    .unwrap_or(0)
-            }
-            FocusDirection::Backward => {
-                current_idx
-                    .map(|i| if i == 0 { self.tab_order.len() - 1 } else { i - 1 })
-                    .unwrap_or(self.tab_order.len() - 1)
-            }
+            FocusDirection::Forward => current_idx
+                .map(|i| (i + 1) % self.tab_order.len())
+                .unwrap_or(0),
+            FocusDirection::Backward => current_idx
+                .map(|i| {
+                    if i == 0 {
+                        self.tab_order.len() - 1
+                    } else {
+                        i - 1
+                    }
+                })
+                .unwrap_or(self.tab_order.len() - 1),
             FocusDirection::First => 0,
             FocusDirection::Last => self.tab_order.len() - 1,
             _ => return self.current,
@@ -354,27 +357,21 @@ impl RovingTabindex {
     /// Handle key
     pub fn handle_key(&mut self, direction: FocusDirection) -> Option<u64> {
         match self.orientation {
-            Orientation::Horizontal => {
-                match direction {
-                    FocusDirection::Right => self.next(),
-                    FocusDirection::Left => self.previous(),
-                    _ => None,
-                }
-            }
-            Orientation::Vertical => {
-                match direction {
-                    FocusDirection::Down => self.next(),
-                    FocusDirection::Up => self.previous(),
-                    _ => None,
-                }
-            }
-            Orientation::Both => {
-                match direction {
-                    FocusDirection::Right | FocusDirection::Down => self.next(),
-                    FocusDirection::Left | FocusDirection::Up => self.previous(),
-                    _ => None,
-                }
-            }
+            Orientation::Horizontal => match direction {
+                FocusDirection::Right => self.next(),
+                FocusDirection::Left => self.previous(),
+                _ => None,
+            },
+            Orientation::Vertical => match direction {
+                FocusDirection::Down => self.next(),
+                FocusDirection::Up => self.previous(),
+                _ => None,
+            },
+            Orientation::Both => match direction {
+                FocusDirection::Right | FocusDirection::Down => self.next(),
+                FocusDirection::Left | FocusDirection::Up => self.previous(),
+                _ => None,
+            },
         }
     }
 }

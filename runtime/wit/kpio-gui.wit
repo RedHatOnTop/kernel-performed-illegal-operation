@@ -1,0 +1,53 @@
+// KPIO GUI Interface Definition
+// WIT format for the kpio:gui host API
+
+package kpio:gui@0.1.0;
+
+interface window {
+    record window-config {
+        width: u32,
+        height: u32,
+        title: string,
+    }
+
+    create-window: func(width: u32, height: u32) -> u32;
+    close-window: func(id: u32);
+    set-title: func(id: u32, title: string);
+}
+
+interface canvas {
+    record color {
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    }
+
+    draw-rect: func(win-id: u32, x: u32, y: u32, w: u32, h: u32, color: u32);
+    draw-text: func(win-id: u32, x: u32, y: u32, text: string, color: u32);
+    draw-line: func(win-id: u32, x0: u32, y0: u32, x1: u32, y1: u32, color: u32);
+    draw-image: func(win-id: u32, x: u32, y: u32, w: u32, h: u32, data-ptr: u32, data-len: u32);
+    clear: func(win-id: u32, color: u32);
+    request-frame: func(win-id: u32);
+}
+
+interface events {
+    enum event-type {
+        none,
+        key-down,
+        key-up,
+        mouse-move,
+        mouse-down,
+        mouse-up,
+        resize,
+        close,
+    }
+
+    poll-event: func(win-id: u32) -> event-type;
+}
+
+world gui-app {
+    import window;
+    import canvas;
+    import events;
+}

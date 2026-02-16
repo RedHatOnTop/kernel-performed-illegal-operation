@@ -3,8 +3,8 @@
 //! High-level process management including creation, loading, and lifecycle.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 use super::context::ProcessContext;
 use super::table::{Process, ProcessId, ProcessState, Thread, ThreadId, PROCESS_TABLE};
@@ -89,33 +89,22 @@ impl ProcessManager {
 
         // Parse ELF
         let loaded = Elf64Loader::parse(binary)?;
-        
+
         // Create user program
-        let user_program = UserProgram::new(
-            name.clone(),
-            loaded,
-            args,
-            envp,
-        );
+        let user_program = UserProgram::new(name.clone(), loaded, args, envp);
 
         // Create process (page table will be set up later)
         // For now, we use 0 as placeholder
         let mut process = Process::new(
-            name,
-            parent,
-            0, // Page table root - to be set up
+            name, parent, 0, // Page table root - to be set up
         );
 
         // Calculate initial stack pointer
         let initial_sp = user_program.calculate_stack_layout();
 
         // Create main thread
-        let context = ProcessContext::new_user(
-            user_program.entry_point,
-            initial_sp,
-            USER_CS,
-            USER_DS,
-        );
+        let context =
+            ProcessContext::new_user(user_program.entry_point, initial_sp, USER_CS, USER_DS);
 
         let main_thread = Thread {
             tid: ThreadId::new(),
@@ -135,14 +124,15 @@ impl ProcessManager {
         // Add to process table
         let pid = PROCESS_TABLE.add(process);
 
-        let process_name = PROCESS_TABLE.get(pid)
+        let process_name = PROCESS_TABLE
+            .get(pid)
             .map(|g| {
                 g.get(&pid)
                     .map(|p| alloc::string::String::from(p.name.as_str()))
                     .unwrap_or_else(|| alloc::string::String::from("?"))
             })
             .unwrap_or_else(|| alloc::string::String::from("?"));
-        
+
         crate::serial_println!("[KPIO] Created process {} (PID {})", process_name, pid);
 
         Ok(pid)
@@ -156,7 +146,7 @@ impl ProcessManager {
         // 1. Copy page table with COW
         // 2. Copy file descriptors
         // 3. Copy thread state
-        
+
         if PROCESS_TABLE.count() >= self.max_processes {
             return Err(ProcessError::ProcessLimitReached);
         }
@@ -172,7 +162,7 @@ impl ProcessManager {
             if let Some(_proc) = guard.get(&pid) {
                 // Process will be cleaned up by parent's wait()
                 drop(guard);
-                
+
                 // Actually modify the process
                 // (This is a simplification - proper implementation would use interior mutability)
                 crate::serial_println!("[KPIO] Process {} exited with code {}", pid, exit_code);

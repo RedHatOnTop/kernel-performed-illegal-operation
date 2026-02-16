@@ -3,10 +3,10 @@
 //! This module provides the bridge between the browser shell and kernel services.
 //! It wraps syscalls and IPC channels to provide a high-level API for browser components.
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
-use core::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Process ID type
 pub type Pid = u32;
@@ -68,10 +68,10 @@ impl KernelBridge {
         if self.initialized.swap(true, Ordering::SeqCst) {
             return Ok(()); // Already initialized
         }
-        
+
         // TODO: Initialize IPC channels with kernel
         // For now, we're in a mock state
-        
+
         Ok(())
     }
 
@@ -82,7 +82,7 @@ impl KernelBridge {
         }
 
         let pid = self.next_pid.fetch_add(1, Ordering::SeqCst);
-        
+
         let info = ProcessInfo {
             pid,
             app_name: String::from(app_name),
@@ -90,12 +90,12 @@ impl KernelBridge {
             memory_bytes: 0,
             cpu_percent: 0,
         };
-        
+
         self.processes.lock().push(info);
-        
+
         // TODO: Actually spawn process via syscall
         // syscall::spawn(app_name)
-        
+
         Ok(pid)
     }
 
@@ -120,7 +120,7 @@ impl KernelBridge {
     /// Suspend a process
     pub fn suspend(&self, pid: Pid) -> Result<(), BridgeError> {
         let mut processes = self.processes.lock();
-        
+
         if let Some(proc) = processes.iter_mut().find(|p| p.pid == pid) {
             if proc.state == AppState::Running {
                 proc.state = AppState::Suspended;
@@ -137,7 +137,7 @@ impl KernelBridge {
     /// Resume a suspended process
     pub fn resume(&self, pid: Pid) -> Result<(), BridgeError> {
         let mut processes = self.processes.lock();
-        
+
         if let Some(proc) = processes.iter_mut().find(|p| p.pid == pid) {
             if proc.state == AppState::Suspended {
                 proc.state = AppState::Running;
@@ -154,7 +154,7 @@ impl KernelBridge {
     /// Terminate a process
     pub fn terminate(&self, pid: Pid) -> Result<(), BridgeError> {
         let mut processes = self.processes.lock();
-        
+
         if let Some(pos) = processes.iter().position(|p| p.pid == pid) {
             processes.remove(pos);
             // TODO: Send SIGTERM equivalent
@@ -171,17 +171,13 @@ impl KernelBridge {
 
     /// Get process info by PID
     pub fn get_process(&self, pid: Pid) -> Option<ProcessInfo> {
-        self.processes
-            .lock()
-            .iter()
-            .find(|p| p.pid == pid)
-            .cloned()
+        self.processes.lock().iter().find(|p| p.pid == pid).cloned()
     }
 
     /// Send a signal to a process
     pub fn send_signal(&self, pid: Pid, signal: Signal) -> Result<(), BridgeError> {
         let processes = self.processes.lock();
-        
+
         if processes.iter().any(|p| p.pid == pid) {
             // TODO: Actually send signal via syscall
             match signal {
@@ -269,11 +265,11 @@ mod tests {
     fn test_process_spawn() {
         let bridge = KernelBridge::new();
         bridge.init().unwrap();
-        
+
         let pid = bridge.spawn_app("calculator").unwrap();
         assert!(pid > 0);
         assert!(bridge.is_process_running(pid));
-        
+
         bridge.terminate(pid).unwrap();
         assert!(!bridge.is_process_running(pid));
     }
@@ -282,13 +278,13 @@ mod tests {
     fn test_app_suspend_resume() {
         let bridge = KernelBridge::new();
         bridge.init().unwrap();
-        
+
         let pid = bridge.spawn_app("text-editor").unwrap();
         assert_eq!(bridge.get_state(pid), AppState::Running);
-        
+
         bridge.suspend(pid).unwrap();
         assert_eq!(bridge.get_state(pid), AppState::Suspended);
-        
+
         bridge.resume(pid).unwrap();
         assert_eq!(bridge.get_state(pid), AppState::Running);
     }

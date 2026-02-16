@@ -216,7 +216,9 @@ impl DeltaUpdate {
     /// Apply delta update
     pub fn apply(&self, source: &[u8]) -> Result<Vec<u8>, String> {
         // Calculate target size
-        let target_size = self.patches.iter()
+        let target_size = self
+            .patches
+            .iter()
             .map(|p| match p.patch_type {
                 DeltaPatchType::Copy => p.source_length,
                 DeltaPatchType::Add | DeltaPatchType::Replace => p.data.len() as u64,

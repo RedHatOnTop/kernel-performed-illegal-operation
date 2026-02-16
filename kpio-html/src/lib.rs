@@ -8,19 +8,19 @@
 
 extern crate alloc;
 
+pub mod parser;
 pub mod tokenizer;
 pub mod tree_builder;
-pub mod parser;
 
 #[cfg(test)]
 mod tests;
 
-pub use tokenizer::{Tokenizer, Token};
-pub use tree_builder::{TreeBuilder, TreeSink, NodeId};
 pub use parser::{HtmlParser, ParseError};
+pub use tokenizer::{Token, Tokenizer};
+pub use tree_builder::{NodeId, TreeBuilder, TreeSink};
 
 /// Prelude for common imports
 pub mod prelude {
-    pub use crate::{Tokenizer, Token, TreeBuilder, TreeSink, NodeId, HtmlParser, ParseError};
-    pub use crate::tokenizer::{TagToken, Attribute, TagKind};
+    pub use crate::tokenizer::{Attribute, TagKind, TagToken};
+    pub use crate::{HtmlParser, NodeId, ParseError, Token, Tokenizer, TreeBuilder, TreeSink};
 }

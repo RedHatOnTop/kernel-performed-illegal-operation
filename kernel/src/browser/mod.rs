@@ -35,18 +35,18 @@
 //!     GPU Driver          Network Driver
 //! ```
 
-pub mod protocol;
-pub mod gpu;
-pub mod network;
-pub mod input;
 pub mod compositor;
 pub mod coordinator;
-pub mod memory;
-pub mod origin;
+pub mod gpu;
+pub mod input;
 pub mod integration;
+pub mod memory;
+pub mod network;
+pub mod origin;
+pub mod protocol;
 pub mod pwa_bridge;
 
-pub use protocol::{BrowserMessage, BrowserRequest, BrowserResponse};
 pub use coordinator::{BrowserCoordinator, TabId, TabInfo, TabState};
-pub use memory::{TabManager, TabProcess, TabMemoryStats, MemoryPressure, MemoryStats};
-pub use origin::{Origin, SiteId, CoopPolicy, CoepPolicy, CorbResult};
+pub use memory::{MemoryPressure, MemoryStats, TabManager, TabMemoryStats, TabProcess};
+pub use origin::{CoepPolicy, CoopPolicy, CorbResult, Origin, SiteId};
+pub use protocol::{BrowserMessage, BrowserRequest, BrowserResponse};

@@ -6,10 +6,10 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
-use alloc::boxed::Box;
 
 /// Message ID.
 pub type MessageId = i32;
@@ -45,24 +45,24 @@ impl CdpRequest {
             session_id: None,
         }
     }
-    
+
     /// With parameters.
     pub fn with_params(mut self, params: JsonValue) -> Self {
         self.params = Some(params);
         self
     }
-    
+
     /// With session.
     pub fn with_session(mut self, session_id: SessionId) -> Self {
         self.session_id = Some(session_id);
         self
     }
-    
+
     /// Get domain name.
     pub fn domain(&self) -> &str {
         self.method.split('.').next().unwrap_or("")
     }
-    
+
     /// Get method name (without domain).
     pub fn method_name(&self) -> &str {
         self.method.split('.').nth(1).unwrap_or("")
@@ -92,7 +92,7 @@ impl CdpResponse {
             session_id: None,
         }
     }
-    
+
     /// Create an error response.
     pub fn error(id: MessageId, code: i32, message: &str) -> Self {
         Self {
@@ -106,7 +106,7 @@ impl CdpResponse {
             session_id: None,
         }
     }
-    
+
     /// With session.
     pub fn with_session(mut self, session_id: SessionId) -> Self {
         self.session_id = Some(session_id);
@@ -134,7 +134,7 @@ impl CdpError {
             data: None,
         }
     }
-    
+
     /// Invalid request (-32600).
     pub fn invalid_request(message: &str) -> Self {
         Self {
@@ -143,7 +143,7 @@ impl CdpError {
             data: None,
         }
     }
-    
+
     /// Method not found (-32601).
     pub fn method_not_found(method: &str) -> Self {
         Self {
@@ -152,7 +152,7 @@ impl CdpError {
             data: None,
         }
     }
-    
+
     /// Invalid params (-32602).
     pub fn invalid_params(message: &str) -> Self {
         Self {
@@ -161,7 +161,7 @@ impl CdpError {
             data: None,
         }
     }
-    
+
     /// Internal error (-32603).
     pub fn internal_error(message: &str) -> Self {
         Self {
@@ -170,7 +170,7 @@ impl CdpError {
             data: None,
         }
     }
-    
+
     /// Server error (-32000 to -32099).
     pub fn server_error(code: i32, message: &str) -> Self {
         Self {
@@ -201,13 +201,13 @@ impl CdpEvent {
             session_id: None,
         }
     }
-    
+
     /// With parameters.
     pub fn with_params(mut self, params: JsonValue) -> Self {
         self.params = Some(params);
         self
     }
-    
+
     /// With session.
     pub fn with_session(mut self, session_id: SessionId) -> Self {
         self.session_id = Some(session_id);
@@ -231,22 +231,22 @@ impl JsonValue {
     pub fn null() -> Self {
         Self::Null
     }
-    
+
     /// Create an empty object.
     pub fn object() -> Self {
         Self::Object(BTreeMap::new())
     }
-    
+
     /// Create an empty array.
     pub fn array() -> Self {
         Self::Array(Vec::new())
     }
-    
+
     /// Check if null.
     pub fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
-    
+
     /// Get as bool.
     pub fn as_bool(&self) -> Option<bool> {
         match self {
@@ -254,7 +254,7 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Get as number.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
@@ -262,7 +262,7 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Get as i64.
     pub fn as_i64(&self) -> Option<i64> {
         match self {
@@ -270,7 +270,7 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Get as string.
     pub fn as_str(&self) -> Option<&str> {
         match self {
@@ -278,7 +278,7 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Get as array.
     pub fn as_array(&self) -> Option<&Vec<JsonValue>> {
         match self {
@@ -286,7 +286,7 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Get as object.
     pub fn as_object(&self) -> Option<&BTreeMap<String, JsonValue>> {
         match self {
@@ -294,7 +294,7 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Get field from object.
     pub fn get(&self, key: &str) -> Option<&JsonValue> {
         match self {
@@ -302,7 +302,7 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Get field from array.
     pub fn get_index(&self, index: usize) -> Option<&JsonValue> {
         match self {
@@ -310,14 +310,14 @@ impl JsonValue {
             _ => None,
         }
     }
-    
+
     /// Insert into object.
     pub fn insert(&mut self, key: &str, value: JsonValue) {
         if let Self::Object(obj) = self {
             obj.insert(key.to_string(), value);
         }
     }
-    
+
     /// Push to array.
     pub fn push(&mut self, value: JsonValue) {
         if let Self::Array(arr) = self {
@@ -381,15 +381,15 @@ impl<T: Into<JsonValue>> From<Option<T>> for JsonValue {
 pub trait CdpDomain {
     /// Domain name (e.g., "DOM", "CSS", "Runtime").
     fn name(&self) -> &'static str;
-    
+
     /// Handle a method call.
     fn handle(&mut self, method: &str, params: Option<&JsonValue>) -> Result<JsonValue, CdpError>;
-    
+
     /// Enable the domain.
     fn enable(&mut self) -> Result<JsonValue, CdpError> {
         Ok(JsonValue::object())
     }
-    
+
     /// Disable the domain.
     fn disable(&mut self) -> Result<JsonValue, CdpError> {
         Ok(JsonValue::object())
@@ -412,17 +412,18 @@ impl ProtocolHandler {
             event_queue: Vec::new(),
         }
     }
-    
+
     /// Register a domain.
     pub fn register_domain<D: CdpDomain + Send + 'static>(&mut self, domain: D) {
-        self.domains.insert(domain.name().to_string(), Box::new(domain));
+        self.domains
+            .insert(domain.name().to_string(), Box::new(domain));
     }
-    
+
     /// Handle a request.
     pub fn handle_request(&mut self, request: CdpRequest) -> CdpResponse {
         let domain_name = request.domain();
         let method_name = request.method_name();
-        
+
         // Special handling for common methods
         if method_name == "enable" {
             if let Some(domain) = self.domains.get_mut(domain_name) {
@@ -449,7 +450,7 @@ impl ProtocolHandler {
                 };
             }
         }
-        
+
         // Handle method in domain
         if let Some(domain) = self.domains.get_mut(domain_name) {
             match domain.handle(method_name, request.params.as_ref()) {
@@ -469,17 +470,17 @@ impl ProtocolHandler {
             )
         }
     }
-    
+
     /// Queue an event.
     pub fn queue_event(&mut self, event: CdpEvent) {
         self.event_queue.push(event);
     }
-    
+
     /// Take queued events.
     pub fn take_events(&mut self) -> Vec<CdpEvent> {
         core::mem::take(&mut self.event_queue)
     }
-    
+
     /// Has queued events.
     pub fn has_events(&self) -> bool {
         !self.event_queue.is_empty()
@@ -601,13 +602,13 @@ pub struct ExecutionContextAuxData {
 /// Common CDP domain implementations.
 pub mod domains {
     use super::*;
-    
+
     /// Target domain.
     pub struct TargetDomain {
         targets: BTreeMap<String, TargetInfo>,
         sessions: BTreeMap<String, SessionId>,
     }
-    
+
     impl TargetDomain {
         pub fn new() -> Self {
             Self {
@@ -615,24 +616,28 @@ pub mod domains {
                 sessions: BTreeMap::new(),
             }
         }
-        
+
         pub fn add_target(&mut self, target: TargetInfo) {
             self.targets.insert(target.target_id.0.clone(), target);
         }
     }
-    
+
     impl Default for TargetDomain {
         fn default() -> Self {
             Self::new()
         }
     }
-    
+
     impl CdpDomain for TargetDomain {
         fn name(&self) -> &'static str {
             "Target"
         }
-        
-        fn handle(&mut self, method: &str, params: Option<&JsonValue>) -> Result<JsonValue, CdpError> {
+
+        fn handle(
+            &mut self,
+            method: &str,
+            params: Option<&JsonValue>,
+        ) -> Result<JsonValue, CdpError> {
             match method {
                 "getTargets" => {
                     let mut targets = JsonValue::array();
@@ -655,8 +660,9 @@ pub mod domains {
                             if let Some(target) = self.targets.get_mut(target_id) {
                                 target.attached = true;
                                 let session_id = SessionId(alloc::format!("session-{}", target_id));
-                                self.sessions.insert(target_id.to_string(), session_id.clone());
-                                
+                                self.sessions
+                                    .insert(target_id.to_string(), session_id.clone());
+
                                 let mut result = JsonValue::object();
                                 result.insert("sessionId", session_id.0.into());
                                 return Ok(result);
@@ -681,17 +687,20 @@ pub mod domains {
                     }
                     Ok(JsonValue::object())
                 }
-                _ => Err(CdpError::method_not_found(&alloc::format!("Target.{}", method))),
+                _ => Err(CdpError::method_not_found(&alloc::format!(
+                    "Target.{}",
+                    method
+                ))),
             }
         }
     }
-    
+
     /// Page domain.
     pub struct PageDomain {
         enabled: bool,
         frame_tree: Option<FrameInfo>,
     }
-    
+
     impl PageDomain {
         pub fn new() -> Self {
             Self {
@@ -699,34 +708,38 @@ pub mod domains {
                 frame_tree: None,
             }
         }
-        
+
         pub fn set_frame(&mut self, frame: FrameInfo) {
             self.frame_tree = Some(frame);
         }
     }
-    
+
     impl Default for PageDomain {
         fn default() -> Self {
             Self::new()
         }
     }
-    
+
     impl CdpDomain for PageDomain {
         fn name(&self) -> &'static str {
             "Page"
         }
-        
+
         fn enable(&mut self) -> Result<JsonValue, CdpError> {
             self.enabled = true;
             Ok(JsonValue::object())
         }
-        
+
         fn disable(&mut self) -> Result<JsonValue, CdpError> {
             self.enabled = false;
             Ok(JsonValue::object())
         }
-        
-        fn handle(&mut self, method: &str, _params: Option<&JsonValue>) -> Result<JsonValue, CdpError> {
+
+        fn handle(
+            &mut self,
+            method: &str,
+            _params: Option<&JsonValue>,
+        ) -> Result<JsonValue, CdpError> {
             match method {
                 "getFrameTree" => {
                     if let Some(ref frame) = self.frame_tree {
@@ -736,11 +749,11 @@ pub mod domains {
                         frame_obj.insert("url", frame.url.clone().into());
                         frame_obj.insert("securityOrigin", frame.security_origin.clone().into());
                         frame_obj.insert("mimeType", frame.mime_type.clone().into());
-                        
+
                         let mut tree = JsonValue::object();
                         tree.insert("frame", frame_obj);
                         tree.insert("childFrames", JsonValue::array());
-                        
+
                         let mut result = JsonValue::object();
                         result.insert("frameTree", tree);
                         Ok(result)
@@ -770,20 +783,22 @@ pub mod domains {
                 "captureScreenshot" => {
                     // Would capture screenshot
                     let mut result = JsonValue::object();
-                    result.insert("data", "".into());  // Base64 encoded image
+                    result.insert("data", "".into()); // Base64 encoded image
                     Ok(result)
                 }
-                _ => Err(CdpError::method_not_found(&alloc::format!("Page.{}", method))),
+                _ => Err(CdpError::method_not_found(&alloc::format!(
+                    "Page.{}", method
+                ))),
             }
         }
     }
-    
+
     /// Runtime domain.
     pub struct RuntimeDomain {
         enabled: bool,
         execution_contexts: Vec<ExecutionContextDescription>,
     }
-    
+
     impl RuntimeDomain {
         pub fn new() -> Self {
             Self {
@@ -791,42 +806,47 @@ pub mod domains {
                 execution_contexts: Vec::new(),
             }
         }
-        
+
         pub fn add_execution_context(&mut self, context: ExecutionContextDescription) {
             self.execution_contexts.push(context);
         }
     }
-    
+
     impl Default for RuntimeDomain {
         fn default() -> Self {
             Self::new()
         }
     }
-    
+
     impl CdpDomain for RuntimeDomain {
         fn name(&self) -> &'static str {
             "Runtime"
         }
-        
+
         fn enable(&mut self) -> Result<JsonValue, CdpError> {
             self.enabled = true;
             Ok(JsonValue::object())
         }
-        
+
         fn disable(&mut self) -> Result<JsonValue, CdpError> {
             self.enabled = false;
             Ok(JsonValue::object())
         }
-        
-        fn handle(&mut self, method: &str, params: Option<&JsonValue>) -> Result<JsonValue, CdpError> {
+
+        fn handle(
+            &mut self,
+            method: &str,
+            params: Option<&JsonValue>,
+        ) -> Result<JsonValue, CdpError> {
             match method {
                 "evaluate" => {
                     if let Some(params) = params {
-                        if let Some(_expression) = params.get("expression").and_then(|v| v.as_str()) {
+                        if let Some(_expression) = params.get("expression").and_then(|v| v.as_str())
+                        {
                             // Would evaluate the expression
                             let mut remote_object = JsonValue::object();
                             remote_object.insert("type", "undefined".into());
-                            
+
                             let mut result = JsonValue::object();
                             result.insert("result", remote_object);
                             return Ok(result);
@@ -838,7 +858,7 @@ pub mod domains {
                     // Would call function on object
                     let mut remote_object = JsonValue::object();
                     remote_object.insert("type", "undefined".into());
-                    
+
                     let mut result = JsonValue::object();
                     result.insert("result", remote_object);
                     Ok(result)
@@ -871,12 +891,15 @@ pub mod domains {
                     // Would run compiled script
                     let mut remote_object = JsonValue::object();
                     remote_object.insert("type", "undefined".into());
-                    
+
                     let mut result = JsonValue::object();
                     result.insert("result", remote_object);
                     Ok(result)
                 }
-                _ => Err(CdpError::method_not_found(&alloc::format!("Runtime.{}", method))),
+                _ => Err(CdpError::method_not_found(&alloc::format!(
+                    "Runtime.{}",
+                    method
+                ))),
             }
         }
     }
@@ -884,42 +907,42 @@ pub mod domains {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::domains::*;
-    
+    use super::*;
+
     #[test]
     fn test_cdp_request() {
         let request = CdpRequest::new(1, "DOM.getDocument");
         assert_eq!(request.domain(), "DOM");
         assert_eq!(request.method_name(), "getDocument");
     }
-    
+
     #[test]
     fn test_json_value() {
         let mut obj = JsonValue::object();
         obj.insert("name", "test".into());
         obj.insert("value", 42.into());
         obj.insert("enabled", true.into());
-        
+
         assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("test"));
         assert_eq!(obj.get("value").and_then(|v| v.as_i64()), Some(42));
         assert_eq!(obj.get("enabled").and_then(|v| v.as_bool()), Some(true));
     }
-    
+
     #[test]
     fn test_protocol_handler() {
         let mut handler = ProtocolHandler::new();
         handler.register_domain(TargetDomain::new());
         handler.register_domain(PageDomain::new());
         handler.register_domain(RuntimeDomain::new());
-        
+
         let request = CdpRequest::new(1, "Target.getTargets");
         let response = handler.handle_request(request);
-        
+
         assert!(response.error.is_none());
         assert!(response.result.is_some());
     }
-    
+
     #[test]
     fn test_cdp_error() {
         let error = CdpError::method_not_found("Unknown.method");

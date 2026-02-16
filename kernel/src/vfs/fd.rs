@@ -8,8 +8,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use crate::terminal::fs;
 use super::VfsError;
+use crate::terminal::fs;
 
 /// Maximum number of open file descriptors.
 const MAX_FDS: usize = 256;
@@ -56,29 +56,38 @@ pub fn init() {
     };
 
     // 0 = stdin
-    table.entries.insert(0, FdEntry {
-        path: String::from("/dev/stdin"),
-        ino: 0,
-        offset: 0,
-        flags: 0,
-        special: Some(SpecialFd::Stdin),
-    });
+    table.entries.insert(
+        0,
+        FdEntry {
+            path: String::from("/dev/stdin"),
+            ino: 0,
+            offset: 0,
+            flags: 0,
+            special: Some(SpecialFd::Stdin),
+        },
+    );
     // 1 = stdout
-    table.entries.insert(1, FdEntry {
-        path: String::from("/dev/stdout"),
-        ino: 0,
-        offset: 0,
-        flags: 1,
-        special: Some(SpecialFd::Stdout),
-    });
+    table.entries.insert(
+        1,
+        FdEntry {
+            path: String::from("/dev/stdout"),
+            ino: 0,
+            offset: 0,
+            flags: 1,
+            special: Some(SpecialFd::Stdout),
+        },
+    );
     // 2 = stderr
-    table.entries.insert(2, FdEntry {
-        path: String::from("/dev/stderr"),
-        ino: 0,
-        offset: 0,
-        flags: 1,
-        special: Some(SpecialFd::Stderr),
-    });
+    table.entries.insert(
+        2,
+        FdEntry {
+            path: String::from("/dev/stderr"),
+            ino: 0,
+            offset: 0,
+            flags: 1,
+            special: Some(SpecialFd::Stderr),
+        },
+    );
 
     *FD_TABLE.lock() = Some(table);
 }
@@ -88,7 +97,9 @@ where
     F: FnOnce(&mut FdTable) -> R,
 {
     let mut guard = FD_TABLE.lock();
-    let table = guard.as_mut().expect("FdTable not initialised — call vfs::fd::init()");
+    let table = guard
+        .as_mut()
+        .expect("FdTable not initialised — call vfs::fd::init()");
     f(table)
 }
 
@@ -106,13 +117,16 @@ pub fn open(path: &str, flags: u32) -> Result<i32, VfsError> {
                 }
                 let fd = t.next_fd;
                 t.next_fd += 1;
-                t.entries.insert(fd, FdEntry {
-                    path: String::from(path),
-                    ino,
-                    offset: 0,
-                    flags,
-                    special: None,
-                });
+                t.entries.insert(
+                    fd,
+                    FdEntry {
+                        path: String::from(path),
+                        ino,
+                        offset: 0,
+                        flags,
+                        special: None,
+                    },
+                );
                 Ok(fd)
             })?;
             Ok(fd)
@@ -121,20 +135,23 @@ pub fn open(path: &str, flags: u32) -> Result<i32, VfsError> {
             // O_CREAT: create file
             if flags & 0o100 != 0 {
                 let (parent_path, name) = super::split_path(path);
-                let parent_ino = fs::with_fs(|f| f.resolve(parent_path))
-                    .ok_or(VfsError::NotFound)?;
+                let parent_ino =
+                    fs::with_fs(|f| f.resolve(parent_path)).ok_or(VfsError::NotFound)?;
                 let new_ino = fs::with_fs(|f| f.create_file(parent_ino, name, b""))
                     .map_err(|_| VfsError::IoError)?;
                 let fd = with_table(|t| {
                     let fd = t.next_fd;
                     t.next_fd += 1;
-                    t.entries.insert(fd, FdEntry {
-                        path: String::from(path),
-                        ino: new_ino,
-                        offset: 0,
-                        flags,
-                        special: None,
-                    });
+                    t.entries.insert(
+                        fd,
+                        FdEntry {
+                            path: String::from(path),
+                            ino: new_ino,
+                            offset: 0,
+                            flags,
+                            special: None,
+                        },
+                    );
                     fd
                 });
                 Ok(fd)
@@ -148,9 +165,7 @@ pub fn open(path: &str, flags: u32) -> Result<i32, VfsError> {
 /// Read up to `len` bytes from an fd. Returns data read.
 pub fn read(fd: i32, len: usize) -> Result<Vec<u8>, VfsError> {
     // Stdio: stdin returns empty (no interactive input via syscall)
-    let entry = with_table(|t| {
-        t.entries.get(&fd).cloned().ok_or(VfsError::InvalidFd)
-    })?;
+    let entry = with_table(|t| t.entries.get(&fd).cloned().ok_or(VfsError::InvalidFd))?;
 
     if entry.special == Some(SpecialFd::Stdin) {
         return Ok(Vec::new());
@@ -159,8 +174,7 @@ pub fn read(fd: i32, len: usize) -> Result<Vec<u8>, VfsError> {
         return Err(VfsError::PermissionDenied);
     }
 
-    let data = fs::with_fs(|f| f.read_file(entry.ino))
-        .map_err(|_| VfsError::IoError)?;
+    let data = fs::with_fs(|f| f.read_file(entry.ino)).map_err(|_| VfsError::IoError)?;
 
     let start = entry.offset.min(data.len());
     let end = (start + len).min(data.len());
@@ -179,9 +193,7 @@ pub fn read(fd: i32, len: usize) -> Result<Vec<u8>, VfsError> {
 
 /// Write bytes to an fd. Returns count written.
 pub fn write(fd: i32, data: &[u8]) -> Result<usize, VfsError> {
-    let entry = with_table(|t| {
-        t.entries.get(&fd).cloned().ok_or(VfsError::InvalidFd)
-    })?;
+    let entry = with_table(|t| t.entries.get(&fd).cloned().ok_or(VfsError::InvalidFd))?;
 
     // Stdout / stderr
     if entry.special == Some(SpecialFd::Stdout) || entry.special == Some(SpecialFd::Stderr) {
@@ -198,11 +210,9 @@ pub fn write(fd: i32, data: &[u8]) -> Result<usize, VfsError> {
     // Append or overwrite
     let append = entry.flags & 0o2000 != 0;
     if append {
-        fs::with_fs(|f| f.append_file(entry.ino, data))
-            .map_err(|_| VfsError::IoError)?;
+        fs::with_fs(|f| f.append_file(entry.ino, data)).map_err(|_| VfsError::IoError)?;
     } else {
-        fs::with_fs(|f| f.write_file(entry.ino, data))
-            .map_err(|_| VfsError::IoError)?;
+        fs::with_fs(|f| f.write_file(entry.ino, data)).map_err(|_| VfsError::IoError)?;
     }
 
     with_table(|t| {
@@ -230,13 +240,11 @@ pub fn lseek(fd: i32, offset: i64, whence: u32) -> Result<u64, VfsError> {
     with_table(|t| {
         let entry = t.entries.get_mut(&fd).ok_or(VfsError::InvalidFd)?;
         let new_offset = match whence {
-            0 => offset as usize,                    // SEEK_SET
+            0 => offset as usize,                         // SEEK_SET
             1 => (entry.offset as i64 + offset) as usize, // SEEK_CUR
             2 => {
                 // SEEK_END — need file size
-                let size = fs::with_fs(|f| {
-                    f.get(entry.ino).map(|i| i.size as usize).unwrap_or(0)
-                });
+                let size = fs::with_fs(|f| f.get(entry.ino).map(|i| i.size as usize).unwrap_or(0));
                 (size as i64 + offset) as usize
             }
             _ => return Err(VfsError::IoError),

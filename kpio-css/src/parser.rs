@@ -1,18 +1,18 @@
 //! CSS Parser - Tokenization and parsing of CSS
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::vec;
-use core::str::Chars;
+use alloc::vec::Vec;
 use core::iter::Peekable;
+use core::str::Chars;
 
-use crate::properties::{PropertyId, PropertyDeclaration, DeclarationBlock};
+use crate::properties::{DeclarationBlock, PropertyDeclaration, PropertyId};
 use crate::selector::{
-    Selector, SelectorList, SelectorComponent, Combinator,
-    AttributeOperator, CaseSensitivity, PseudoClass, PseudoElement, NthExpr,
+    AttributeOperator, CaseSensitivity, Combinator, NthExpr, PseudoClass, PseudoElement, Selector,
+    SelectorComponent, SelectorList,
 };
-use crate::values::{CssValue, Length, LengthUnit, Color};
-use crate::stylesheet::{Stylesheet, Rule, StyleRule, AtRule};
+use crate::stylesheet::{AtRule, Rule, StyleRule, Stylesheet};
+use crate::values::{Color, CssValue, Length, LengthUnit};
 
 use servo_types::LocalName;
 
@@ -97,7 +97,7 @@ impl<'a> CssParser<'a> {
     pub fn parse_style_rule(&mut self) -> Result<StyleRule, ParseError> {
         let selectors = self.parse_selector_list()?;
         self.skip_whitespace();
-        
+
         if self.consume_char() != Some('{') {
             return Err(ParseError::UnexpectedToken("expected '{'".into()));
         }
@@ -140,20 +140,26 @@ impl<'a> CssParser<'a> {
 
         loop {
             self.skip_whitespace();
-            
+
             match self.peek_char() {
                 Some('{') | Some(',') | None => break,
                 Some('>') => {
                     self.consume_char();
-                    selector.components.push(SelectorComponent::Combinator(Combinator::Child));
+                    selector
+                        .components
+                        .push(SelectorComponent::Combinator(Combinator::Child));
                 }
                 Some('+') => {
                     self.consume_char();
-                    selector.components.push(SelectorComponent::Combinator(Combinator::NextSibling));
+                    selector
+                        .components
+                        .push(SelectorComponent::Combinator(Combinator::NextSibling));
                 }
                 Some('~') => {
                     self.consume_char();
-                    selector.components.push(SelectorComponent::Combinator(Combinator::SubsequentSibling));
+                    selector
+                        .components
+                        .push(SelectorComponent::Combinator(Combinator::SubsequentSibling));
                 }
                 Some('*') => {
                     self.consume_char();
@@ -178,15 +184,21 @@ impl<'a> CssParser<'a> {
                     if self.peek_char() == Some(':') {
                         self.consume_char();
                         let pseudo_element = self.parse_pseudo_element()?;
-                        selector.components.push(SelectorComponent::PseudoElement(pseudo_element));
+                        selector
+                            .components
+                            .push(SelectorComponent::PseudoElement(pseudo_element));
                     } else {
                         let pseudo_class = self.parse_pseudo_class()?;
-                        selector.components.push(SelectorComponent::PseudoClass(pseudo_class));
+                        selector
+                            .components
+                            .push(SelectorComponent::PseudoClass(pseudo_class));
                     }
                 }
                 Some(c) if is_ident_start(c) => {
                     let name = self.parse_ident()?;
-                    selector.components.push(SelectorComponent::Type(LocalName::new(&name)));
+                    selector
+                        .components
+                        .push(SelectorComponent::Type(LocalName::new(&name)));
                 }
                 _ => break,
             }
@@ -217,7 +229,7 @@ impl<'a> CssParser<'a> {
         };
 
         self.skip_whitespace();
-        
+
         // Check for case sensitivity flag
         let case_sensitivity = if self.peek_char() == Some('i') || self.peek_char() == Some('I') {
             self.consume_char();
@@ -270,14 +282,16 @@ impl<'a> CssParser<'a> {
                 self.expect_char('=')?;
                 Ok(AttributeOperator::Substring)
             }
-            _ => Err(ParseError::UnexpectedToken("expected attribute operator".into())),
+            _ => Err(ParseError::UnexpectedToken(
+                "expected attribute operator".into(),
+            )),
         }
     }
 
     /// Parse a pseudo-class.
     fn parse_pseudo_class(&mut self) -> Result<PseudoClass, ParseError> {
         let name = self.parse_ident()?;
-        
+
         match name.as_str() {
             "hover" => Ok(PseudoClass::Hover),
             "active" => Ok(PseudoClass::Active),
@@ -317,14 +331,17 @@ impl<'a> CssParser<'a> {
                     _ => unreachable!(),
                 }
             }
-            _ => Err(ParseError::InvalidSelector(alloc::format!("unknown pseudo-class: {}", name))),
+            _ => Err(ParseError::InvalidSelector(alloc::format!(
+                "unknown pseudo-class: {}",
+                name
+            ))),
         }
     }
 
     /// Parse an An+B expression.
     fn parse_nth_expr(&mut self) -> Result<NthExpr, ParseError> {
         self.skip_whitespace();
-        
+
         let s = self.consume_until(')');
         let s = s.trim();
 
@@ -348,7 +365,7 @@ impl<'a> CssParser<'a> {
     /// Parse a pseudo-element.
     fn parse_pseudo_element(&mut self) -> Result<PseudoElement, ParseError> {
         let name = self.parse_ident()?;
-        
+
         match name.as_str() {
             "before" => Ok(PseudoElement::Before),
             "after" => Ok(PseudoElement::After),
@@ -358,7 +375,10 @@ impl<'a> CssParser<'a> {
             "placeholder" => Ok(PseudoElement::Placeholder),
             "marker" => Ok(PseudoElement::Marker),
             "backdrop" => Ok(PseudoElement::Backdrop),
-            _ => Err(ParseError::InvalidSelector(alloc::format!("unknown pseudo-element: {}", name))),
+            _ => Err(ParseError::InvalidSelector(alloc::format!(
+                "unknown pseudo-element: {}",
+                name
+            ))),
         }
     }
 
@@ -432,27 +452,36 @@ impl<'a> CssParser<'a> {
             PropertyId::Color | PropertyId::BackgroundColor | PropertyId::BorderColor => {
                 self.parse_color_value(value_str)
             }
-            PropertyId::Width | PropertyId::Height | PropertyId::MinWidth | PropertyId::MinHeight
-            | PropertyId::MaxWidth | PropertyId::MaxHeight
-            | PropertyId::MarginTop | PropertyId::MarginRight | PropertyId::MarginBottom | PropertyId::MarginLeft
-            | PropertyId::PaddingTop | PropertyId::PaddingRight | PropertyId::PaddingBottom | PropertyId::PaddingLeft
-            | PropertyId::Top | PropertyId::Right | PropertyId::Bottom | PropertyId::Left
-            | PropertyId::FontSize | PropertyId::LineHeight
-            | PropertyId::Gap | PropertyId::RowGap | PropertyId::ColumnGap => {
-                self.parse_length_value(value_str)
-            }
-            PropertyId::Display => {
-                Ok(CssValue::Keyword(value_str.to_string()))
-            }
-            PropertyId::Position => {
-                Ok(CssValue::Keyword(value_str.to_string()))
-            }
-            PropertyId::FlexGrow | PropertyId::FlexShrink | PropertyId::Order | PropertyId::ZIndex => {
-                self.parse_number_value(value_str)
-            }
-            PropertyId::Opacity => {
-                self.parse_number_value(value_str)
-            }
+            PropertyId::Width
+            | PropertyId::Height
+            | PropertyId::MinWidth
+            | PropertyId::MinHeight
+            | PropertyId::MaxWidth
+            | PropertyId::MaxHeight
+            | PropertyId::MarginTop
+            | PropertyId::MarginRight
+            | PropertyId::MarginBottom
+            | PropertyId::MarginLeft
+            | PropertyId::PaddingTop
+            | PropertyId::PaddingRight
+            | PropertyId::PaddingBottom
+            | PropertyId::PaddingLeft
+            | PropertyId::Top
+            | PropertyId::Right
+            | PropertyId::Bottom
+            | PropertyId::Left
+            | PropertyId::FontSize
+            | PropertyId::LineHeight
+            | PropertyId::Gap
+            | PropertyId::RowGap
+            | PropertyId::ColumnGap => self.parse_length_value(value_str),
+            PropertyId::Display => Ok(CssValue::Keyword(value_str.to_string())),
+            PropertyId::Position => Ok(CssValue::Keyword(value_str.to_string())),
+            PropertyId::FlexGrow
+            | PropertyId::FlexShrink
+            | PropertyId::Order
+            | PropertyId::ZIndex => self.parse_number_value(value_str),
+            PropertyId::Opacity => self.parse_number_value(value_str),
             _ => {
                 // Default: try to parse as length, number, or keyword
                 if let Ok(length) = self.parse_length_value(value_str) {
@@ -489,12 +518,8 @@ impl<'a> CssParser<'a> {
             "purple" => Color::PURPLE,
             "orange" => Color::ORANGE,
             "pink" => Color::PINK,
-            _ if s.starts_with('#') => {
-                self.parse_hex_color(&s[1..])?
-            }
-            _ if s.starts_with("rgb(") || s.starts_with("rgba(") => {
-                self.parse_rgb_function(s)?
-            }
+            _ if s.starts_with('#') => self.parse_hex_color(&s[1..])?,
+            _ if s.starts_with("rgb(") || s.starts_with("rgba(") => self.parse_rgb_function(s)?,
             _ => return Err(ParseError::InvalidColor(s.to_string())),
         };
 
@@ -507,24 +532,34 @@ impl<'a> CssParser<'a> {
         match s.len() {
             3 => {
                 // #RGB
-                let r = u8::from_str_radix(&s[0..1], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-                let g = u8::from_str_radix(&s[1..2], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-                let b = u8::from_str_radix(&s[2..3], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let r = u8::from_str_radix(&s[0..1], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let g = u8::from_str_radix(&s[1..2], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let b = u8::from_str_radix(&s[2..3], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
                 Ok(Color::rgb(r * 17, g * 17, b * 17))
             }
             6 => {
                 // #RRGGBB
-                let r = u8::from_str_radix(&s[0..2], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-                let g = u8::from_str_radix(&s[2..4], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-                let b = u8::from_str_radix(&s[4..6], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let r = u8::from_str_radix(&s[0..2], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let g = u8::from_str_radix(&s[2..4], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let b = u8::from_str_radix(&s[4..6], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
                 Ok(Color::rgb(r, g, b))
             }
             8 => {
                 // #RRGGBBAA
-                let r = u8::from_str_radix(&s[0..2], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-                let g = u8::from_str_radix(&s[2..4], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-                let b = u8::from_str_radix(&s[4..6], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-                let a = u8::from_str_radix(&s[6..8], 16).map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let r = u8::from_str_radix(&s[0..2], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let g = u8::from_str_radix(&s[2..4], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let b = u8::from_str_radix(&s[4..6], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+                let a = u8::from_str_radix(&s[6..8], 16)
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
                 Ok(Color::rgba(r, g, b, a))
             }
             _ => Err(ParseError::InvalidColor(s.to_string())),
@@ -534,26 +569,48 @@ impl<'a> CssParser<'a> {
     /// Parse rgb() or rgba() function.
     fn parse_rgb_function(&self, s: &str) -> Result<Color, ParseError> {
         // Simplified: extract numbers
-        let start = s.find('(').ok_or_else(|| ParseError::InvalidColor(s.to_string()))? + 1;
-        let end = s.find(')').ok_or_else(|| ParseError::InvalidColor(s.to_string()))?;
+        let start = s
+            .find('(')
+            .ok_or_else(|| ParseError::InvalidColor(s.to_string()))?
+            + 1;
+        let end = s
+            .find(')')
+            .ok_or_else(|| ParseError::InvalidColor(s.to_string()))?;
         let inner = &s[start..end];
-        
-        let parts: Vec<&str> = inner.split(|c| c == ',' || c == ' ').filter(|s| !s.is_empty()).collect();
-        
+
+        let parts: Vec<&str> = inner
+            .split(|c| c == ',' || c == ' ')
+            .filter(|s| !s.is_empty())
+            .collect();
+
         if parts.len() < 3 {
             return Err(ParseError::InvalidColor(s.to_string()));
         }
 
-        let r = parts[0].trim().parse::<u8>().map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-        let g = parts[1].trim().parse::<u8>().map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-        let b = parts[2].trim().parse::<u8>().map_err(|_| ParseError::InvalidColor(s.to_string()))?;
-        
+        let r = parts[0]
+            .trim()
+            .parse::<u8>()
+            .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+        let g = parts[1]
+            .trim()
+            .parse::<u8>()
+            .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+        let b = parts[2]
+            .trim()
+            .parse::<u8>()
+            .map_err(|_| ParseError::InvalidColor(s.to_string()))?;
+
         let a = if parts.len() >= 4 {
             let a_str = parts[3].trim();
             if a_str.contains('.') {
-                (a_str.parse::<f32>().map_err(|_| ParseError::InvalidColor(s.to_string()))? * 255.0) as u8
+                (a_str
+                    .parse::<f32>()
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?
+                    * 255.0) as u8
             } else {
-                a_str.parse::<u8>().map_err(|_| ParseError::InvalidColor(s.to_string()))?
+                a_str
+                    .parse::<u8>()
+                    .map_err(|_| ParseError::InvalidColor(s.to_string()))?
             }
         } else {
             255
@@ -572,11 +629,15 @@ impl<'a> CssParser<'a> {
         }
 
         // Find where the number ends and unit begins
-        let num_end = s.find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-').unwrap_or(s.len());
+        let num_end = s
+            .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
+            .unwrap_or(s.len());
         let num_str = &s[..num_end];
         let unit_str = &s[num_end..];
 
-        let value: f32 = num_str.parse().map_err(|_| ParseError::InvalidNumber(s.to_string()))?;
+        let value: f32 = num_str
+            .parse()
+            .map_err(|_| ParseError::InvalidNumber(s.to_string()))?;
 
         let unit = match unit_str {
             "px" | "" => LengthUnit::Px,
@@ -619,7 +680,7 @@ impl<'a> CssParser<'a> {
 
         // Consume until block or semicolon
         let prelude = self.consume_until_block_start();
-        
+
         let block = if self.peek_char() == Some('{') {
             self.consume_char();
             let content = self.consume_block_content();
@@ -661,7 +722,10 @@ impl<'a> CssParser<'a> {
         if self.consume_char() == Some(expected) {
             Ok(())
         } else {
-            Err(ParseError::UnexpectedToken(alloc::format!("expected '{}'", expected)))
+            Err(ParseError::UnexpectedToken(alloc::format!(
+                "expected '{}'",
+                expected
+            )))
         }
     }
 
@@ -694,7 +758,7 @@ impl<'a> CssParser<'a> {
 
     fn parse_ident(&mut self) -> Result<String, ParseError> {
         let mut result = String::new();
-        
+
         while let Some(c) = self.peek_char() {
             if is_ident_char(c) {
                 result.push(c);

@@ -4,9 +4,9 @@
 //! `KernelAppId` and is persisted to VFS as `/system/apps/registry.json`.
 
 use alloc::collections::BTreeMap;
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 use spin::Mutex;
 
 use super::error::AppError;
@@ -175,7 +175,10 @@ impl AppRegistry {
 
     /// Find apps by type.
     pub fn find_by_type(&self, is_match: fn(&KernelAppType) -> bool) -> Vec<&KernelAppDescriptor> {
-        self.apps.values().filter(|d| is_match(&d.app_type)).collect()
+        self.apps
+            .values()
+            .filter(|d| is_match(&d.app_type))
+            .collect()
     }
 
     /// Return all WebApp-type descriptors.
@@ -196,8 +199,7 @@ impl AppRegistry {
         // Ensure parent directory exists
         let _ = Self::ensure_dir("/system");
         let _ = Self::ensure_dir("/system/apps");
-        crate::vfs::write_all(REGISTRY_PATH, json.as_bytes())
-            .map_err(|_| AppError::IoError)?;
+        crate::vfs::write_all(REGISTRY_PATH, json.as_bytes()).map_err(|_| AppError::IoError)?;
         crate::serial_println!("[KPIO/App] Registry saved ({} apps)", self.apps.len());
         Ok(())
     }
@@ -209,10 +211,7 @@ impl AppRegistry {
             Ok(data) => {
                 if let Ok(json_str) = core::str::from_utf8(&data) {
                     self.deserialize_json(json_str);
-                    crate::serial_println!(
-                        "[KPIO/App] Registry loaded ({} apps)",
-                        self.apps.len()
-                    );
+                    crate::serial_println!("[KPIO/App] Registry loaded ({} apps)", self.apps.len());
                 }
                 Ok(())
             }
@@ -252,7 +251,10 @@ impl AppRegistry {
 
             // app_type
             match &desc.app_type {
-                KernelAppType::WebApp { scope, offline_capable } => {
+                KernelAppType::WebApp {
+                    scope,
+                    offline_capable,
+                } => {
                     s.push_str(",\"type\":\"web\"");
                     s.push_str(&format!(",\"scope\":\"{}\"", Self::escape_json(scope)));
                     s.push_str(&format!(",\"offline\":{}", offline_capable));
@@ -357,8 +359,7 @@ impl AppRegistry {
             None => return, // malformed
         };
         let entry_point = get_str("entry_point").unwrap_or_default();
-        let install_path = get_str("install_path")
-            .unwrap_or_else(|| format!("/apps/data/{}/", id));
+        let install_path = get_str("install_path").unwrap_or_else(|| format!("/apps/data/{}/", id));
         let installed_at = get_u64("installed_at");
         let last_launched = get_u64("last_launched");
         let type_str = get_str("type").unwrap_or_default();
@@ -369,8 +370,7 @@ impl AppRegistry {
                 offline_capable: get_bool("offline"),
             },
             "wasm" => KernelAppType::WasmApp {
-                wasi_version: get_str("wasi_version")
-                    .unwrap_or_else(|| String::from("preview2")),
+                wasi_version: get_str("wasi_version").unwrap_or_else(|| String::from("preview2")),
             },
             _ => KernelAppType::NativeApp,
         };
@@ -424,8 +424,7 @@ impl AppRegistry {
 
     /// Current kernel "time" — uses a simple counter for now.
     fn now() -> u64 {
-        static COUNTER: core::sync::atomic::AtomicU64 =
-            core::sync::atomic::AtomicU64::new(1);
+        static COUNTER: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
         COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
     }
 }
@@ -634,7 +633,10 @@ mod tests {
         let notes = reg2.find_by_name("Notes").unwrap();
         assert!(matches!(
             notes.app_type,
-            KernelAppType::WebApp { offline_capable: true, .. }
+            KernelAppType::WebApp {
+                offline_capable: true,
+                ..
+            }
         ));
     }
 
@@ -642,10 +644,20 @@ mod tests {
     fn test_auto_increment_ids() {
         let mut reg = AppRegistry::new();
         let id1 = reg
-            .register(KernelAppType::NativeApp, String::from("A"), String::from("/a"), None)
+            .register(
+                KernelAppType::NativeApp,
+                String::from("A"),
+                String::from("/a"),
+                None,
+            )
             .unwrap();
         let id2 = reg
-            .register(KernelAppType::NativeApp, String::from("B"), String::from("/b"), None)
+            .register(
+                KernelAppType::NativeApp,
+                String::from("B"),
+                String::from("/b"),
+                None,
+            )
             .unwrap();
 
         assert_eq!(id1.0 + 1, id2.0);
@@ -655,7 +667,12 @@ mod tests {
     fn test_install_path_derived() {
         let mut reg = AppRegistry::new();
         let id = reg
-            .register(KernelAppType::NativeApp, String::from("X"), String::from("/x"), None)
+            .register(
+                KernelAppType::NativeApp,
+                String::from("X"),
+                String::from("/x"),
+                None,
+            )
             .unwrap();
 
         let desc = reg.get(id).unwrap();

@@ -84,14 +84,20 @@ pub fn discover_and_apply() -> Result<DhcpLease, String> {
     let offer = wait_for_dhcp_reply(xid, DHCP_OFFER, 300)?;
     crate::serial_println!(
         "[DHCP] Got OFFER: ip={}, gw={}, dns={}, mask={}",
-        offer.ip, offer.gateway, offer.dns, offer.netmask
+        offer.ip,
+        offer.gateway,
+        offer.dns,
+        offer.netmask
     );
 
     // Step 3: DHCP REQUEST
     crate::serial_println!("[DHCP] Sending REQUEST for {}...", offer.ip);
     let request = build_dhcp_packet(
-        DHCP_REQUEST, xid, mac,
-        Some(offer.ip), Some(offer.server_id),
+        DHCP_REQUEST,
+        xid,
+        mac,
+        Some(offer.ip),
+        Some(offer.server_id),
     );
     let frame = build_dhcp_frame(mac, &request);
     transmit_raw(&frame);
@@ -100,7 +106,8 @@ pub fn discover_and_apply() -> Result<DhcpLease, String> {
     let lease = wait_for_dhcp_reply(xid, DHCP_ACK, 300)?;
     crate::serial_println!(
         "[DHCP] Got ACK: ip={}, lease={}s",
-        lease.ip, lease.lease_time
+        lease.ip,
+        lease.lease_time
     );
 
     // Apply to IP config
@@ -129,10 +136,10 @@ fn build_dhcp_packet(
     let mut pkt = Vec::with_capacity(548);
 
     // BOOTP header (236 bytes)
-    pkt.push(BOOTREQUEST);        // op
-    pkt.push(HTYPE_ETHERNET);     // htype
-    pkt.push(HLEN_ETHERNET);      // hlen
-    pkt.push(0);                   // hops
+    pkt.push(BOOTREQUEST); // op
+    pkt.push(HTYPE_ETHERNET); // htype
+    pkt.push(HLEN_ETHERNET); // hlen
+    pkt.push(0); // hops
 
     // Transaction ID
     pkt.extend_from_slice(&xid.to_be_bytes());
@@ -228,8 +235,8 @@ fn build_dhcp_frame(src_mac: MacAddress, dhcp_payload: &[u8]) -> Vec<u8> {
     udp.extend_from_slice(dhcp_payload);
 
     // IPv4 header
-    let src_ip = Ipv4Addr::ANY;        // 0.0.0.0
-    let dst_ip = Ipv4Addr::BROADCAST;  // 255.255.255.255
+    let src_ip = Ipv4Addr::ANY; // 0.0.0.0
+    let dst_ip = Ipv4Addr::BROADCAST; // 255.255.255.255
     let total_len = (20 + udp.len()) as u16;
 
     let mut ipv4_pkt = Vec::with_capacity(total_len as usize);
@@ -240,7 +247,7 @@ fn build_dhcp_frame(src_mac: MacAddress, dhcp_payload: &[u8]) -> Vec<u8> {
     ipv4_pkt.extend_from_slice(&[0x00, 0x00]); // ID
     ipv4_pkt.extend_from_slice(&[0x00, 0x00]); // flags + frag
     ipv4_pkt.push(128); // TTL
-    ipv4_pkt.push(17);  // protocol = UDP
+    ipv4_pkt.push(17); // protocol = UDP
     ipv4_pkt.extend_from_slice(&[0x00, 0x00]); // checksum placeholder
     ipv4_pkt.extend_from_slice(&src_ip.0);
     ipv4_pkt.extend_from_slice(&dst_ip.0);
@@ -285,7 +292,10 @@ fn wait_for_dhcp_reply(xid: u32, expected_type: u8, max_iters: usize) -> Result<
     }
 
     super::udp::unbind(DHCP_CLIENT_PORT);
-    Err(format!("DHCP timeout waiting for message type {}", expected_type))
+    Err(format!(
+        "DHCP timeout waiting for message type {}",
+        expected_type
+    ))
 }
 
 /// Parse a DHCP reply (OFFER or ACK).

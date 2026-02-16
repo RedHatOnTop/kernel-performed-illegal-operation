@@ -7,9 +7,9 @@
 
 #![allow(dead_code)]
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 
 // ── Render primitives ───────────────────────────────────────
 
@@ -17,9 +17,21 @@ use alloc::format;
 #[derive(Debug, Clone)]
 pub enum RenderCmd {
     /// Fill a rectangle.
-    FillRect { x: i32, y: i32, w: u32, h: u32, color: u32 },
+    FillRect {
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        color: u32,
+    },
     /// Draw text.
-    Text { x: i32, y: i32, text: String, color: u32, bold: bool },
+    Text {
+        x: i32,
+        y: i32,
+        text: String,
+        color: u32,
+        bold: bool,
+    },
     /// Horizontal rule.
     HRule { x: i32, y: i32, w: u32, color: u32 },
 }
@@ -59,12 +71,16 @@ fn tokenise(html: &str) -> Vec<Token> {
 
             // Close tag?
             let is_close = chars.peek() == Some(&'/');
-            if is_close { chars.next(); }
+            if is_close {
+                chars.next();
+            }
 
             // Tag name
             let mut name = String::new();
             while let Some(&c) = chars.peek() {
-                if c == '>' || c == ' ' || c == '/' { break; }
+                if c == '>' || c == ' ' || c == '/' {
+                    break;
+                }
                 name.push(c);
                 chars.next();
             }
@@ -74,12 +90,19 @@ fn tokenise(html: &str) -> Vec<Token> {
             let mut is_self_close = false;
             loop {
                 // skip whitespace
-                while chars.peek() == Some(&' ') { chars.next(); }
+                while chars.peek() == Some(&' ') {
+                    chars.next();
+                }
                 match chars.peek() {
-                    Some(&'>') => { chars.next(); break; }
+                    Some(&'>') => {
+                        chars.next();
+                        break;
+                    }
                     Some(&'/') => {
                         chars.next(); // consume /
-                        if chars.peek() == Some(&'>') { chars.next(); }
+                        if chars.peek() == Some(&'>') {
+                            chars.next();
+                        }
                         is_self_close = true;
                         break;
                     }
@@ -87,7 +110,9 @@ fn tokenise(html: &str) -> Vec<Token> {
                         // attr name
                         let mut aname = String::new();
                         while let Some(&c) = chars.peek() {
-                            if c == '=' || c == '>' || c == ' ' || c == '/' { break; }
+                            if c == '=' || c == '>' || c == ' ' || c == '/' {
+                                break;
+                            }
                             aname.push(c);
                             chars.next();
                         }
@@ -98,13 +123,18 @@ fn tokenise(html: &str) -> Vec<Token> {
                             if quote == Some('"') || quote == Some('\'') {
                                 chars.next();
                                 while let Some(&c) = chars.peek() {
-                                    if c == quote.unwrap() { chars.next(); break; }
+                                    if c == quote.unwrap() {
+                                        chars.next();
+                                        break;
+                                    }
                                     aval.push(c);
                                     chars.next();
                                 }
                             } else {
                                 while let Some(&c) = chars.peek() {
-                                    if c == ' ' || c == '>' { break; }
+                                    if c == ' ' || c == '>' {
+                                        break;
+                                    }
                                     aval.push(c);
                                     chars.next();
                                 }
@@ -203,28 +233,36 @@ pub fn render_html(html: &str, viewport_w: u32) -> RenderedPage {
                         }
                     }
                     "h1" => {
-                        if y > margin { y += line_height / 2; }
+                        if y > margin {
+                            y += line_height / 2;
+                        }
                         style.font_size = 28;
                         style.bold = true;
                         style.color = 0xFF_4FC3F7; // accent blue
                         x = margin;
                     }
                     "h2" => {
-                        if y > margin { y += line_height / 3; }
+                        if y > margin {
+                            y += line_height / 3;
+                        }
                         style.font_size = 22;
                         style.bold = true;
                         style.color = 0xFF_81D4FA;
                         x = margin;
                     }
                     "h3" => {
-                        if y > margin { y += 4; }
+                        if y > margin {
+                            y += 4;
+                        }
                         style.font_size = 18;
                         style.bold = true;
                         style.color = 0xFF_B3E5FC;
                         x = margin;
                     }
                     "p" => {
-                        if y > margin { y += line_height / 2; }
+                        if y > margin {
+                            y += line_height / 2;
+                        }
                         x = margin + style.indent;
                     }
                     "br" => {
@@ -274,7 +312,9 @@ pub fn render_html(html: &str, viewport_w: u32) -> RenderedPage {
                         style.color = 0xFF_A5D6A7; // green for code
                     }
                     "div" | "section" | "article" | "main" | "header" | "footer" | "nav" => {
-                        if y > margin { y += 4; }
+                        if y > margin {
+                            y += 4;
+                        }
                         x = margin + style.indent;
                     }
                     _ => {}
@@ -299,7 +339,9 @@ pub fn render_html(html: &str, viewport_w: u32) -> RenderedPage {
                     "ul" | "ol" => {
                         style.in_list = false;
                         style.indent -= 20;
-                        if style.indent < 0 { style.indent = 0; }
+                        if style.indent < 0 {
+                            style.indent = 0;
+                        }
                         y += 4;
                     }
                     "li" => {
@@ -325,42 +367,44 @@ pub fn render_html(html: &str, viewport_w: u32) -> RenderedPage {
                     _ => {}
                 }
             }
-            Token::SelfClose(tag, _) => {
-                match tag.as_str() {
-                    "br" => {
-                        y += line_height;
-                        x = margin + style.indent;
-                    }
-                    "hr" => {
-                        y += line_height / 2;
-                        cmds.push(RenderCmd::HRule {
-                            x: margin,
-                            y,
-                            w: max_w as u32,
-                            color: 0xFF_333333,
-                        });
-                        y += line_height / 2;
-                    }
-                    "meta" | "link" | "img" => {}
-                    _ => {}
+            Token::SelfClose(tag, _) => match tag.as_str() {
+                "br" => {
+                    y += line_height;
+                    x = margin + style.indent;
                 }
-            }
+                "hr" => {
+                    y += line_height / 2;
+                    cmds.push(RenderCmd::HRule {
+                        x: margin,
+                        y,
+                        w: max_w as u32,
+                        color: 0xFF_333333,
+                    });
+                    y += line_height / 2;
+                }
+                "meta" | "link" | "img" => {}
+                _ => {}
+            },
             Token::Text(text) => {
-                if in_style_tag || in_head { 
+                if in_style_tag || in_head {
                     if in_title {
                         title = text.trim().into();
                     }
-                    continue; 
+                    continue;
                 }
                 let trimmed = collapse_whitespace(text);
-                if trimmed.is_empty() { continue; }
+                if trimmed.is_empty() {
+                    continue;
+                }
 
                 // Word-wrap
                 let char_w = 8i32; // 8px per char in our bitmap font
                 let avail = max_w - (x - margin);
 
                 for word in trimmed.split(' ') {
-                    if word.is_empty() { continue; }
+                    if word.is_empty() {
+                        continue;
+                    }
                     let word_px = word.len() as i32 * char_w;
                     if x + word_px > margin + max_w && x > margin + style.indent {
                         y += line_height;
@@ -403,6 +447,8 @@ fn collapse_whitespace(s: &str) -> String {
         }
     }
     // trim trailing
-    if out.ends_with(' ') { out.pop(); }
+    if out.ends_with(' ') {
+        out.pop();
+    }
     out
 }

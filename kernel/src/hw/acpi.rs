@@ -2,8 +2,8 @@
 //!
 //! Parses ACPI tables for hardware configuration and power management.
 
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::ptr;
 
 /// ACPI Root System Description Pointer (RSDP)
@@ -169,7 +169,7 @@ impl AcpiTables {
         let checksum: u8 = (0..20)
             .map(|i| unsafe { *((rsdp_addr as *const u8).add(i)) })
             .fold(0u8, |acc, b| acc.wrapping_add(b));
-        
+
         if checksum != 0 {
             return Err("Invalid RSDP checksum");
         }
@@ -193,7 +193,7 @@ impl AcpiTables {
     /// Parse RSDT (32-bit pointers)
     unsafe fn parse_rsdt(&mut self, rsdt_addr: u64) -> Result<(), &'static str> {
         let header = unsafe { &*(rsdt_addr as *const AcpiTableHeader) };
-        
+
         if &header.signature != b"RSDT" {
             return Err("Invalid RSDT signature");
         }
@@ -212,7 +212,7 @@ impl AcpiTables {
     /// Parse XSDT (64-bit pointers)
     unsafe fn parse_xsdt(&mut self, xsdt_addr: u64) -> Result<(), &'static str> {
         let header = unsafe { &*(xsdt_addr as *const AcpiTableHeader) };
-        
+
         if &header.signature != b"XSDT" {
             return Err("Invalid XSDT signature");
         }
@@ -231,7 +231,7 @@ impl AcpiTables {
     /// Add a table to the list
     unsafe fn add_table(&mut self, table_addr: u64) -> Result<(), &'static str> {
         let header = unsafe { &*(table_addr as *const AcpiTableHeader) };
-        
+
         self.tables.push(FoundTable {
             signature: header.signature,
             address: table_addr,
@@ -313,13 +313,14 @@ impl MadtInfo {
     /// Parse MADT from table address
     pub unsafe fn parse(madt_addr: u64) -> Result<Self, &'static str> {
         let header = unsafe { &*(madt_addr as *const AcpiTableHeader) };
-        
+
         if &header.signature != b"APIC" {
             return Err("Invalid MADT signature");
         }
 
         // Local APIC address is right after the header
-        let local_apic_addr_ptr = (madt_addr + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
+        let local_apic_addr_ptr =
+            (madt_addr + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
         let local_apic_address = unsafe { *local_apic_addr_ptr } as u64;
 
         // Flags are after local APIC address
@@ -335,11 +336,11 @@ impl MadtInfo {
         // Parse entries starting after header + local_apic_addr + flags
         let entries_start = madt_addr + core::mem::size_of::<AcpiTableHeader>() as u64 + 8;
         let entries_end = madt_addr + header.length as u64;
-        
+
         let mut current = entries_start;
         while current < entries_end {
             let entry_header = unsafe { &*(current as *const MadtEntryHeader) };
-            
+
             match entry_header.entry_type {
                 0 => {
                     // Local APIC
@@ -398,8 +399,12 @@ pub fn init_with_rsdp(rsdp_addr: u64) -> Result<(), &'static str> {
     if let Some(madt_table) = tables.get_madt() {
         match unsafe { MadtInfo::parse(madt_table.address) } {
             Ok(info) => {
-                crate::serial_println!("[ACPI] MADT: {} local APICs, {} I/O APICs, {} overrides",
-                    info.local_apics.len(), info.io_apics.len(), info.overrides.len());
+                crate::serial_println!(
+                    "[ACPI] MADT: {} local APICs, {} I/O APICs, {} overrides",
+                    info.local_apics.len(),
+                    info.io_apics.len(),
+                    info.overrides.len()
+                );
                 *MADT_INFO.lock() = Some(info);
             }
             Err(e) => {
@@ -426,11 +431,15 @@ pub fn table_count() -> usize {
 
 /// Get ACPI table signatures as strings.
 pub fn table_signatures() -> alloc::vec::Vec<alloc::string::String> {
-    ACPI_TABLES.lock().as_ref().map_or(alloc::vec::Vec::new(), |t| {
-        t.tables.iter().map(|ft| {
-            alloc::string::String::from_utf8_lossy(&ft.signature).into_owned()
-        }).collect()
-    })
+    ACPI_TABLES
+        .lock()
+        .as_ref()
+        .map_or(alloc::vec::Vec::new(), |t| {
+            t.tables
+                .iter()
+                .map(|ft| alloc::string::String::from_utf8_lossy(&ft.signature).into_owned())
+                .collect()
+        })
 }
 
 /// Get MADT local APIC count.
@@ -446,7 +455,7 @@ pub fn io_apic_count() -> usize {
 /// Get ACPI tables reference  
 pub fn tables() -> Option<&'static AcpiTables> {
     // Safety: Only set once during init
-    unsafe { 
+    unsafe {
         let ptr = &*ACPI_TABLES.lock() as *const Option<AcpiTables>;
         (*ptr).as_ref()
     }

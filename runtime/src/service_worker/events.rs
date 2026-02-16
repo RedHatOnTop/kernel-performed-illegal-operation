@@ -144,9 +144,9 @@ impl PushEvent {
 
     /// Get data as text
     pub fn text(&self) -> Option<String> {
-        self.data.as_ref().and_then(|d| {
-            core::str::from_utf8(d).ok().map(|s| s.to_string())
-        })
+        self.data
+            .as_ref()
+            .and_then(|d| core::str::from_utf8(d).ok().map(|s| s.to_string()))
     }
 }
 
@@ -369,15 +369,20 @@ impl Clients {
 
     /// Match all clients
     pub fn match_all(&self, options: MatchAllOptions) -> Vec<&ClientInfo> {
-        self.clients.iter().filter(|client| {
-            // Filter by type
-            if options.client_type != ClientType::All && client.client_type != options.client_type {
-                return false;
-            }
-            
-            // Filter by include_uncontrolled
-            true // Would check if controlled
-        }).collect()
+        self.clients
+            .iter()
+            .filter(|client| {
+                // Filter by type
+                if options.client_type != ClientType::All
+                    && client.client_type != options.client_type
+                {
+                    return false;
+                }
+
+                // Filter by include_uncontrolled
+                true // Would check if controlled
+            })
+            .collect()
     }
 
     /// Open a window
@@ -418,4 +423,152 @@ pub struct MatchAllOptions {
     pub include_uncontrolled: bool,
     /// Client type filter
     pub client_type: ClientType,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_client(id: &str, ctype: ClientType) -> ClientInfo {
+        ClientInfo {
+            id: id.into(),
+            client_type: ctype,
+            url: "https://example.com/".into(),
+            frame_type: FrameType::TopLevel,
+            visibility: VisibilityState::Visible,
+            focused: false,
+        }
+    }
+
+    #[test]
+    fn test_message_event() {
+        let data = b"hello world".to_vec();
+        let event = MessageEvent::new(data.clone(), "https://example.com");
+        assert_eq!(event.data(), b"hello world");
+        assert_eq!(event.origin(), "https://example.com");
+        assert!(event.source().is_none());
+        assert_eq!(event.event_type(), EventType::Message);
+    }
+
+    #[test]
+    fn test_message_event_set_source() {
+        let mut event = MessageEvent::new(vec![], "origin");
+        event.set_source("client-1");
+        assert_eq!(event.source(), Some("client-1"));
+    }
+
+    #[test]
+    fn test_push_event() {
+        let event = PushEvent::new(Some(b"notification".to_vec()));
+        assert_eq!(event.data(), Some(b"notification".as_slice()));
+        assert_eq!(event.text(), Some("notification".into()));
+        assert_eq!(event.event_type(), EventType::Push);
+    }
+
+    #[test]
+    fn test_push_event_no_data() {
+        let event = PushEvent::new(None);
+        assert!(event.data().is_none());
+        assert!(event.text().is_none());
+    }
+
+    #[test]
+    fn test_notification_click_event_builder() {
+        let event = NotificationClickEvent::new()
+            .with_tag("my-notification")
+            .with_action("open");
+        assert_eq!(event.notification_tag(), Some("my-notification"));
+        assert_eq!(event.action(), Some("open"));
+        assert_eq!(event.event_type(), EventType::NotificationClick);
+    }
+
+    #[test]
+    fn test_extendable_event_wait_until() {
+        let mut event = MessageEvent::new(vec![], "origin");
+        assert!(!event.has_wait_until());
+        event.wait_until();
+        assert!(event.has_wait_until());
+    }
+
+    #[test]
+    fn test_event_dispatcher_fifo() {
+        let worker_id = ServiceWorkerId::new();
+        let mut dispatcher = EventDispatcher::new(worker_id);
+        assert!(dispatcher.is_empty());
+
+        dispatcher.queue(Box::new(PushEvent::new(Some(b"first".to_vec()))));
+        dispatcher.queue(Box::new(PushEvent::new(Some(b"second".to_vec()))));
+        assert_eq!(dispatcher.queue_len(), 2);
+
+        let first = dispatcher.dispatch_next().unwrap();
+        assert_eq!(first.event_type(), EventType::Push);
+        assert_eq!(dispatcher.queue_len(), 1);
+
+        let second = dispatcher.dispatch_next().unwrap();
+        assert_eq!(second.event_type(), EventType::Push);
+        assert!(dispatcher.is_empty());
+    }
+
+    #[test]
+    fn test_event_dispatcher_empty_returns_none() {
+        let worker_id = ServiceWorkerId::new();
+        let mut dispatcher = EventDispatcher::new(worker_id);
+        assert!(dispatcher.dispatch_next().is_none());
+    }
+
+    #[test]
+    fn test_clients_add_and_get() {
+        let mut clients = Clients::new();
+        clients.add(make_client("c1", ClientType::Window));
+        let got = clients.get("c1");
+        assert!(got.is_some());
+        assert_eq!(got.unwrap().id, "c1");
+    }
+
+    #[test]
+    fn test_clients_remove() {
+        let mut clients = Clients::new();
+        clients.add(make_client("c1", ClientType::Window));
+        let removed = clients.remove("c1");
+        assert!(removed);
+        assert!(clients.get("c1").is_none());
+    }
+
+    #[test]
+    fn test_clients_remove_nonexistent() {
+        let mut clients = Clients::new();
+        assert!(!clients.remove("phantom"));
+    }
+
+    #[test]
+    fn test_clients_match_all_by_type() {
+        let mut clients = Clients::new();
+        clients.add(make_client("w1", ClientType::Window));
+        clients.add(make_client("w2", ClientType::Worker));
+
+        let matched = clients.match_all(MatchAllOptions {
+            include_uncontrolled: false,
+            client_type: ClientType::Window,
+        });
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].id, "w1");
+
+        let all = clients.match_all(MatchAllOptions {
+            include_uncontrolled: false,
+            client_type: ClientType::All,
+        });
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_clients_claim() {
+        let mut clients = Clients::new();
+        assert!(clients.claim().is_ok());
+    }
+
+    #[test]
+    fn test_clients_open_window_not_implemented() {
+        let mut clients = Clients::new();
+        assert!(clients.open_window("https://example.com").is_err());
+    }
 }

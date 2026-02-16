@@ -3,10 +3,10 @@
 //! This module implements tile-based compositing for efficient GPU rendering.
 //! Content is divided into tiles that can be cached and composited together.
 
-use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 use super::primitives::*;
 use super::tile_cache::TileKey;
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
 /// Tile-based compositor.
 pub struct WebRenderCompositor {
@@ -33,18 +33,18 @@ impl WebRenderCompositor {
             frame_number: 0,
         }
     }
-    
+
     /// Begin a new composite frame.
     pub fn begin_frame(&mut self) {
         self.frame_number += 1;
         self.layers.clear();
     }
-    
+
     /// Add a layer to composite.
     pub fn add_layer(&mut self, layer: CompositeLayer) {
         self.layers.push(layer);
     }
-    
+
     /// Mark a region as dirty.
     pub fn mark_dirty(&mut self, rect: Rect) {
         // Merge with existing dirty regions if overlapping
@@ -60,23 +60,23 @@ impl WebRenderCompositor {
             self.dirty_regions.push(rect);
         }
     }
-    
+
     /// Get tiles that need rendering.
     pub fn get_dirty_tiles(&self, viewport: Rect) -> Vec<TileKey> {
         let mut tiles = Vec::new();
-        
+
         for layer in &self.layers {
             let layer_rect = layer.bounds.intersect(&viewport);
             if layer_rect.w <= 0.0 || layer_rect.h <= 0.0 {
                 continue;
             }
-            
+
             // Calculate tile range
             let start_x = floor_f32(layer_rect.x / self.tile_size as f32) as i32;
             let start_y = floor_f32(layer_rect.y / self.tile_size as f32) as i32;
             let end_x = ceil_f32((layer_rect.x + layer_rect.w) / self.tile_size as f32) as i32;
             let end_y = ceil_f32((layer_rect.y + layer_rect.h) / self.tile_size as f32) as i32;
-            
+
             for ty in start_y..end_y {
                 for tx in start_x..end_x {
                     let tile_rect = Rect {
@@ -85,11 +85,11 @@ impl WebRenderCompositor {
                         w: self.tile_size as f32,
                         h: self.tile_size as f32,
                     };
-                    
+
                     // Check if tile is in dirty region
-                    let is_dirty = self.dirty_regions.is_empty() || 
-                        self.dirty_regions.iter().any(|d| d.intersects(&tile_rect));
-                    
+                    let is_dirty = self.dirty_regions.is_empty()
+                        || self.dirty_regions.iter().any(|d| d.intersects(&tile_rect));
+
                     if is_dirty {
                         tiles.push(TileKey {
                             layer_id: layer.id,
@@ -100,10 +100,10 @@ impl WebRenderCompositor {
                 }
             }
         }
-        
+
         tiles
     }
-    
+
     /// Composite all layers into final output.
     pub fn composite(&mut self, viewport: Rect) -> CompositeResult {
         let mut result = CompositeResult {
@@ -111,38 +111,38 @@ impl WebRenderCompositor {
             tiles_rendered: 0,
             tiles_cached: 0,
         };
-        
+
         // Sort layers by z-index
         self.layers.sort_by(|a, b| a.z_index.cmp(&b.z_index));
-        
+
         // Generate composite operations
         for layer in &self.layers {
             let visible = layer.bounds.intersect(&viewport);
             if visible.w <= 0.0 || visible.h <= 0.0 {
                 continue;
             }
-            
+
             result.draw_calls += 1;
             result.tiles_rendered += self.count_tiles(&visible);
         }
-        
+
         // Clear dirty regions
         self.dirty_regions.clear();
-        
+
         result
     }
-    
+
     fn count_tiles(&self, rect: &Rect) -> u32 {
         let cols = ceil_f32(rect.w / self.tile_size as f32) as u32;
         let rows = ceil_f32(rect.h / self.tile_size as f32) as u32;
         cols * rows
     }
-    
+
     /// Get the composite mode.
     pub fn mode(&self) -> CompositeMode {
         self.mode
     }
-    
+
     /// Set the composite mode.
     pub fn set_mode(&mut self, mode: CompositeMode) {
         self.mode = mode;
@@ -196,19 +196,19 @@ impl CompositeLayer {
             tiles: Vec::new(),
         }
     }
-    
+
     /// Set z-index.
     pub fn with_z_index(mut self, z: i32) -> Self {
         self.z_index = z;
         self
     }
-    
+
     /// Set transform.
     pub fn with_transform(mut self, t: Transform) -> Self {
         self.transform = t;
         self
     }
-    
+
     /// Set opacity.
     pub fn with_opacity(mut self, o: f32) -> Self {
         self.opacity = o;
@@ -266,25 +266,25 @@ impl PictureCache {
             current_size: 0,
         }
     }
-    
+
     /// Get a cached picture.
     pub fn get(&self, key: u64) -> Option<&CachedPicture> {
         self.pictures.get(&key)
     }
-    
+
     /// Insert a picture into the cache.
     pub fn insert(&mut self, key: u64, picture: CachedPicture) {
         let size = picture.size_bytes();
-        
+
         // Evict if necessary
         while self.current_size + size > self.max_size && !self.pictures.is_empty() {
             self.evict_one();
         }
-        
+
         self.current_size += size;
         self.pictures.insert(key, picture);
     }
-    
+
     /// Remove a picture from the cache.
     pub fn remove(&mut self, key: u64) -> Option<CachedPicture> {
         if let Some(pic) = self.pictures.remove(&key) {
@@ -294,26 +294,27 @@ impl PictureCache {
             None
         }
     }
-    
+
     /// Invalidate pictures that intersect with a rect.
     pub fn invalidate(&mut self, rect: Rect) {
-        let keys_to_remove: Vec<u64> = self.pictures
+        let keys_to_remove: Vec<u64> = self
+            .pictures
             .iter()
             .filter(|(_, p)| p.bounds.intersects(&rect))
             .map(|(k, _)| *k)
             .collect();
-        
+
         for key in keys_to_remove {
             self.remove(key);
         }
     }
-    
+
     fn evict_one(&mut self) {
         if let Some(&key) = self.pictures.keys().next() {
             self.remove(key);
         }
     }
-    
+
     /// Clear the cache.
     pub fn clear(&mut self) {
         self.pictures.clear();
@@ -344,36 +345,35 @@ impl CachedPicture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_compositor_layers() {
         let mut compositor = WebRenderCompositor::new(256);
         compositor.begin_frame();
-        
-        let layer1 = CompositeLayer::new(1, Rect::new(0.0, 0.0, 800.0, 600.0))
-            .with_z_index(0);
+
+        let layer1 = CompositeLayer::new(1, Rect::new(0.0, 0.0, 800.0, 600.0)).with_z_index(0);
         let layer2 = CompositeLayer::new(2, Rect::new(100.0, 100.0, 200.0, 200.0))
             .with_z_index(1)
             .with_opacity(0.8);
-        
+
         compositor.add_layer(layer1);
         compositor.add_layer(layer2);
-        
+
         let viewport = Rect::new(0.0, 0.0, 800.0, 600.0);
         let result = compositor.composite(viewport);
-        
+
         assert_eq!(result.draw_calls, 2);
     }
-    
+
     #[test]
     fn test_dirty_tiles() {
         let mut compositor = WebRenderCompositor::new(256);
         compositor.begin_frame();
-        
+
         let layer = CompositeLayer::new(1, Rect::new(0.0, 0.0, 800.0, 600.0));
         compositor.add_layer(layer);
         compositor.mark_dirty(Rect::new(0.0, 0.0, 100.0, 100.0));
-        
+
         let tiles = compositor.get_dirty_tiles(Rect::new(0.0, 0.0, 800.0, 600.0));
         assert!(!tiles.is_empty());
     }

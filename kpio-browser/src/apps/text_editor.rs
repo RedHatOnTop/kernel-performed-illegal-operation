@@ -41,7 +41,11 @@ impl TextEditor {
     /// Open file
     pub fn open(&mut self, path: &str, content: &str) {
         // Check if already open
-        if let Some(idx) = self.documents.iter().position(|d| d.path.as_deref() == Some(path)) {
+        if let Some(idx) = self
+            .documents
+            .iter()
+            .position(|d| d.path.as_deref() == Some(path))
+        {
             self.active_document = idx;
             return;
         }
@@ -82,7 +86,7 @@ impl TextEditor {
     /// Save active document
     pub fn save(&mut self) -> Option<SaveRequest> {
         let doc = self.documents.get_mut(self.active_document)?;
-        
+
         if let Some(path) = &doc.path {
             let request = SaveRequest {
                 path: path.clone(),
@@ -102,7 +106,7 @@ impl TextEditor {
         doc.name = path.split('/').last().unwrap_or("untitled").to_string();
         doc.detect_language();
         doc.modified = false;
-        
+
         Some(SaveRequest {
             path: path.to_string(),
             content: doc.content.clone(),
@@ -210,7 +214,7 @@ impl TextEditor {
             if let Some(doc) = self.documents.get_mut(self.active_document) {
                 let query = &find.query;
                 let replacement = &find.replacement;
-                
+
                 for line in &mut doc.lines {
                     if find.case_sensitive {
                         line.text = line.text.replace(query, replacement);
@@ -219,7 +223,7 @@ impl TextEditor {
                         let mut result = String::new();
                         let mut remaining = line.text.as_str();
                         let query_lower = query.to_lowercase();
-                        
+
                         while !remaining.is_empty() {
                             let lower = remaining.to_lowercase();
                             if let Some(pos) = lower.find(&query_lower) {
@@ -295,11 +299,8 @@ impl Document {
     /// Create from file
     pub fn from_file(path: &str, content: &str) -> Self {
         let name = path.split('/').last().unwrap_or("file").to_string();
-        let lines: Vec<Line> = content
-            .lines()
-            .map(|l| Line::new(l.to_string()))
-            .collect();
-        
+        let lines: Vec<Line> = content.lines().map(|l| Line::new(l.to_string())).collect();
+
         let lines = if lines.is_empty() {
             alloc::vec![Line::new(String::new())]
         } else {
@@ -350,7 +351,7 @@ impl Document {
     /// Insert character
     pub fn insert_char(&mut self, c: char) {
         self.save_undo();
-        
+
         if let Some(line) = self.lines.get_mut(self.cursor.line) {
             let col = self.cursor.column.min(line.text.len());
             line.text.insert(col, c);
@@ -362,7 +363,7 @@ impl Document {
     /// Insert text
     pub fn insert_text(&mut self, text: &str) {
         self.save_undo();
-        
+
         for c in text.chars() {
             if c == '\n' {
                 self.insert_newline_internal();
@@ -389,7 +390,7 @@ impl Document {
             let col = self.cursor.column.min(line.text.len());
             let remaining = line.text[col..].to_string();
             line.text.truncate(col);
-            
+
             let new_line = Line::new(remaining);
             self.lines.insert(self.cursor.line + 1, new_line);
             self.cursor.line += 1;
@@ -400,7 +401,7 @@ impl Document {
     /// Delete character (backspace)
     pub fn backspace(&mut self) {
         self.save_undo();
-        
+
         if self.cursor.column > 0 {
             if let Some(line) = self.lines.get_mut(self.cursor.line) {
                 self.cursor.column -= 1;
@@ -421,11 +422,13 @@ impl Document {
     /// Delete character at cursor
     pub fn delete(&mut self) {
         self.save_undo();
-        
-        let line_len = self.lines.get(self.cursor.line)
+
+        let line_len = self
+            .lines
+            .get(self.cursor.line)
             .map(|l| l.text.len())
             .unwrap_or(0);
-        
+
         if self.cursor.column < line_len {
             // Delete character at current position
             if let Some(line) = self.lines.get_mut(self.cursor.line) {
@@ -457,13 +460,17 @@ impl Document {
                     self.cursor.column -= 1;
                 } else if self.cursor.line > 0 {
                     self.cursor.line -= 1;
-                    self.cursor.column = self.lines.get(self.cursor.line)
+                    self.cursor.column = self
+                        .lines
+                        .get(self.cursor.line)
                         .map(|l| l.text.len())
                         .unwrap_or(0);
                 }
             }
             CursorMove::Right => {
-                let line_len = self.lines.get(self.cursor.line)
+                let line_len = self
+                    .lines
+                    .get(self.cursor.line)
                     .map(|l| l.text.len())
                     .unwrap_or(0);
                 if self.cursor.column < line_len {
@@ -476,7 +483,9 @@ impl Document {
             CursorMove::Up => {
                 if self.cursor.line > 0 {
                     self.cursor.line -= 1;
-                    let line_len = self.lines.get(self.cursor.line)
+                    let line_len = self
+                        .lines
+                        .get(self.cursor.line)
                         .map(|l| l.text.len())
                         .unwrap_or(0);
                     self.cursor.column = self.cursor.column.min(line_len);
@@ -485,7 +494,9 @@ impl Document {
             CursorMove::Down => {
                 if self.cursor.line + 1 < self.lines.len() {
                     self.cursor.line += 1;
-                    let line_len = self.lines.get(self.cursor.line)
+                    let line_len = self
+                        .lines
+                        .get(self.cursor.line)
                         .map(|l| l.text.len())
                         .unwrap_or(0);
                     self.cursor.column = self.cursor.column.min(line_len);
@@ -495,7 +506,9 @@ impl Document {
                 self.cursor.column = 0;
             }
             CursorMove::LineEnd => {
-                self.cursor.column = self.lines.get(self.cursor.line)
+                self.cursor.column = self
+                    .lines
+                    .get(self.cursor.line)
                     .map(|l| l.text.len())
                     .unwrap_or(0);
             }
@@ -505,9 +518,7 @@ impl Document {
             }
             CursorMove::DocumentEnd => {
                 self.cursor.line = self.lines.len().saturating_sub(1);
-                self.cursor.column = self.lines.last()
-                    .map(|l| l.text.len())
-                    .unwrap_or(0);
+                self.cursor.column = self.lines.last().map(|l| l.text.len()).unwrap_or(0);
             }
         }
 
@@ -542,9 +553,9 @@ impl Document {
         };
 
         if start.line == end.line {
-            self.lines.get(start.line).map(|l| {
-                l.text[start.column..end.column].to_string()
-            })
+            self.lines
+                .get(start.line)
+                .map(|l| l.text[start.column..end.column].to_string())
         } else {
             let mut result = String::new();
             for i in start.line..=end.line {
@@ -569,12 +580,13 @@ impl Document {
     pub fn delete_selection(&mut self) {
         if let Some(sel) = self.selection.take() {
             self.save_undo();
-            
-            let (start, end) = if (sel.start.line, sel.start.column) <= (sel.end.line, sel.end.column) {
-                (sel.start, sel.end)
-            } else {
-                (sel.end, sel.start)
-            };
+
+            let (start, end) =
+                if (sel.start.line, sel.start.column) <= (sel.end.line, sel.end.column) {
+                    (sel.start, sel.end)
+                } else {
+                    (sel.end, sel.start)
+                };
 
             if start.line == end.line {
                 if let Some(line) = self.lines.get_mut(start.line) {
@@ -586,8 +598,12 @@ impl Document {
                 }
             } else {
                 if let (Some(start_line), Some(end_line)) = (
-                    self.lines.get(start.line).map(|l| l.text[..start.column].to_string()),
-                    self.lines.get(end.line).map(|l| l.text[end.column..].to_string()),
+                    self.lines
+                        .get(start.line)
+                        .map(|l| l.text[..start.column].to_string()),
+                    self.lines
+                        .get(end.line)
+                        .map(|l| l.text[end.column..].to_string()),
                 ) {
                     // Remove lines in between
                     for _ in start.line..=end.line {
@@ -596,7 +612,10 @@ impl Document {
                         }
                     }
                     // Insert merged line
-                    self.lines.insert(start.line, Line::new(alloc::format!("{}{}", start_line, end_line)));
+                    self.lines.insert(
+                        start.line,
+                        Line::new(alloc::format!("{}{}", start_line, end_line)),
+                    );
                 }
             }
 
@@ -632,7 +651,7 @@ impl Document {
             cursor: self.cursor.clone(),
         });
         self.redo_stack.clear();
-        
+
         if self.undo_stack.len() > 100 {
             self.undo_stack.remove(0);
         }
@@ -666,7 +685,8 @@ impl Document {
 
     /// Rebuild lines from content
     fn rebuild_lines(&mut self) {
-        self.lines = self.content
+        self.lines = self
+            .content
             .lines()
             .map(|l| Line::new(l.to_string()))
             .collect();
@@ -677,7 +697,8 @@ impl Document {
 
     /// Update content from lines
     pub fn update_content(&mut self) {
-        self.content = self.lines
+        self.content = self
+            .lines
             .iter()
             .map(|l| l.text.as_str())
             .collect::<Vec<_>>()

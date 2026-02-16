@@ -13,26 +13,52 @@ use super::coordinator::TabId;
 #[repr(u32)]
 pub enum KeyCode {
     // Letters
-    KeyA = 0x04, KeyB = 0x05, KeyC = 0x06, KeyD = 0x07,
-    KeyE = 0x08, KeyF = 0x09, KeyG = 0x0A, KeyH = 0x0B,
-    KeyI = 0x0C, KeyJ = 0x0D, KeyK = 0x0E, KeyL = 0x0F,
-    KeyM = 0x10, KeyN = 0x11, KeyO = 0x12, KeyP = 0x13,
-    KeyQ = 0x14, KeyR = 0x15, KeyS = 0x16, KeyT = 0x17,
-    KeyU = 0x18, KeyV = 0x19, KeyW = 0x1A, KeyX = 0x1B,
-    KeyY = 0x1C, KeyZ = 0x1D,
-    
+    KeyA = 0x04,
+    KeyB = 0x05,
+    KeyC = 0x06,
+    KeyD = 0x07,
+    KeyE = 0x08,
+    KeyF = 0x09,
+    KeyG = 0x0A,
+    KeyH = 0x0B,
+    KeyI = 0x0C,
+    KeyJ = 0x0D,
+    KeyK = 0x0E,
+    KeyL = 0x0F,
+    KeyM = 0x10,
+    KeyN = 0x11,
+    KeyO = 0x12,
+    KeyP = 0x13,
+    KeyQ = 0x14,
+    KeyR = 0x15,
+    KeyS = 0x16,
+    KeyT = 0x17,
+    KeyU = 0x18,
+    KeyV = 0x19,
+    KeyW = 0x1A,
+    KeyX = 0x1B,
+    KeyY = 0x1C,
+    KeyZ = 0x1D,
+
     // Numbers
-    Digit1 = 0x1E, Digit2 = 0x1F, Digit3 = 0x20, Digit4 = 0x21,
-    Digit5 = 0x22, Digit6 = 0x23, Digit7 = 0x24, Digit8 = 0x25,
-    Digit9 = 0x26, Digit0 = 0x27,
-    
+    Digit1 = 0x1E,
+    Digit2 = 0x1F,
+    Digit3 = 0x20,
+    Digit4 = 0x21,
+    Digit5 = 0x22,
+    Digit6 = 0x23,
+    Digit7 = 0x24,
+    Digit8 = 0x25,
+    Digit9 = 0x26,
+    Digit0 = 0x27,
+
     // Special keys
     Enter = 0x28,
     Escape = 0x29,
     Backspace = 0x2A,
     Tab = 0x2B,
     Space = 0x2C,
-    
+
     // Modifiers
     LeftShift = 0xE1,
     LeftControl = 0xE0,
@@ -42,7 +68,7 @@ pub enum KeyCode {
     RightControl = 0xE4,
     RightAlt = 0xE6,
     RightMeta = 0xE7,
-    
+
     // Navigation
     ArrowUp = 0x52,
     ArrowDown = 0x51,
@@ -52,12 +78,21 @@ pub enum KeyCode {
     End = 0x4D,
     PageUp = 0x4B,
     PageDown = 0x4E,
-    
+
     // Function keys
-    F1 = 0x3A, F2 = 0x3B, F3 = 0x3C, F4 = 0x3D,
-    F5 = 0x3E, F6 = 0x3F, F7 = 0x40, F8 = 0x41,
-    F9 = 0x42, F10 = 0x43, F11 = 0x44, F12 = 0x45,
-    
+    F1 = 0x3A,
+    F2 = 0x3B,
+    F3 = 0x3C,
+    F4 = 0x3D,
+    F5 = 0x3E,
+    F6 = 0x3F,
+    F7 = 0x40,
+    F8 = 0x41,
+    F9 = 0x42,
+    F10 = 0x43,
+    F11 = 0x44,
+    F12 = 0x45,
+
     /// Unknown key.
     Unknown = 0xFF,
 }
@@ -96,7 +131,7 @@ impl Modifiers {
     pub fn none() -> Self {
         Self::default()
     }
-    
+
     /// Create from raw bits.
     pub fn from_bits(bits: u8) -> Self {
         Modifiers {
@@ -106,14 +141,22 @@ impl Modifiers {
             meta: bits & 0x08 != 0,
         }
     }
-    
+
     /// Convert to raw bits.
     pub fn to_bits(&self) -> u8 {
         let mut bits = 0u8;
-        if self.shift { bits |= 0x01; }
-        if self.ctrl { bits |= 0x02; }
-        if self.alt { bits |= 0x04; }
-        if self.meta { bits |= 0x08; }
+        if self.shift {
+            bits |= 0x01;
+        }
+        if self.ctrl {
+            bits |= 0x02;
+        }
+        if self.alt {
+            bits |= 0x04;
+        }
+        if self.meta {
+            bits |= 0x08;
+        }
         bits
     }
 }
@@ -157,14 +200,9 @@ pub enum InputEvent {
         repeat: bool,
     },
     /// Key released.
-    KeyUp {
-        key: KeyCode,
-        modifiers: Modifiers,
-    },
+    KeyUp { key: KeyCode, modifiers: Modifiers },
     /// Character input.
-    Char {
-        character: char,
-    },
+    Char { character: char },
     /// Mouse moved.
     MouseMove {
         x: f32,
@@ -194,21 +232,13 @@ pub enum InputEvent {
         modifiers: Modifiers,
     },
     /// Touch started.
-    TouchStart {
-        points: Vec<TouchPoint>,
-    },
+    TouchStart { points: Vec<TouchPoint> },
     /// Touch moved.
-    TouchMove {
-        points: Vec<TouchPoint>,
-    },
+    TouchMove { points: Vec<TouchPoint> },
     /// Touch ended.
-    TouchEnd {
-        points: Vec<TouchPoint>,
-    },
+    TouchEnd { points: Vec<TouchPoint> },
     /// Window focus changed.
-    FocusChange {
-        focused: bool,
-    },
+    FocusChange { focused: bool },
 }
 
 /// Serialized input event for IPC.
@@ -266,7 +296,7 @@ impl InputQueue {
             dropped: 0,
         }
     }
-    
+
     fn push(&mut self, event: InputEvent) {
         if self.events.len() >= self.max_size {
             self.events.pop_front();
@@ -274,11 +304,11 @@ impl InputQueue {
         }
         self.events.push_back(event);
     }
-    
+
     fn pop(&mut self) -> Option<InputEvent> {
         self.events.pop_front()
     }
-    
+
     fn is_empty(&self) -> bool {
         self.events.is_empty()
     }
@@ -306,46 +336,45 @@ impl InputManager {
             mouse_pos: Mutex::new((0.0, 0.0)),
         }
     }
-    
+
     /// Register a tab for input.
     pub fn register_tab(&self, tab: TabId) {
         let mut queues = self.queues.write();
         queues.insert(tab, Mutex::new(InputQueue::new(256)));
     }
-    
+
     /// Unregister a tab.
     pub fn unregister_tab(&self, tab: TabId) {
         let mut queues = self.queues.write();
         queues.remove(&tab);
-        
+
         let mut focused = self.focused_tab.lock();
         if *focused == Some(tab) {
             *focused = None;
         }
     }
-    
+
     /// Set focused tab.
     pub fn set_focus(&self, tab: TabId) {
         let mut focused = self.focused_tab.lock();
-        
+
         // Send focus lost to previous tab
         if let Some(prev_tab) = *focused {
             if prev_tab != tab {
                 self.push_to_tab(prev_tab, InputEvent::FocusChange { focused: false });
             }
         }
-        
+
         // Send focus gained to new tab
         self.push_to_tab(tab, InputEvent::FocusChange { focused: true });
         *focused = Some(tab);
     }
-    
+
     /// Push event to focused tab.
     pub fn push(&self, event: InputEvent) {
         // Update modifier state
         match &event {
-            InputEvent::KeyDown { key, modifiers, .. } |
-            InputEvent::KeyUp { key, modifiers } => {
+            InputEvent::KeyDown { key, modifiers, .. } | InputEvent::KeyUp { key, modifiers } => {
                 *self.modifiers.lock() = *modifiers;
             }
             InputEvent::MouseMove { x, y, .. } => {
@@ -353,12 +382,12 @@ impl InputManager {
             }
             _ => {}
         }
-        
+
         if let Some(tab) = *self.focused_tab.lock() {
             self.push_to_tab(tab, event);
         }
     }
-    
+
     /// Push event to specific tab.
     pub fn push_to_tab(&self, tab: TabId, event: InputEvent) {
         let queues = self.queues.read();
@@ -366,7 +395,7 @@ impl InputManager {
             queue.lock().push(event);
         }
     }
-    
+
     /// Pop event from tab queue.
     pub fn pop(&self, tab: TabId) -> Option<InputEvent> {
         let queues = self.queues.read();
@@ -374,7 +403,7 @@ impl InputManager {
         let result = queue.lock().pop();
         result
     }
-    
+
     /// Check if tab has pending events.
     pub fn has_events(&self, tab: TabId) -> bool {
         let queues = self.queues.read();
@@ -384,12 +413,12 @@ impl InputManager {
             false
         }
     }
-    
+
     /// Get current modifiers.
     pub fn current_modifiers(&self) -> Modifiers {
         *self.modifiers.lock()
     }
-    
+
     /// Get current mouse position.
     pub fn mouse_position(&self) -> (f32, f32) {
         *self.mouse_pos.lock()
@@ -441,5 +470,9 @@ pub fn pop_event(tab: TabId) -> Option<InputEvent> {
 
 /// Check for pending events.
 pub fn has_events(tab: TabId) -> bool {
-    INPUT_MANAGER.read().as_ref().map(|m| m.has_events(tab)).unwrap_or(false)
+    INPUT_MANAGER
+        .read()
+        .as_ref()
+        .map(|m| m.has_events(tab))
+        .unwrap_or(false)
 }

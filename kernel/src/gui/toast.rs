@@ -118,22 +118,14 @@ impl ToastManager {
     /// Handle a click at (mx, my) screen coordinates.
     /// Returns `Some(notification_id)` if the click hit a toast body (not close),
     /// or `None` if it didn't hit any toast.
-    pub fn handle_click(
-        &mut self,
-        mx: i32,
-        my: i32,
-        screen_width: u32,
-    ) -> Option<u64> {
+    pub fn handle_click(&mut self, mx: i32, my: i32, screen_width: u32) -> Option<u64> {
         let base_x = screen_width as i32 - TOAST_MARGIN_X as i32 - TOAST_WIDTH as i32;
 
         for (i, toast) in self.toasts.iter_mut().enumerate() {
             let ty = TOAST_MARGIN_Y as i32 + i as i32 * (TOAST_HEIGHT as i32 + TOAST_GAP as i32);
             let tx = base_x;
 
-            if mx >= tx
-                && mx < tx + TOAST_WIDTH as i32
-                && my >= ty
-                && my < ty + TOAST_HEIGHT as i32
+            if mx >= tx && mx < tx + TOAST_WIDTH as i32 && my >= ty && my < ty + TOAST_HEIGHT as i32
             {
                 // Check if close button area (top-right 24x24 of the toast)
                 let close_x = tx + TOAST_WIDTH as i32 - 28;
@@ -156,8 +148,7 @@ impl ToastManager {
         let base_x = screen_width as i32 - TOAST_MARGIN_X as i32 - TOAST_WIDTH as i32;
 
         for (i, toast) in self.toasts.iter().enumerate() {
-            let y = TOAST_MARGIN_Y as i32
-                + i as i32 * (TOAST_HEIGHT as i32 + TOAST_GAP as i32);
+            let y = TOAST_MARGIN_Y as i32 + i as i32 * (TOAST_HEIGHT as i32 + TOAST_GAP as i32);
 
             // Background
             let bg = if let Some(tc) = toast.theme_color {
@@ -192,12 +183,7 @@ impl ToastManager {
             );
 
             // Title (bold — we just render normally, no bold font)
-            renderer.draw_text(
-                base_x + 10,
-                y + 24,
-                &toast.title,
-                Color::WHITE,
-            );
+            renderer.draw_text(base_x + 10, y + 24, &toast.title, Color::WHITE);
 
             // Body (up to ~40 chars per line, 2 lines max)
             let body_line1 = if toast.body.len() > 40 {
@@ -205,22 +191,12 @@ impl ToastManager {
             } else {
                 &toast.body
             };
-            renderer.draw_text(
-                base_x + 10,
-                y + 42,
-                body_line1,
-                Color::rgb(200, 200, 210),
-            );
+            renderer.draw_text(base_x + 10, y + 42, body_line1, Color::rgb(200, 200, 210));
 
             if toast.body.len() > 40 {
                 let end = core::cmp::min(toast.body.len(), 80);
                 let body_line2 = &toast.body[40..end];
-                renderer.draw_text(
-                    base_x + 10,
-                    y + 58,
-                    body_line2,
-                    Color::rgb(200, 200, 210),
-                );
+                renderer.draw_text(base_x + 10, y + 58, body_line2, Color::rgb(200, 200, 210));
             }
         }
     }

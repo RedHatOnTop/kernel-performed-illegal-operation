@@ -2,10 +2,10 @@
 //!
 //! Driver for VESA BIOS Extensions framebuffer.
 
-use super::{Display, DisplayInfo, DisplayMode, DisplayError, PixelFormat, DisplayConnection};
+use super::{Display, DisplayConnection, DisplayError, DisplayInfo, DisplayMode, PixelFormat};
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// VBE info block (returned by VBE function 00h)
 #[repr(C, packed)]
@@ -398,8 +398,11 @@ impl Edid {
         let mut name = String::new();
         for i in 0..4 {
             let block_start = 54 + i * 18;
-            if data[block_start] == 0 && data[block_start + 1] == 0 &&
-               data[block_start + 2] == 0 && data[block_start + 3] == 0xFC {
+            if data[block_start] == 0
+                && data[block_start + 1] == 0
+                && data[block_start + 2] == 0
+                && data[block_start + 3] == 0xFC
+            {
                 // This is a display name descriptor
                 for j in 5..18 {
                     let c = data[block_start + j];

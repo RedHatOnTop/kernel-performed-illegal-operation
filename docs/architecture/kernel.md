@@ -208,7 +208,7 @@ Phase 4: Kernel Init (kernel/src/main.rs)
     v
 Phase 5: Runtime Init
     |
-    +---> Initialize Wasmtime engine
+    +---> Initialize KPIO runtime engine
     +---> Load init.wasm from initramfs
     +---> Transfer control to init process
     |

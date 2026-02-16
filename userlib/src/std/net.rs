@@ -14,14 +14,22 @@ pub struct Ipv4Addr {
 }
 
 impl Ipv4Addr {
-    pub const LOCALHOST: Ipv4Addr = Ipv4Addr { octets: [127, 0, 0, 1] };
-    pub const UNSPECIFIED: Ipv4Addr = Ipv4Addr { octets: [0, 0, 0, 0] };
-    pub const BROADCAST: Ipv4Addr = Ipv4Addr { octets: [255, 255, 255, 255] };
-    
+    pub const LOCALHOST: Ipv4Addr = Ipv4Addr {
+        octets: [127, 0, 0, 1],
+    };
+    pub const UNSPECIFIED: Ipv4Addr = Ipv4Addr {
+        octets: [0, 0, 0, 0],
+    };
+    pub const BROADCAST: Ipv4Addr = Ipv4Addr {
+        octets: [255, 255, 255, 255],
+    };
+
     pub const fn new(a: u8, b: u8, c: u8, d: u8) -> Self {
-        Ipv4Addr { octets: [a, b, c, d] }
+        Ipv4Addr {
+            octets: [a, b, c, d],
+        }
     }
-    
+
     pub const fn octets(&self) -> [u8; 4] {
         self.octets
     }
@@ -34,8 +42,8 @@ pub struct Ipv6Addr {
 }
 
 impl Ipv6Addr {
-    pub const LOCALHOST: Ipv6Addr = Ipv6Addr { 
-        octets: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] 
+    pub const LOCALHOST: Ipv6Addr = Ipv6Addr {
+        octets: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     };
     pub const UNSPECIFIED: Ipv6Addr = Ipv6Addr { octets: [0; 16] };
 }
@@ -58,11 +66,11 @@ impl SocketAddr {
     pub fn new(ip: IpAddr, port: u16) -> Self {
         SocketAddr { ip, port }
     }
-    
+
     pub fn ip(&self) -> IpAddr {
         self.ip
     }
-    
+
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -79,11 +87,11 @@ impl SocketAddrV4 {
     pub fn new(ip: Ipv4Addr, port: u16) -> Self {
         SocketAddrV4 { ip, port }
     }
-    
+
     pub fn ip(&self) -> &Ipv4Addr {
         &self.ip
     }
-    
+
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -104,51 +112,49 @@ impl TcpStream {
     /// Connect to a remote address
     pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<TcpStream, IoError> {
         let addrs = addr.to_socket_addrs()?;
-        
+
         for addr in addrs {
             match Self::connect_addr(&addr) {
                 Ok(stream) => return Ok(stream),
                 Err(_) => continue,
             }
         }
-        
+
         Err(IoError::ConnectionRefused)
     }
-    
+
     fn connect_addr(addr: &SocketAddr) -> Result<TcpStream, IoError> {
         // Pack address for syscall
         let (ip_bytes, port) = match addr.ip {
             IpAddr::V4(v4) => (v4.octets, addr.port),
             IpAddr::V6(_) => return Err(IoError::AddrNotAvailable),
         };
-        
-        let fd = syscall::net_connect(
-            ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3],
-            port,
-        ).map_err(|_| IoError::ConnectionRefused)?;
-        
+
+        let fd = syscall::net_connect(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3], port)
+            .map_err(|_| IoError::ConnectionRefused)?;
+
         Ok(TcpStream { fd })
     }
-    
+
     /// Read from stream
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
         syscall::net_recv(self.fd, buf)
             .map(|n| n as usize)
             .map_err(|_| IoError::Other)
     }
-    
+
     /// Write to stream
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, IoError> {
         syscall::net_send(self.fd, buf)
             .map(|n| n as usize)
             .map_err(|_| IoError::Other)
     }
-    
+
     /// Flush (no-op for TCP)
     pub fn flush(&mut self) -> Result<(), IoError> {
         Ok(())
     }
-    
+
     /// Shutdown
     pub fn shutdown(&mut self, how: Shutdown) -> Result<(), IoError> {
         let how_val = match how {
@@ -160,26 +166,25 @@ impl TcpStream {
             .map(|_| ())
             .map_err(|_| IoError::Other)
     }
-    
+
     /// Try to clone
     pub fn try_clone(&self) -> Result<TcpStream, IoError> {
-        let new_fd = syscall::net_dup(self.fd)
-            .map_err(|_| IoError::Other)?;
+        let new_fd = syscall::net_dup(self.fd).map_err(|_| IoError::Other)?;
         Ok(TcpStream { fd: new_fd })
     }
-    
+
     /// Set read timeout
     pub fn set_read_timeout(&self, _dur: Option<core::time::Duration>) -> Result<(), IoError> {
         // TODO: Implement via syscall
         Ok(())
     }
-    
+
     /// Set write timeout
     pub fn set_write_timeout(&self, _dur: Option<core::time::Duration>) -> Result<(), IoError> {
         // TODO: Implement via syscall
         Ok(())
     }
-    
+
     /// Set nodelay
     pub fn set_nodelay(&self, _nodelay: bool) -> Result<(), IoError> {
         // TODO: Implement via syscall
@@ -202,42 +207,35 @@ impl TcpListener {
     /// Bind to address
     pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<TcpListener, IoError> {
         let addrs = addr.to_socket_addrs()?;
-        
+
         for addr in addrs {
             let (ip_bytes, port) = match addr.ip {
                 IpAddr::V4(v4) => (v4.octets, addr.port),
                 IpAddr::V6(_) => continue,
             };
-            
-            let fd = syscall::net_bind(
-                ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3],
-                port,
-            ).map_err(|_| IoError::AddrInUse)?;
-            
+
+            let fd = syscall::net_bind(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3], port)
+                .map_err(|_| IoError::AddrInUse)?;
+
             return Ok(TcpListener { fd });
         }
-        
+
         Err(IoError::AddrNotAvailable)
     }
-    
+
     /// Accept connection
     pub fn accept(&self) -> Result<(TcpStream, SocketAddr), IoError> {
-        let (fd, ip, port) = syscall::net_accept(self.fd)
-            .map_err(|_| IoError::Other)?;
-        
-        let addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3])),
-            port,
-        );
-        
+        let (fd, ip, port) = syscall::net_accept(self.fd).map_err(|_| IoError::Other)?;
+
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3])), port);
+
         Ok((TcpStream { fd }, addr))
     }
-    
+
     /// Get local address
     pub fn local_addr(&self) -> Result<SocketAddr, IoError> {
-        let (ip, port) = syscall::net_local_addr(self.fd)
-            .map_err(|_| IoError::Other)?;
-        
+        let (ip, port) = syscall::net_local_addr(self.fd).map_err(|_| IoError::Other)?;
+
         Ok(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3])),
             port,
@@ -282,7 +280,10 @@ impl ToSocketAddrs for SocketAddrV4 {
 impl ToSocketAddrs for (Ipv4Addr, u16) {
     type Iter = core::iter::Once<SocketAddr>;
     fn to_socket_addrs(&self) -> Result<Self::Iter, IoError> {
-        Ok(core::iter::once(SocketAddr::new(IpAddr::V4(self.0), self.1)))
+        Ok(core::iter::once(SocketAddr::new(
+            IpAddr::V4(self.0),
+            self.1,
+        )))
     }
 }
 

@@ -5,8 +5,8 @@
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// Font style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,7 +36,7 @@ impl FontWeight {
     pub const BOLD: FontWeight = FontWeight(700);
     pub const EXTRA_BOLD: FontWeight = FontWeight(800);
     pub const BLACK: FontWeight = FontWeight(900);
-    
+
     pub fn is_bold(&self) -> bool {
         self.0 >= 700
     }
@@ -73,12 +73,12 @@ impl FontMetrics {
         let scale = font_size / self.units_per_em as f32;
         ((self.ascender - self.descender) as f32 + self.line_gap as f32) * scale
     }
-    
+
     /// Calculate ascender for a given font size.
     pub fn scaled_ascender(&self, font_size: f32) -> f32 {
         font_size * self.ascender as f32 / self.units_per_em as f32
     }
-    
+
     /// Calculate descender for a given font size.
     pub fn scaled_descender(&self, font_size: f32) -> f32 {
         font_size * self.descender as f32 / self.units_per_em as f32
@@ -132,7 +132,7 @@ impl Glyph {
             bitmap: vec![0; (width * height) as usize],
         }
     }
-    
+
     /// Get pixel alpha at (x, y).
     pub fn get_pixel(&self, x: u32, y: u32) -> u8 {
         if x < self.width && y < self.height {
@@ -141,7 +141,7 @@ impl Glyph {
             0
         }
     }
-    
+
     /// Set pixel alpha at (x, y).
     pub fn set_pixel(&mut self, x: u32, y: u32, alpha: u8) {
         if x < self.width && y < self.height {
@@ -169,7 +169,7 @@ impl BitmapFont {
             char_height,
         }
     }
-    
+
     /// Create a default 8x16 bitmap font.
     pub fn default_font() -> Self {
         Self {
@@ -178,44 +178,44 @@ impl BitmapFont {
             char_height: 16,
         }
     }
-    
+
     /// Generate a simple default font.
     fn generate_default_font() -> Vec<u8> {
         let mut data = vec![0u8; 256 * 16];
-        
+
         // Generate basic ASCII glyphs (simplified)
         // Space (32)
         // Already zeros
-        
+
         // Generate simple block letters for A-Z (65-90)
         for c in 65u8..=90 {
             let idx = c as usize * 16;
-            Self::draw_simple_char(&mut data[idx..idx+16], c);
+            Self::draw_simple_char(&mut data[idx..idx + 16], c);
         }
-        
+
         // Generate a-z (97-122) as smaller versions
         for c in 97u8..=122 {
             let idx = c as usize * 16;
-            Self::draw_simple_char(&mut data[idx..idx+16], c);
+            Self::draw_simple_char(&mut data[idx..idx + 16], c);
         }
-        
+
         // Generate 0-9 (48-57)
         for c in 48u8..=57 {
             let idx = c as usize * 16;
-            Self::draw_simple_char(&mut data[idx..idx+16], c);
+            Self::draw_simple_char(&mut data[idx..idx + 16], c);
         }
-        
+
         // Common punctuation
-        Self::draw_simple_char(&mut data[33*16..34*16], b'!');
-        Self::draw_simple_char(&mut data[46*16..47*16], b'.');
-        Self::draw_simple_char(&mut data[44*16..45*16], b',');
-        Self::draw_simple_char(&mut data[58*16..59*16], b':');
-        Self::draw_simple_char(&mut data[59*16..60*16], b';');
-        Self::draw_simple_char(&mut data[63*16..64*16], b'?');
-        
+        Self::draw_simple_char(&mut data[33 * 16..34 * 16], b'!');
+        Self::draw_simple_char(&mut data[46 * 16..47 * 16], b'.');
+        Self::draw_simple_char(&mut data[44 * 16..45 * 16], b',');
+        Self::draw_simple_char(&mut data[58 * 16..59 * 16], b':');
+        Self::draw_simple_char(&mut data[59 * 16..60 * 16], b';');
+        Self::draw_simple_char(&mut data[63 * 16..64 * 16], b'?');
+
         data
     }
-    
+
     /// Draw a simple character glyph.
     fn draw_simple_char(glyph: &mut [u8], c: u8) {
         match c {
@@ -599,30 +599,34 @@ impl BitmapFont {
             _ => {}
         }
     }
-    
+
     /// Get glyph for a character.
     pub fn get_glyph(&self, c: char) -> Glyph {
         let code = c as u32;
         let idx = if code < 256 { code as usize } else { 0 };
-        
+
         let mut glyph = Glyph::new(c, self.char_width, self.char_height);
         glyph.advance = self.char_width;
         glyph.bearing_y = 12; // Baseline offset
-        
+
         // Convert bitmap row data to alpha values
         let row_start = idx * self.char_height as usize;
         for row in 0..self.char_height {
-            let byte = self.data.get(row_start + row as usize).copied().unwrap_or(0);
+            let byte = self
+                .data
+                .get(row_start + row as usize)
+                .copied()
+                .unwrap_or(0);
             for col in 0..8 {
                 if byte & (0x80 >> col) != 0 {
                     glyph.set_pixel(col, row, 255);
                 }
             }
         }
-        
+
         glyph
     }
-    
+
     /// Get font metrics.
     pub fn metrics(&self) -> FontMetrics {
         FontMetrics {
@@ -635,7 +639,7 @@ impl BitmapFont {
             cap_height: 12,
         }
     }
-    
+
     /// Measure text width.
     pub fn measure_text(&self, text: &str) -> u32 {
         text.chars().count() as u32 * self.char_width
@@ -663,7 +667,7 @@ impl TextRenderer {
             cache: BTreeMap::new(),
         }
     }
-    
+
     /// Create a text renderer with a custom font.
     pub fn with_font(font: BitmapFont) -> Self {
         Self {
@@ -671,7 +675,7 @@ impl TextRenderer {
             cache: BTreeMap::new(),
         }
     }
-    
+
     /// Get a glyph, using cache if available.
     pub fn get_glyph(&mut self, c: char) -> &Glyph {
         if !self.cache.contains_key(&c) {
@@ -680,7 +684,7 @@ impl TextRenderer {
         }
         self.cache.get(&c).unwrap()
     }
-    
+
     /// Render text to a framebuffer.
     pub fn render_text(
         &mut self,
@@ -694,13 +698,13 @@ impl TextRenderer {
     ) {
         let mut cursor_x = x;
         let baseline_y = y + self.font.metrics().ascender as i32;
-        
+
         for c in text.chars() {
             let glyph = self.font.get_glyph(c);
-            
+
             let glyph_x = cursor_x + glyph.bearing_x;
             let glyph_y = baseline_y - glyph.bearing_y;
-            
+
             // Render glyph
             for gy in 0..glyph.height {
                 for gx in 0..glyph.width {
@@ -708,21 +712,22 @@ impl TextRenderer {
                     if alpha > 0 {
                         let px = glyph_x + gx as i32;
                         let py = glyph_y + gy as i32;
-                        
+
                         if px >= 0 && py >= 0 && (px as u32) < fb_width && (py as u32) < fb_height {
                             let idx = (py as u32 * fb_width + px as u32) as usize;
                             if idx < framebuffer.len() {
-                                framebuffer[idx] = Self::blend_pixel(framebuffer[idx], color, alpha);
+                                framebuffer[idx] =
+                                    Self::blend_pixel(framebuffer[idx], color, alpha);
                             }
                         }
                     }
                 }
             }
-            
+
             cursor_x += glyph.advance as i32;
         }
     }
-    
+
     /// Blend a pixel with alpha.
     fn blend_pixel(bg: u32, fg: u32, alpha: u8) -> u32 {
         if alpha == 255 {
@@ -731,37 +736,37 @@ impl TextRenderer {
         if alpha == 0 {
             return bg;
         }
-        
+
         let a = alpha as u32;
         let inv_a = 255 - a;
-        
+
         let bg_r = (bg >> 16) & 0xFF;
         let bg_g = (bg >> 8) & 0xFF;
         let bg_b = bg & 0xFF;
-        
+
         let fg_r = (fg >> 16) & 0xFF;
         let fg_g = (fg >> 8) & 0xFF;
         let fg_b = fg & 0xFF;
-        
+
         let r = (fg_r * a + bg_r * inv_a) / 255;
         let g = (fg_g * a + bg_g * inv_a) / 255;
         let b = (fg_b * a + bg_b * inv_a) / 255;
-        
+
         0xFF000000 | (r << 16) | (g << 8) | b
     }
-    
+
     /// Measure text dimensions.
     pub fn measure_text(&self, text: &str) -> (u32, u32) {
         let width = self.font.measure_text(text);
         let height = self.font.char_height;
         (width, height)
     }
-    
+
     /// Get line height.
     pub fn line_height(&self) -> u32 {
         self.font.char_height
     }
-    
+
     /// Get font metrics.
     pub fn metrics(&self) -> FontMetrics {
         self.font.metrics()
@@ -794,23 +799,23 @@ impl ScaledFont {
             scale,
         }
     }
-    
+
     /// Get scaled glyph.
     pub fn get_glyph(&self, c: char) -> Glyph {
         let base_glyph = self.base_font.get_glyph(c);
-        
+
         if (self.scale - 1.0).abs() < 0.01 {
             return base_glyph;
         }
-        
+
         let new_width = ((base_glyph.width as f32 * self.scale) as u32).max(1);
         let new_height = ((base_glyph.height as f32 * self.scale) as u32).max(1);
-        
+
         let mut scaled = Glyph::new(c, new_width, new_height);
         scaled.advance = (base_glyph.advance as f32 * self.scale) as u32;
         scaled.bearing_x = (base_glyph.bearing_x as f32 * self.scale) as i32;
         scaled.bearing_y = (base_glyph.bearing_y as f32 * self.scale) as i32;
-        
+
         // Simple nearest-neighbor scaling
         for y in 0..new_height {
             for x in 0..new_width {
@@ -820,10 +825,10 @@ impl ScaledFont {
                 scaled.set_pixel(x, y, alpha);
             }
         }
-        
+
         scaled
     }
-    
+
     /// Measure text at scaled size.
     pub fn measure_text(&self, text: &str) -> (f32, f32) {
         let base_width = self.base_font.measure_text(text) as f32;

@@ -5,13 +5,13 @@
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::RwLock;
 
-use crate::ipc::ChannelId;
 use super::coordinator::TabId;
+use crate::ipc::ChannelId;
 
 /// Browser service types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -122,12 +122,15 @@ impl BrowserIntegration {
     /// Register a tab connection
     pub fn register_tab(&self, tab_id: TabId, channel: ChannelId, process_id: u32) {
         let mut tabs = self.active_tabs.write();
-        tabs.insert(tab_id, TabConnection {
+        tabs.insert(
             tab_id,
-            channel,
-            process_id,
-            services: Vec::new(),
-        });
+            TabConnection {
+                tab_id,
+                channel,
+                process_id,
+                services: Vec::new(),
+            },
+        );
     }
 
     /// Unregister a tab connection
@@ -159,14 +162,14 @@ impl BrowserIntegration {
     pub fn send_event(&self, tab_id: TabId, event: BrowserEvent) -> Result<(), IntegrationError> {
         let tabs = self.active_tabs.read();
         let tab = tabs.get(&tab_id).ok_or(IntegrationError::TabNotFound)?;
-        
+
         // Serialize event and send via IPC
         let _payload = event.serialize();
         let _channel = tab.channel;
-        
+
         // TODO: Actually send via IPC
         // ipc::send(channel, Message::new(payload))?;
-        
+
         Ok(())
     }
 
@@ -174,7 +177,7 @@ impl BrowserIntegration {
     pub fn broadcast_event(&self, event: BrowserEvent) {
         let tabs = self.active_tabs.read();
         let payload = event.serialize();
-        
+
         for (_, tab) in tabs.iter() {
             let _channel = tab.channel;
             // TODO: ipc::send(channel, Message::new(payload.clone()))?;
@@ -208,24 +211,16 @@ pub enum BrowserEvent {
         change_type: FileChangeType,
     },
     /// Network status change
-    NetworkStatusChanged {
-        connected: bool,
-        interface: String,
-    },
+    NetworkStatusChanged { connected: bool, interface: String },
     /// Input focus change
-    FocusChanged {
-        focused: bool,
-    },
+    FocusChanged { focused: bool },
     /// System event
     System {
         event_type: SystemEventType,
         data: Vec<u8>,
     },
     /// Custom event
-    Custom {
-        name: String,
-        data: Vec<u8>,
-    },
+    Custom { name: String, data: Vec<u8> },
 }
 
 impl BrowserEvent {
@@ -240,7 +235,10 @@ impl BrowserEvent {
                 data.extend(path.as_bytes());
                 data
             }
-            BrowserEvent::NetworkStatusChanged { connected, interface } => {
+            BrowserEvent::NetworkStatusChanged {
+                connected,
+                interface,
+            } => {
                 let mut data = Vec::new();
                 data.push(0x02);
                 data.push(if *connected { 1 } else { 0 });
@@ -382,10 +380,10 @@ mod tests {
     fn test_register_tab() {
         let integration = BrowserIntegration::new();
         integration.init();
-        
+
         integration.register_tab(TabId(1), ChannelId(100), 1000);
         assert_eq!(integration.tab_count(), 1);
-        
+
         integration.unregister_tab(TabId(1));
         assert_eq!(integration.tab_count(), 0);
     }
@@ -394,14 +392,14 @@ mod tests {
     fn test_handle_request() {
         let integration = BrowserIntegration::new();
         integration.init();
-        
+
         let request = ServiceRequest {
             id: 0,
             tab_id: TabId(1),
             service: BrowserService::SystemInfo,
             payload: Vec::new(),
         };
-        
+
         let response = integration.handle_request(request);
         assert!(response.success);
     }

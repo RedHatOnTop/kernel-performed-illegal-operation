@@ -8,35 +8,35 @@ use alloc::vec::Vec;
 use core::ptr;
 
 use super::{
-    MacAddress, NetworkDevice, NetworkError, NetworkCapabilities, NetworkStats,
-    LinkStatus, LinkSpeed, LinkDuplex, NETWORK_MANAGER,
+    LinkDuplex, LinkSpeed, LinkStatus, MacAddress, NetworkCapabilities, NetworkDevice,
+    NetworkError, NetworkStats, NETWORK_MANAGER,
 };
 
 /// VirtIO net device feature bits
 #[allow(dead_code)]
 mod features {
-    pub const CSUM: u64 = 1 << 0;           // Host handles checksum
-    pub const GUEST_CSUM: u64 = 1 << 1;     // Guest handles checksum
-    pub const MAC: u64 = 1 << 5;            // Device has MAC address
-    pub const GSO: u64 = 1 << 6;            // Deprecated
-    pub const GUEST_TSO4: u64 = 1 << 7;     // Guest can handle TSO v4
-    pub const GUEST_TSO6: u64 = 1 << 8;     // Guest can handle TSO v6
-    pub const GUEST_ECN: u64 = 1 << 9;      // Guest can handle ECN
-    pub const GUEST_UFO: u64 = 1 << 10;     // Guest can handle UFO
-    pub const HOST_TSO4: u64 = 1 << 11;     // Host can handle TSO v4
-    pub const HOST_TSO6: u64 = 1 << 12;     // Host can handle TSO v6
-    pub const HOST_ECN: u64 = 1 << 13;      // Host can handle ECN
-    pub const HOST_UFO: u64 = 1 << 14;      // Host can handle UFO
-    pub const MRG_RXBUF: u64 = 1 << 15;     // Merge rx buffers
-    pub const STATUS: u64 = 1 << 16;        // Configuration status field
-    pub const CTRL_VQ: u64 = 1 << 17;       // Control virtqueue available
-    pub const CTRL_RX: u64 = 1 << 18;       // RX mode control
-    pub const CTRL_VLAN: u64 = 1 << 19;     // VLAN filtering control
+    pub const CSUM: u64 = 1 << 0; // Host handles checksum
+    pub const GUEST_CSUM: u64 = 1 << 1; // Guest handles checksum
+    pub const MAC: u64 = 1 << 5; // Device has MAC address
+    pub const GSO: u64 = 1 << 6; // Deprecated
+    pub const GUEST_TSO4: u64 = 1 << 7; // Guest can handle TSO v4
+    pub const GUEST_TSO6: u64 = 1 << 8; // Guest can handle TSO v6
+    pub const GUEST_ECN: u64 = 1 << 9; // Guest can handle ECN
+    pub const GUEST_UFO: u64 = 1 << 10; // Guest can handle UFO
+    pub const HOST_TSO4: u64 = 1 << 11; // Host can handle TSO v4
+    pub const HOST_TSO6: u64 = 1 << 12; // Host can handle TSO v6
+    pub const HOST_ECN: u64 = 1 << 13; // Host can handle ECN
+    pub const HOST_UFO: u64 = 1 << 14; // Host can handle UFO
+    pub const MRG_RXBUF: u64 = 1 << 15; // Merge rx buffers
+    pub const STATUS: u64 = 1 << 16; // Configuration status field
+    pub const CTRL_VQ: u64 = 1 << 17; // Control virtqueue available
+    pub const CTRL_RX: u64 = 1 << 18; // RX mode control
+    pub const CTRL_VLAN: u64 = 1 << 19; // VLAN filtering control
     pub const GUEST_ANNOUNCE: u64 = 1 << 21; // Guest announce support
-    pub const MQ: u64 = 1 << 22;            // Multi-queue support
+    pub const MQ: u64 = 1 << 22; // Multi-queue support
     pub const CTRL_MAC_ADDR: u64 = 1 << 23; // MAC address control
-    pub const MTU: u64 = 1 << 25;           // MTU negotiation
-    pub const SPEED_DUPLEX: u64 = 1 << 63;  // Speed/duplex configuration
+    pub const MTU: u64 = 1 << 25; // MTU negotiation
+    pub const SPEED_DUPLEX: u64 = 1 << 63; // Speed/duplex configuration
 }
 
 /// VirtIO net header
@@ -133,29 +133,29 @@ const RX_BUFFER_SIZE: usize = 2048;
 /// MMIO register offsets (VirtIO MMIO transport v1/v2)
 #[allow(dead_code)]
 mod mmio_reg {
-    pub const MAGIC:           u32 = 0x00;
-    pub const VERSION:         u32 = 0x04;
-    pub const DEVICE_ID:       u32 = 0x08;
-    pub const VENDOR_ID:       u32 = 0x0C;
+    pub const MAGIC: u32 = 0x00;
+    pub const VERSION: u32 = 0x04;
+    pub const DEVICE_ID: u32 = 0x08;
+    pub const VENDOR_ID: u32 = 0x0C;
     pub const DEVICE_FEATURES: u32 = 0x10;
     pub const DEVICE_FEATURES_SEL: u32 = 0x14;
     pub const DRIVER_FEATURES: u32 = 0x20;
     pub const DRIVER_FEATURES_SEL: u32 = 0x24;
-    pub const QUEUE_SEL:       u32 = 0x30;
-    pub const QUEUE_NUM_MAX:   u32 = 0x34;
-    pub const QUEUE_NUM:       u32 = 0x38;
-    pub const QUEUE_READY:     u32 = 0x44;
-    pub const QUEUE_NOTIFY:    u32 = 0x50;
+    pub const QUEUE_SEL: u32 = 0x30;
+    pub const QUEUE_NUM_MAX: u32 = 0x34;
+    pub const QUEUE_NUM: u32 = 0x38;
+    pub const QUEUE_READY: u32 = 0x44;
+    pub const QUEUE_NOTIFY: u32 = 0x50;
     pub const INTERRUPT_STATUS: u32 = 0x60;
-    pub const INTERRUPT_ACK:   u32 = 0x64;
-    pub const STATUS:          u32 = 0x70;
-    pub const QUEUE_DESC_LOW:  u32 = 0x80;
+    pub const INTERRUPT_ACK: u32 = 0x64;
+    pub const STATUS: u32 = 0x70;
+    pub const QUEUE_DESC_LOW: u32 = 0x80;
     pub const QUEUE_DESC_HIGH: u32 = 0x84;
     pub const QUEUE_AVAIL_LOW: u32 = 0x90;
-    pub const QUEUE_AVAIL_HIGH:u32 = 0x94;
-    pub const QUEUE_USED_LOW:  u32 = 0xA0;
+    pub const QUEUE_AVAIL_HIGH: u32 = 0x94;
+    pub const QUEUE_USED_LOW: u32 = 0xA0;
     pub const QUEUE_USED_HIGH: u32 = 0xA4;
-    pub const CONFIG:          u32 = 0x100;
+    pub const CONFIG: u32 = 0x100;
 }
 
 /// Virtqueue indices
@@ -253,9 +253,7 @@ impl VirtioNetDevice {
     /// Read 8-bit from device
     fn read8(&self, offset: u32) -> u8 {
         if let Some(mmio) = self.mmio_base {
-            unsafe {
-                ptr::read_volatile((mmio + offset as usize) as *const u8)
-            }
+            unsafe { ptr::read_volatile((mmio + offset as usize) as *const u8) }
         } else {
             // PIO mode - would use port I/O
             0
@@ -275,9 +273,7 @@ impl VirtioNetDevice {
     /// Read 32-bit from device
     fn read32(&self, offset: u32) -> u32 {
         if let Some(mmio) = self.mmio_base {
-            unsafe {
-                ptr::read_volatile((mmio + offset as usize) as *const u32)
-            }
+            unsafe { ptr::read_volatile((mmio + offset as usize) as *const u32) }
         } else {
             0
         }
@@ -331,12 +327,8 @@ impl VirtioNetDevice {
             let device_features = (feat_hi as u64) << 32 | (feat_lo as u64);
 
             // Select features we want (keep it simple: MAC + STATUS)
-            self.features = device_features & (
-                features::MAC |
-                features::STATUS |
-                features::CSUM |
-                features::GUEST_CSUM
-            );
+            self.features = device_features
+                & (features::MAC | features::STATUS | features::CSUM | features::GUEST_CSUM);
 
             // Write driver features
             self.write32(mmio_reg::DRIVER_FEATURES_SEL, 0);
@@ -417,13 +409,11 @@ impl VirtioNetDevice {
                 // We don't have separate avail/used ring structs in memory,
                 // so we'll use the MMIO queue-notify model: the device reads
                 // descriptors directly and we write notify.
-                0u64, 0u64,
+                0u64,
+                0u64,
             )
         } else {
-            (
-                self.tx_desc.as_ptr() as u64,
-                0u64, 0u64,
-            )
+            (self.tx_desc.as_ptr() as u64, 0u64, 0u64)
         };
 
         // Write queue addresses (split into low/high for 64-bit)
@@ -497,8 +487,16 @@ impl NetworkDevice for VirtioNetDevice {
             scatter_gather: true,
             vlan: (self.features & features::CTRL_VLAN) != 0,
             mtu: 1500,
-            max_tx_queues: if (self.features & features::MQ) != 0 { 4 } else { 1 },
-            max_rx_queues: if (self.features & features::MQ) != 0 { 4 } else { 1 },
+            max_tx_queues: if (self.features & features::MQ) != 0 {
+                4
+            } else {
+                1
+            },
+            max_rx_queues: if (self.features & features::MQ) != 0 {
+                4
+            } else {
+                1
+            },
         }
     }
 
@@ -558,9 +556,7 @@ impl NetworkDevice for VirtioNetDevice {
         }
 
         // Copy header
-        let hdr_bytes: [u8; VirtioNetHdr::SIZE] = unsafe {
-            core::mem::transmute(hdr)
-        };
+        let hdr_bytes: [u8; VirtioNetHdr::SIZE] = unsafe { core::mem::transmute(hdr) };
         self.tx_buffers[idx][..VirtioNetHdr::SIZE].copy_from_slice(&hdr_bytes);
         // Copy payload
         self.tx_buffers[idx][VirtioNetHdr::SIZE..total].copy_from_slice(data);

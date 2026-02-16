@@ -22,50 +22,58 @@ impl Instant {
     pub fn now() -> Instant {
         // In real implementation, this would read from kernel time service
         // or directly from APIC timer / TSC
-        Instant { nanos: read_tsc_nanos() }
+        Instant {
+            nanos: read_tsc_nanos(),
+        }
     }
-    
+
     /// Returns the amount of time elapsed since this instant
     pub fn elapsed(&self) -> Duration {
         let now = Instant::now();
         now.duration_since(*self)
     }
-    
+
     /// Returns the duration since the given instant
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         Duration::from_nanos(self.nanos.saturating_sub(earlier.nanos))
     }
-    
+
     /// Returns Some(t) if t is after this instant
     pub fn checked_add(&self, duration: Duration) -> Option<Instant> {
-        self.nanos.checked_add(duration.as_nanos() as u64).map(|n| Instant { nanos: n })
+        self.nanos
+            .checked_add(duration.as_nanos() as u64)
+            .map(|n| Instant { nanos: n })
     }
-    
+
     /// Returns Some(t) if t is before this instant
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
-        self.nanos.checked_sub(duration.as_nanos() as u64).map(|n| Instant { nanos: n })
+        self.nanos
+            .checked_sub(duration.as_nanos() as u64)
+            .map(|n| Instant { nanos: n })
     }
 }
 
 impl core::ops::Add<Duration> for Instant {
     type Output = Instant;
-    
+
     fn add(self, rhs: Duration) -> Instant {
-        self.checked_add(rhs).expect("overflow when adding duration to instant")
+        self.checked_add(rhs)
+            .expect("overflow when adding duration to instant")
     }
 }
 
 impl core::ops::Sub<Duration> for Instant {
     type Output = Instant;
-    
+
     fn sub(self, rhs: Duration) -> Instant {
-        self.checked_sub(rhs).expect("overflow when subtracting duration from instant")
+        self.checked_sub(rhs)
+            .expect("overflow when subtracting duration from instant")
     }
 }
 
 impl core::ops::Sub<Instant> for Instant {
     type Output = Duration;
-    
+
     fn sub(self, rhs: Instant) -> Duration {
         self.duration_since(rhs)
     }
@@ -81,7 +89,7 @@ pub struct SystemTime {
 impl SystemTime {
     /// An anchor in time representing the Unix epoch (1970-01-01 00:00:00 UTC)
     pub const UNIX_EPOCH: SystemTime = SystemTime { secs: 0, nanos: 0 };
-    
+
     /// Returns the system time corresponding to "now"
     pub fn now() -> SystemTime {
         // In real implementation, this would query the RTC or kernel time service
@@ -91,28 +99,28 @@ impl SystemTime {
             nanos: (nanos % 1_000_000_000) as u32,
         }
     }
-    
+
     /// Returns the duration since UNIX_EPOCH
     pub fn duration_since_epoch(&self) -> Duration {
         Duration::new(self.secs, self.nanos)
     }
-    
+
     /// Returns the duration since the given time
     pub fn duration_since(&self, earlier: SystemTime) -> Result<Duration, SystemTimeError> {
         if self.secs < earlier.secs || (self.secs == earlier.secs && self.nanos < earlier.nanos) {
             return Err(SystemTimeError(()));
         }
-        
+
         let secs = self.secs - earlier.secs;
         let nanos = if self.nanos >= earlier.nanos {
             self.nanos - earlier.nanos
         } else {
             self.nanos + 1_000_000_000 - earlier.nanos
         };
-        
+
         Ok(Duration::new(secs, nanos))
     }
-    
+
     /// Returns the amount of time elapsed since this time
     pub fn elapsed(&self) -> Result<Duration, SystemTimeError> {
         SystemTime::now().duration_since(*self)
@@ -141,7 +149,7 @@ impl Timer {
             callback: None,
         }
     }
-    
+
     /// Create a new timer with a callback
     pub fn with_callback(duration: Duration, callback: fn()) -> Self {
         Timer {
@@ -150,12 +158,12 @@ impl Timer {
             callback: Some(callback),
         }
     }
-    
+
     /// Check if timer has expired
     pub fn is_expired(&self) -> bool {
         Instant::now() >= self.deadline
     }
-    
+
     /// Get remaining time until expiration
     pub fn remaining(&self) -> Duration {
         let now = Instant::now();
@@ -165,12 +173,12 @@ impl Timer {
             self.deadline - now
         }
     }
-    
+
     /// Reset the timer with a new duration
     pub fn reset(&mut self, duration: Duration) {
         self.deadline = Instant::now() + duration;
     }
-    
+
     /// Cancel the timer
     pub fn cancel(self) {
         // In real implementation, would notify kernel to remove timer
@@ -191,7 +199,7 @@ fn read_tsc_nanos() -> u64 {
     // In real implementation, this would:
     // 1. Read TSC using RDTSC instruction
     // 2. Convert to nanoseconds using calibrated TSC frequency
-    
+
     // Placeholder: return a simulated counter
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     COUNTER.fetch_add(1000, Ordering::Relaxed)

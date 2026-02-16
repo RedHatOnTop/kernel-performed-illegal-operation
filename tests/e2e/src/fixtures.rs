@@ -2,9 +2,9 @@
 //!
 //! Provides reusable test data and setup utilities.
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 
 /// HTML test fixtures
 pub struct HtmlFixtures;
@@ -12,7 +12,8 @@ pub struct HtmlFixtures;
 impl HtmlFixtures {
     /// Basic HTML page
     pub fn basic_page() -> String {
-        String::from(r#"<!DOCTYPE html>
+        String::from(
+            r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Test Page</title>
@@ -21,12 +22,14 @@ impl HtmlFixtures {
     <h1>Hello World</h1>
     <p>This is a test page.</p>
 </body>
-</html>"#)
+</html>"#,
+        )
     }
 
     /// Page with forms
     pub fn form_page() -> String {
-        String::from(r#"<!DOCTYPE html>
+        String::from(
+            r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Form Test</title>
@@ -57,12 +60,14 @@ impl HtmlFixtures {
         <button type="submit">Submit</button>
     </form>
 </body>
-</html>"#)
+</html>"#,
+        )
     }
 
     /// Page with complex layout
     pub fn layout_page() -> String {
-        String::from(r#"<!DOCTYPE html>
+        String::from(
+            r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Layout Test</title>
@@ -99,12 +104,14 @@ impl HtmlFixtures {
         &copy; 2024 Test Site
     </footer>
 </body>
-</html>"#)
+</html>"#,
+        )
     }
 
     /// Page with interactive elements
     pub fn interactive_page() -> String {
-        String::from(r#"<!DOCTYPE html>
+        String::from(
+            r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Interactive Test</title>
@@ -171,12 +178,14 @@ impl HtmlFixtures {
         });
     </script>
 </body>
-</html>"#)
+</html>"#,
+        )
     }
 
     /// Page with images
     pub fn image_page() -> String {
-        String::from(r#"<!DOCTYPE html>
+        String::from(
+            r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Image Test</title>
@@ -194,12 +203,14 @@ impl HtmlFixtures {
         <img src="/images/small.jpg" alt="Responsive Image">
     </picture>
 </body>
-</html>"#)
+</html>"#,
+        )
     }
 
     /// Page with tables
     pub fn table_page() -> String {
-        String::from(r#"<!DOCTYPE html>
+        String::from(
+            r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Table Test</title>
@@ -226,7 +237,8 @@ impl HtmlFixtures {
         </tbody>
     </table>
 </body>
-</html>"#)
+</html>"#,
+        )
     }
 }
 
@@ -424,9 +436,15 @@ impl NetworkFixtures {
     /// HTTP response headers
     pub fn typical_headers() -> Vec<(String, String)> {
         alloc::vec![
-            (String::from("content-type"), String::from("text/html; charset=utf-8")),
+            (
+                String::from("content-type"),
+                String::from("text/html; charset=utf-8")
+            ),
             (String::from("cache-control"), String::from("max-age=3600")),
-            (String::from("x-content-type-options"), String::from("nosniff")),
+            (
+                String::from("x-content-type-options"),
+                String::from("nosniff")
+            ),
             (String::from("x-frame-options"), String::from("DENY")),
         ]
     }
@@ -434,11 +452,23 @@ impl NetworkFixtures {
     /// Security headers
     pub fn security_headers() -> Vec<(String, String)> {
         alloc::vec![
-            (String::from("strict-transport-security"), String::from("max-age=31536000; includeSubDomains")),
-            (String::from("content-security-policy"), String::from("default-src 'self'")),
-            (String::from("x-content-type-options"), String::from("nosniff")),
+            (
+                String::from("strict-transport-security"),
+                String::from("max-age=31536000; includeSubDomains")
+            ),
+            (
+                String::from("content-security-policy"),
+                String::from("default-src 'self'")
+            ),
+            (
+                String::from("x-content-type-options"),
+                String::from("nosniff")
+            ),
             (String::from("x-frame-options"), String::from("DENY")),
-            (String::from("x-xss-protection"), String::from("1; mode=block")),
+            (
+                String::from("x-xss-protection"),
+                String::from("1; mode=block")
+            ),
         ]
     }
 
@@ -446,9 +476,10 @@ impl NetworkFixtures {
     pub fn json_response() -> MockResponse {
         MockResponse {
             status: 200,
-            headers: alloc::vec![
-                (String::from("content-type"), String::from("application/json")),
-            ],
+            headers: alloc::vec![(
+                String::from("content-type"),
+                String::from("application/json")
+            ),],
             body: String::from(r#"{"success": true, "data": {"id": 1, "name": "Test"}}"#),
         }
     }
@@ -457,9 +488,10 @@ impl NetworkFixtures {
     pub fn error_response(status: u16, message: &str) -> MockResponse {
         MockResponse {
             status,
-            headers: alloc::vec![
-                (String::from("content-type"), String::from("application/json")),
-            ],
+            headers: alloc::vec![(
+                String::from("content-type"),
+                String::from("application/json")
+            ),],
             body: format!(r#"{{"error": true, "message": "{}"}}"#, message),
         }
     }

@@ -6,14 +6,14 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::RwLock;
 
-use crate::{ExtensionId, ExtensionError};
+use crate::{ExtensionError, ExtensionId};
 
 /// Sandbox ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,10 +54,10 @@ impl Default for SandboxConfig {
     fn default() -> Self {
         Self {
             memory_limit: 256 * 1024 * 1024, // 256 MB
-            cpu_time_limit: 30_000,           // 30 seconds
+            cpu_time_limit: 30_000,          // 30 seconds
             allowed_apis: Vec::new(),
             network_access: false,
-            storage_quota: 10 * 1024 * 1024,  // 10 MB
+            storage_quota: 10 * 1024 * 1024, // 10 MB
         }
     }
 }
@@ -66,7 +66,7 @@ impl SandboxConfig {
     /// Create config with permissions.
     pub fn with_permissions(permissions: &[String]) -> Self {
         let mut config = Self::default();
-        
+
         for perm in permissions {
             match perm.as_str() {
                 "storage" => {
@@ -89,10 +89,10 @@ impl SandboxConfig {
                 _ => {}
             }
         }
-        
+
         // Always allow runtime API
         config.allowed_apis.push("chrome.runtime".to_string());
-        
+
         config
     }
 }
@@ -230,10 +230,7 @@ pub enum MessageSender {
     /// Browser.
     Browser,
     /// Web page.
-    WebPage {
-        url: String,
-        tab_id: u32,
-    },
+    WebPage { url: String, tab_id: u32 },
 }
 
 /// Message handler.
@@ -252,75 +249,76 @@ impl Sandbox {
             pending_messages: Vec::new(),
         }
     }
-    
+
     /// Start the sandbox.
     pub fn start(&mut self) -> Result<(), SandboxError> {
         if self.state != SandboxState::Created {
             return Err(SandboxError::InvalidState);
         }
-        
+
         self.state = SandboxState::Running;
         Ok(())
     }
-    
+
     /// Pause the sandbox.
     pub fn pause(&mut self) -> Result<(), SandboxError> {
         if self.state != SandboxState::Running {
             return Err(SandboxError::InvalidState);
         }
-        
+
         self.state = SandboxState::Paused;
         Ok(())
     }
-    
+
     /// Resume the sandbox.
     pub fn resume(&mut self) -> Result<(), SandboxError> {
         if self.state != SandboxState::Paused {
             return Err(SandboxError::InvalidState);
         }
-        
+
         self.state = SandboxState::Running;
         Ok(())
     }
-    
+
     /// Terminate the sandbox.
     pub fn terminate(&mut self) {
         self.state = SandboxState::Terminated;
         self.pending_messages.clear();
     }
-    
+
     /// Get sandbox state.
     pub fn state(&self) -> SandboxState {
         self.state
     }
-    
+
     /// Get resource usage.
     pub fn usage(&self) -> &ResourceUsage {
         &self.usage
     }
-    
+
     /// Check if API is allowed.
     pub fn is_api_allowed(&self, api: &str) -> bool {
-        self.config.allowed_apis.iter().any(|allowed| {
-            api.starts_with(allowed) || *allowed == api
-        })
+        self.config
+            .allowed_apis
+            .iter()
+            .any(|allowed| api.starts_with(allowed) || *allowed == api)
     }
-    
+
     /// Send a message to the sandbox.
     pub fn send_message(&mut self, message: Message) -> Result<(), SandboxError> {
         if self.state != SandboxState::Running {
             return Err(SandboxError::NotRunning);
         }
-        
+
         self.pending_messages.push(message);
         Ok(())
     }
-    
+
     /// Process pending messages.
     pub fn process_messages(&mut self) -> Vec<(u64, Option<MessagePayload>)> {
         let messages = core::mem::take(&mut self.pending_messages);
         let mut responses = Vec::new();
-        
+
         for message in messages {
             let handler_key = match message.message_type {
                 MessageType::ApiCall => "api",
@@ -328,27 +326,27 @@ impl Sandbox {
                 MessageType::PortMessage => "port",
                 _ => continue,
             };
-            
+
             if let Some(handler) = self.message_handlers.get(handler_key) {
                 let response = handler(&message);
                 responses.push((message.id, response));
             }
         }
-        
+
         responses
     }
-    
+
     /// Register a message handler.
     pub fn register_handler(&mut self, name: &str, handler: MessageHandler) {
         self.message_handlers.insert(name.to_string(), handler);
     }
-    
+
     /// Update memory usage.
     pub fn update_memory_usage(&mut self, bytes: usize) -> Result<(), ResourceLimitExceeded> {
         self.usage.memory_used = bytes;
         self.usage.check_limits(&self.config)
     }
-    
+
     /// Update CPU time.
     pub fn update_cpu_time(&mut self, ms: u64) -> Result<(), ResourceLimitExceeded> {
         self.usage.cpu_time_used += ms;
@@ -384,24 +382,20 @@ impl SandboxManager {
             sandboxes: RwLock::new(BTreeMap::new()),
         }
     }
-    
+
     /// Create a sandbox for an extension.
-    pub fn create_sandbox(
-        &self,
-        extension_id: ExtensionId,
-        config: SandboxConfig,
-    ) -> SandboxId {
+    pub fn create_sandbox(&self, extension_id: ExtensionId, config: SandboxConfig) -> SandboxId {
         let sandbox = Sandbox::new(extension_id, config);
         let id = sandbox.id;
         self.sandboxes.write().insert(id.0, sandbox);
         id
     }
-    
+
     /// Get a sandbox.
     pub fn get_sandbox(&self, id: SandboxId) -> Option<Sandbox> {
         self.sandboxes.read().get(&id.0).cloned()
     }
-    
+
     /// Start a sandbox.
     pub fn start_sandbox(&self, id: SandboxId) -> Result<(), SandboxError> {
         let mut sandboxes = self.sandboxes.write();
@@ -411,7 +405,7 @@ impl SandboxManager {
             Err(SandboxError::InvalidState)
         }
     }
-    
+
     /// Terminate a sandbox.
     pub fn terminate_sandbox(&self, id: SandboxId) {
         let mut sandboxes = self.sandboxes.write();
@@ -419,15 +413,16 @@ impl SandboxManager {
             sandbox.terminate();
         }
     }
-    
+
     /// Remove a sandbox.
     pub fn remove_sandbox(&self, id: SandboxId) {
         self.sandboxes.write().remove(&id.0);
     }
-    
+
     /// Get sandboxes for an extension.
     pub fn get_extension_sandboxes(&self, extension_id: &ExtensionId) -> Vec<SandboxId> {
-        self.sandboxes.read()
+        self.sandboxes
+            .read()
             .values()
             .filter(|s| s.extension_id == *extension_id)
             .map(|s| s.id)
@@ -484,12 +479,12 @@ impl IsolatedWorld {
             exposed_apis: Vec::new(),
         }
     }
-    
+
     /// Add a script to the world.
     pub fn add_script(&mut self, script: String) {
         self.scripts.push(script);
     }
-    
+
     /// Expose an API to the world.
     pub fn expose_api(&mut self, api: &str) {
         if !self.exposed_apis.contains(&api.to_string()) {
@@ -501,55 +496,49 @@ impl IsolatedWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_sandbox_lifecycle() {
-        let mut sandbox = Sandbox::new(
-            ExtensionId::new("test"),
-            SandboxConfig::default(),
-        );
-        
+        let mut sandbox = Sandbox::new(ExtensionId::new("test"), SandboxConfig::default());
+
         assert_eq!(sandbox.state(), SandboxState::Created);
-        
+
         sandbox.start().unwrap();
         assert_eq!(sandbox.state(), SandboxState::Running);
-        
+
         sandbox.pause().unwrap();
         assert_eq!(sandbox.state(), SandboxState::Paused);
-        
+
         sandbox.resume().unwrap();
         assert_eq!(sandbox.state(), SandboxState::Running);
-        
+
         sandbox.terminate();
         assert_eq!(sandbox.state(), SandboxState::Terminated);
     }
-    
+
     #[test]
     fn test_api_permissions() {
-        let config = SandboxConfig::with_permissions(&[
-            "storage".to_string(),
-            "tabs".to_string(),
-        ]);
-        
+        let config = SandboxConfig::with_permissions(&["storage".to_string(), "tabs".to_string()]);
+
         let sandbox = Sandbox::new(ExtensionId::new("test"), config);
-        
+
         assert!(sandbox.is_api_allowed("chrome.storage"));
         assert!(sandbox.is_api_allowed("chrome.storage.local.get"));
         assert!(sandbox.is_api_allowed("chrome.tabs"));
         assert!(sandbox.is_api_allowed("chrome.runtime")); // Always allowed
         assert!(!sandbox.is_api_allowed("chrome.webRequest"));
     }
-    
+
     #[test]
     fn test_resource_limits() {
         let config = SandboxConfig {
             memory_limit: 1024,
             ..Default::default()
         };
-        
+
         let mut sandbox = Sandbox::new(ExtensionId::new("test"), config);
         sandbox.start().unwrap();
-        
+
         assert!(sandbox.update_memory_usage(512).is_ok());
         assert!(sandbox.update_memory_usage(2048).is_err());
     }

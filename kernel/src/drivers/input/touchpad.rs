@@ -2,9 +2,11 @@
 //!
 //! Driver for touchpad input with gesture support.
 
-use super::{InputDevice, InputDeviceType, InputEvent, InputEventType, InputEventData,
-            MouseMoveEvent, MouseButtonEvent, MouseScrollEvent, TouchEvent, GestureEvent,
-            MouseButton, TouchPhase, GestureType, GesturePhase, SwipeDirection};
+use super::{
+    GestureEvent, GesturePhase, GestureType, InputDevice, InputDeviceType, InputEvent,
+    InputEventData, InputEventType, MouseButton, MouseButtonEvent, MouseMoveEvent,
+    MouseScrollEvent, SwipeDirection, TouchEvent, TouchPhase,
+};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -22,7 +24,11 @@ fn sqrt_f32(x: f32) -> f32 {
 
 /// Simple abs for f32
 fn abs_f32(x: f32) -> f32 {
-    if x < 0.0 { -x } else { x }
+    if x < 0.0 {
+        -x
+    } else {
+        x
+    }
 }
 
 /// Touchpad finger state
@@ -149,7 +155,15 @@ impl Touchpad {
     }
 
     /// Update finger state
-    pub fn update_finger(&mut self, slot: u8, touching: bool, x: f32, y: f32, pressure: f32, timestamp: u64) {
+    pub fn update_finger(
+        &mut self,
+        slot: u8,
+        touching: bool,
+        x: f32,
+        y: f32,
+        pressure: f32,
+        timestamp: u64,
+    ) {
         if slot as usize >= self.fingers.len() {
             return;
         }
@@ -206,7 +220,7 @@ impl Touchpad {
     /// Handle finger up event
     fn on_finger_up(&mut self, slot: u8, timestamp: u64) {
         let finger = &self.fingers[slot as usize];
-        
+
         // Generate touch event
         self.pending_events.push(InputEvent {
             event_type: InputEventType::Touch,
@@ -269,7 +283,7 @@ impl Touchpad {
     /// Handle finger move event
     fn on_finger_move(&mut self, slot: u8, timestamp: u64) {
         let finger = &self.fingers[slot as usize];
-        
+
         // Generate touch event
         self.pending_events.push(InputEvent {
             event_type: InputEventType::Touch,
@@ -328,8 +342,16 @@ impl Touchpad {
         let avg_dy = ((f1.y - f1.prev_y) + (f2.y - f2.prev_y)) / 2.0;
 
         // Apply natural scrolling if enabled
-        let scroll_dy = if self.config.natural_scrolling { -avg_dy } else { avg_dy };
-        let scroll_dx = if self.config.natural_scrolling { -avg_dx } else { avg_dx };
+        let scroll_dy = if self.config.natural_scrolling {
+            -avg_dy
+        } else {
+            avg_dy
+        };
+        let scroll_dx = if self.config.natural_scrolling {
+            -avg_dx
+        } else {
+            avg_dx
+        };
 
         // Accumulate and generate scroll events
         self.gesture_state.scroll_accumulator.0 += scroll_dx * self.config.scroll_speed * 20.0;
@@ -357,7 +379,7 @@ impl Touchpad {
             let dx = f1.x - f2.x;
             let dy = f1.y - f2.y;
             let current_distance = sqrt_f32(dx * dx + dy * dy);
-            
+
             if self.gesture_state.initial_distance > 0.0 {
                 let scale = current_distance / self.gesture_state.initial_distance;
                 let center_x = (f1.x + f2.x) / 2.0;
@@ -367,7 +389,11 @@ impl Touchpad {
                     event_type: InputEventType::Gesture,
                     timestamp,
                     data: InputEventData::Gesture(GestureEvent {
-                        gesture: GestureType::Pinch { scale, center_x, center_y },
+                        gesture: GestureType::Pinch {
+                            scale,
+                            center_x,
+                            center_y,
+                        },
                         phase: GesturePhase::Changed,
                     }),
                 });
@@ -382,28 +408,44 @@ impl Touchpad {
         }
 
         // Calculate average movement
-        let avg_dx: f32 = self.fingers[0..3].iter()
+        let avg_dx: f32 = self.fingers[0..3]
+            .iter()
             .map(|f| f.x - f.prev_x)
-            .sum::<f32>() / 3.0;
-        let avg_dy: f32 = self.fingers[0..3].iter()
+            .sum::<f32>()
+            / 3.0;
+        let avg_dy: f32 = self.fingers[0..3]
+            .iter()
             .map(|f| f.y - f.prev_y)
-            .sum::<f32>() / 3.0;
+            .sum::<f32>()
+            / 3.0;
 
         // Accumulate movement
-        let total_dx: f32 = self.fingers[0..3].iter()
+        let total_dx: f32 = self.fingers[0..3]
+            .iter()
             .map(|f| f.x - f.start_x)
-            .sum::<f32>() / 3.0;
-        let total_dy: f32 = self.fingers[0..3].iter()
+            .sum::<f32>()
+            / 3.0;
+        let total_dy: f32 = self.fingers[0..3]
+            .iter()
             .map(|f| f.y - f.start_y)
-            .sum::<f32>() / 3.0;
+            .sum::<f32>()
+            / 3.0;
 
         // Detect swipe direction
         let threshold = 0.1;
         if abs_f32(total_dx) > threshold || abs_f32(total_dy) > threshold {
             let direction = if abs_f32(total_dx) > abs_f32(total_dy) {
-                if total_dx > 0.0 { SwipeDirection::Right } else { SwipeDirection::Left }
+                if total_dx > 0.0 {
+                    SwipeDirection::Right
+                } else {
+                    SwipeDirection::Left
+                }
             } else {
-                if total_dy > 0.0 { SwipeDirection::Down } else { SwipeDirection::Up }
+                if total_dy > 0.0 {
+                    SwipeDirection::Down
+                } else {
+                    SwipeDirection::Up
+                }
             };
 
             self.pending_events.push(InputEvent {
@@ -424,19 +466,31 @@ impl Touchpad {
         }
 
         // Similar to three-finger but for desktop/app switching
-        let total_dx: f32 = self.fingers[0..4].iter()
+        let total_dx: f32 = self.fingers[0..4]
+            .iter()
             .map(|f| f.x - f.start_x)
-            .sum::<f32>() / 4.0;
-        let total_dy: f32 = self.fingers[0..4].iter()
+            .sum::<f32>()
+            / 4.0;
+        let total_dy: f32 = self.fingers[0..4]
+            .iter()
             .map(|f| f.y - f.start_y)
-            .sum::<f32>() / 4.0;
+            .sum::<f32>()
+            / 4.0;
 
         let threshold = 0.1;
         if abs_f32(total_dx) > threshold || abs_f32(total_dy) > threshold {
             let direction = if abs_f32(total_dx) > abs_f32(total_dy) {
-                if total_dx > 0.0 { SwipeDirection::Right } else { SwipeDirection::Left }
+                if total_dx > 0.0 {
+                    SwipeDirection::Right
+                } else {
+                    SwipeDirection::Left
+                }
             } else {
-                if total_dy > 0.0 { SwipeDirection::Down } else { SwipeDirection::Up }
+                if total_dy > 0.0 {
+                    SwipeDirection::Down
+                } else {
+                    SwipeDirection::Up
+                }
             };
 
             self.pending_events.push(InputEvent {

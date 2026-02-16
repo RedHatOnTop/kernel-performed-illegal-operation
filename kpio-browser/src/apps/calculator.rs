@@ -4,7 +4,7 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libm::{sqrt, pow, sin, cos, tan, asin, acos, atan, log, log10, exp, floor, ceil, round, fabs};
+use libm::{acos, asin, atan, ceil, cos, exp, fabs, floor, log, log10, pow, round, sin, sqrt, tan};
 
 /// Calculator state
 #[derive(Debug, Clone)]
@@ -509,11 +509,11 @@ impl NumberBase {
 /// Bit width
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BitWidth {
-    Byte,    // 8-bit
-    Word,    // 16-bit
-    DWord,   // 32-bit
+    Byte,  // 8-bit
+    Word,  // 16-bit
+    DWord, // 32-bit
     #[default]
-    QWord,   // 64-bit
+    QWord, // 64-bit
 }
 
 impl BitWidth {

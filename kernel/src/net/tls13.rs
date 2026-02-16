@@ -9,17 +9,17 @@
 //!   - TLS 1.2 fallback to existing implementation
 
 #![allow(dead_code)]
+use super::crypto::aes_gcm::{aes128_gcm_open, aes128_gcm_seal};
+use super::crypto::random::csprng_fill;
+use super::crypto::x25519::x25519_basepoint;
+use super::crypto::{derive_secret, hkdf_expand_label, hkdf_extract, hmac_sha256, sha256};
+use super::tcp;
+use super::tcp::ConnId;
+use super::x509;
+use super::NetError;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use super::crypto::{sha256, hmac_sha256, hkdf_extract, hkdf_expand_label, derive_secret};
-use super::crypto::aes_gcm::{aes128_gcm_seal, aes128_gcm_open};
-use super::crypto::x25519::x25519_basepoint;
-use super::crypto::random::csprng_fill;
-use super::tcp;
-use super::tcp::ConnId;
-use super::NetError;
-use super::x509;
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -126,14 +126,18 @@ impl Tls13Connection {
             let ct = raw_buf[offset];
             let rec_len = u16::from_be_bytes([raw_buf[offset + 3], raw_buf[offset + 4]]) as usize;
             offset += 5;
-            if offset + rec_len > raw_buf.len() { break; }
+            if offset + rec_len > raw_buf.len() {
+                break;
+            }
             let payload = &raw_buf[offset..offset + rec_len];
             offset += rec_len;
 
             if ct == CT_HANDSHAKE && !got_server_hello {
                 if payload.len() > 4 && payload[0] == HS_SERVER_HELLO {
                     // Parse ServerHello
-                    let sh_len = ((payload[1] as usize) << 16) | ((payload[2] as usize) << 8) | (payload[3] as usize);
+                    let sh_len = ((payload[1] as usize) << 16)
+                        | ((payload[2] as usize) << 8)
+                        | (payload[3] as usize);
                     let sh_body = &payload[4..4 + sh_len.min(payload.len() - 4)];
 
                     if sh_body.len() >= 34 {
@@ -218,12 +222,16 @@ impl Tls13Connection {
                 let mut more = Vec::new();
                 read_records(tcp_id, &mut more, 3000)?;
                 raw_buf.extend_from_slice(&more);
-                if offset + rec_len > raw_buf.len() { break; }
+                if offset + rec_len > raw_buf.len() {
+                    break;
+                }
             }
             let payload = &raw_buf[offset..offset + rec_len];
             offset += rec_len;
 
-            if ct == CT_CHANGE_CIPHER { continue; }
+            if ct == CT_CHANGE_CIPHER {
+                continue;
+            }
 
             if ct == CT_APP_DATA {
                 // Decrypt with server handshake key
@@ -243,19 +251,27 @@ impl Tls13Connection {
         // Read remaining records if we haven't got enough
         for _ in 0..20 {
             let mut more_buf = Vec::new();
-            if read_records(tcp_id, &mut more_buf, 1000).is_err() { break; }
-            if more_buf.is_empty() { break; }
+            if read_records(tcp_id, &mut more_buf, 1000).is_err() {
+                break;
+            }
+            if more_buf.is_empty() {
+                break;
+            }
 
             let mut off2 = 0;
             while off2 + 5 <= more_buf.len() {
                 let ct = more_buf[off2];
                 let rec_len = u16::from_be_bytes([more_buf[off2 + 3], more_buf[off2 + 4]]) as usize;
                 off2 += 5;
-                if off2 + rec_len > more_buf.len() { break; }
+                if off2 + rec_len > more_buf.len() {
+                    break;
+                }
                 let payload = &more_buf[off2..off2 + rec_len];
                 off2 += rec_len;
 
-                if ct == CT_CHANGE_CIPHER { continue; }
+                if ct == CT_CHANGE_CIPHER {
+                    continue;
+                }
                 if ct == CT_APP_DATA {
                     if let Some(plain) = decrypt_record(&s_key, &s_iv, server_hs_seq, payload) {
                         server_hs_seq += 1;
@@ -293,7 +309,12 @@ impl Tls13Connection {
         inner_record.push(CT_HANDSHAKE); // inner content type
         let nonce = build_nonce(&c_iv, 0); // client seq = 0
         let nonce_arr: [u8; 12] = nonce.try_into().unwrap_or([0; 12]);
-        let (ct_bytes, tag) = aes128_gcm_seal(&c_key, &nonce_arr, &TLS_RECORD_AAD(inner_record.len() + 16), &inner_record);
+        let (ct_bytes, tag) = aes128_gcm_seal(
+            &c_key,
+            &nonce_arr,
+            &TLS_RECORD_AAD(inner_record.len() + 16),
+            &inner_record,
+        );
 
         let mut enc_data = ct_bytes;
         enc_data.extend_from_slice(&tag);
@@ -308,8 +329,10 @@ impl Tls13Connection {
         let master_secret = hkdf_extract(&derived2, &zeros32);
 
         let full_transcript_hash = sha256(&transcript);
-        let c_ap_traffic = hkdf_expand_label(&master_secret, b"c ap traffic", &full_transcript_hash, 32);
-        let s_ap_traffic = hkdf_expand_label(&master_secret, b"s ap traffic", &full_transcript_hash, 32);
+        let c_ap_traffic =
+            hkdf_expand_label(&master_secret, b"c ap traffic", &full_transcript_hash, 32);
+        let s_ap_traffic =
+            hkdf_expand_label(&master_secret, b"s ap traffic", &full_transcript_hash, 32);
 
         let c_app_key = hkdf_expand_label(&c_ap_traffic, b"key", &[], 16);
         let c_app_iv = hkdf_expand_label(&c_ap_traffic, b"iv", &[], 12);
@@ -362,22 +385,30 @@ impl Tls13Connection {
         // Try to read a TLS record
         let mut raw = [0u8; 16384 + 256];
         let n = tcp::recv_blocking(self.tcp_id, &mut raw, 500)?;
-        if n == 0 { return Ok(0); }
+        if n == 0 {
+            return Ok(0);
+        }
 
         // Buffer for reassembly
         self.recv_buf.extend_from_slice(&raw[..n]);
 
         // Try to parse a complete record
-        if self.recv_buf.len() < 5 { return Ok(0); }
+        if self.recv_buf.len() < 5 {
+            return Ok(0);
+        }
         let rec_len = u16::from_be_bytes([self.recv_buf[3], self.recv_buf[4]]) as usize;
-        if self.recv_buf.len() < 5 + rec_len { return Ok(0); }
+        if self.recv_buf.len() < 5 + rec_len {
+            return Ok(0);
+        }
 
         let ct = self.recv_buf[0];
         let payload: Vec<u8> = self.recv_buf[5..5 + rec_len].to_vec();
         self.recv_buf.drain(..5 + rec_len);
 
         if ct == CT_APP_DATA {
-            if let Some(plain) = decrypt_record(&self.server_key, &self.server_iv, self.server_seq, &payload) {
+            if let Some(plain) =
+                decrypt_record(&self.server_key, &self.server_iv, self.server_seq, &payload)
+            {
                 self.server_seq += 1;
                 if let Some((&inner_ct, inner_data)) = plain.split_last() {
                     if inner_ct == CT_APP_DATA {
@@ -449,7 +480,9 @@ fn read_records(tcp_id: ConnId, buf: &mut Vec<u8>, timeout_iters: usize) -> Resu
                 return Ok(());
             }
             Err(NetError::WouldBlock) | Ok(_) => {
-                for _ in 0..50_000 { core::hint::spin_loop(); }
+                for _ in 0..50_000 {
+                    core::hint::spin_loop();
+                }
             }
             Err(e) => return Err(e),
         }
@@ -472,7 +505,9 @@ fn build_nonce(iv: &[u8; 12], seq: u64) -> Vec<u8> {
 }
 
 fn decrypt_record(key: &[u8; 16], iv: &[u8; 12], seq: u64, encrypted: &[u8]) -> Option<Vec<u8>> {
-    if encrypted.len() < 16 { return None; }
+    if encrypted.len() < 16 {
+        return None;
+    }
 
     let nonce = build_nonce(iv, seq);
     let nonce_arr: [u8; 12] = nonce.try_into().ok()?;
@@ -489,7 +524,8 @@ fn decrypt_record(key: &[u8; 16], iv: &[u8; 12], seq: u64, encrypted: &[u8]) -> 
 fn TLS_RECORD_AAD(enc_len: usize) -> [u8; 5] {
     [
         CT_APP_DATA,
-        0x03, 0x03, // TLS 1.2 for compat
+        0x03,
+        0x03, // TLS 1.2 for compat
         (enc_len >> 8) as u8,
         enc_len as u8,
     ]
@@ -510,11 +546,13 @@ fn build_client_hello(client_random: &[u8; 32], x25519_pub: &[u8; 32], hostname:
     hello.push(32);
     hello.extend_from_slice(&session_id);
     // Cipher suites
-    hello.push(0x00); hello.push(0x02); // length = 2
+    hello.push(0x00);
+    hello.push(0x02); // length = 2
     hello.push((TLS_AES_128_GCM_SHA256 >> 8) as u8);
     hello.push(TLS_AES_128_GCM_SHA256 as u8);
     // Compression methods: null
-    hello.push(0x01); hello.push(0x00);
+    hello.push(0x01);
+    hello.push(0x00);
 
     // ── Extensions ──────────────────────────────────────
     let mut exts = Vec::new();
@@ -545,8 +583,10 @@ fn build_client_hello(client_random: &[u8; 32], x25519_pub: &[u8; 32], hostname:
         let entry_len = 2 + 2 + 32; // group(2) + len(2) + key(32)
         ks.push((entry_len >> 8) as u8);
         ks.push(entry_len as u8);
-        ks.push(0x00); ks.push(0x1D); // X25519
-        ks.push(0x00); ks.push(0x20); // 32 bytes
+        ks.push(0x00);
+        ks.push(0x1D); // X25519
+        ks.push(0x00);
+        ks.push(0x20); // 32 bytes
         ks.extend_from_slice(x25519_pub);
         push_extension(&mut exts, EXT_KEY_SHARE, &ks);
     }
@@ -611,13 +651,19 @@ fn push_extension(exts: &mut Vec<u8>, ext_type: u16, data: &[u8]) {
 
 fn parse_server_hello_key_share(sh_body: &[u8]) -> Option<[u8; 32]> {
     // ServerHello body: version(2) + random(32) + session_id_len(1) + session_id + cipher(2) + comp(1) + ext_len(2) + exts
-    if sh_body.len() < 35 { return None; }
+    if sh_body.len() < 35 {
+        return None;
+    }
     let sid_len = sh_body[34] as usize;
     let pos = 35 + sid_len;
-    if pos + 3 >= sh_body.len() { return None; }
+    if pos + 3 >= sh_body.len() {
+        return None;
+    }
     // cipher suite (2) + compression (1)
     let ext_start = pos + 3;
-    if ext_start + 2 > sh_body.len() { return None; }
+    if ext_start + 2 > sh_body.len() {
+        return None;
+    }
     let ext_len = u16::from_be_bytes([sh_body[ext_start], sh_body[ext_start + 1]]) as usize;
     let ext_end = (ext_start + 2 + ext_len).min(sh_body.len());
 
@@ -626,7 +672,9 @@ fn parse_server_hello_key_share(sh_body: &[u8]) -> Option<[u8; 32]> {
         let etype = u16::from_be_bytes([sh_body[off], sh_body[off + 1]]);
         let elen = u16::from_be_bytes([sh_body[off + 2], sh_body[off + 3]]) as usize;
         off += 4;
-        if off + elen > ext_end { break; }
+        if off + elen > ext_end {
+            break;
+        }
 
         if etype == EXT_KEY_SHARE {
             // key_share: group(2) + key_len(2) + key
@@ -651,9 +699,13 @@ fn process_handshake_messages(data: &[u8], transcript: &mut Vec<u8>) {
     let mut off = 0;
     while off + 4 <= data.len() {
         let hs_type = data[off];
-        let hs_len = ((data[off + 1] as usize) << 16) | ((data[off + 2] as usize) << 8) | (data[off + 3] as usize);
+        let hs_len = ((data[off + 1] as usize) << 16)
+            | ((data[off + 2] as usize) << 8)
+            | (data[off + 3] as usize);
         let msg_end = off + 4 + hs_len;
-        if msg_end > data.len() { break; }
+        if msg_end > data.len() {
+            break;
+        }
 
         // Add to transcript (EncryptedExtensions, Certificate, CertificateVerify, Finished)
         match hs_type {

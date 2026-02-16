@@ -2,10 +2,10 @@
 //!
 //! GPT and MBR partition table parsing.
 
+use super::{BlockDevice, StorageError};
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
-use super::{BlockDevice, StorageError};
 
 /// Partition information
 #[derive(Debug, Clone)]
@@ -96,7 +96,10 @@ impl Guid {
             data1: u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
             data2: u16::from_le_bytes([bytes[4], bytes[5]]),
             data3: u16::from_le_bytes([bytes[6], bytes[7]]),
-            data4: [bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]],
+            data4: [
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                bytes[15],
+            ],
         }
     }
 
@@ -282,16 +285,16 @@ pub enum PartitionTableType {
 pub fn parse_partitions(device: &dyn BlockDevice) -> Result<Vec<Partition>, StorageError> {
     let block_size = device.block_size();
     let mut sector = vec![0u8; block_size as usize];
-    
+
     // Read MBR (sector 0)
     device.read_blocks(0, 1, &mut sector)?;
-    
+
     let mbr = unsafe { &*(sector.as_ptr() as *const Mbr) };
-    
+
     if !mbr.is_valid() {
-        return Ok(Vec::new());  // No valid partition table
+        return Ok(Vec::new()); // No valid partition table
     }
-    
+
     if mbr.is_protective() {
         // GPT disk, parse GPT
         parse_gpt(device)
@@ -304,18 +307,19 @@ pub fn parse_partitions(device: &dyn BlockDevice) -> Result<Vec<Partition>, Stor
 /// Parse MBR partition table
 fn parse_mbr(mbr: &Mbr) -> Result<Vec<Partition>, StorageError> {
     let mut partitions = Vec::new();
-    
+
     for (i, entry) in mbr.partitions.iter().enumerate() {
         if entry.partition_type == mbr_types::EMPTY {
             continue;
         }
-        
+
         // Skip extended partitions (would need additional parsing)
-        if entry.partition_type == mbr_types::EXTENDED 
-            || entry.partition_type == mbr_types::EXTENDED_LBA {
+        if entry.partition_type == mbr_types::EXTENDED
+            || entry.partition_type == mbr_types::EXTENDED_LBA
+        {
             continue;
         }
-        
+
         partitions.push(Partition {
             number: (i + 1) as u8,
             name: format!("Partition {}", i + 1),
@@ -326,7 +330,7 @@ fn parse_mbr(mbr: &Mbr) -> Result<Vec<Partition>, StorageError> {
             guid: None,
         });
     }
-    
+
     Ok(partitions)
 }
 
@@ -334,60 +338,58 @@ fn parse_mbr(mbr: &Mbr) -> Result<Vec<Partition>, StorageError> {
 fn parse_gpt(device: &dyn BlockDevice) -> Result<Vec<Partition>, StorageError> {
     let block_size = device.block_size();
     let mut sector = vec![0u8; block_size as usize];
-    
+
     // Read GPT header (sector 1)
     device.read_blocks(1, 1, &mut sector)?;
-    
+
     let header = unsafe { &*(sector.as_ptr() as *const GptHeader) };
-    
+
     if !header.is_valid() {
         return Err(StorageError::IoError(String::from("Invalid GPT header")));
     }
-    
+
     let mut partitions = Vec::new();
     let entries_per_sector = block_size / header.partition_entry_size;
     let mut partition_number = 1u8;
-    
+
     // Read partition entries
     let mut current_lba = header.partition_entries_lba;
     let mut entries_read = 0u32;
-    
+
     while entries_read < header.num_partition_entries {
         device.read_blocks(current_lba, 1, &mut sector)?;
-        
+
         for i in 0..entries_per_sector {
             if entries_read >= header.num_partition_entries {
                 break;
             }
-            
+
             let offset = (i * header.partition_entry_size) as usize;
-            let entry = unsafe { 
-                &*(sector[offset..].as_ptr() as *const GptPartitionEntry) 
-            };
-            
+            let entry = unsafe { &*(sector[offset..].as_ptr() as *const GptPartitionEntry) };
+
             if entry.is_used() {
                 let type_guid = Guid::from_bytes(&entry.type_guid);
                 let partition_guid = Guid::from_bytes(&entry.partition_guid);
-                
+
                 partitions.push(Partition {
                     number: partition_number,
                     name: entry.get_name(),
                     partition_type: PartitionType::Gpt(type_guid),
                     start_lba: entry.starting_lba,
                     sector_count: entry.ending_lba - entry.starting_lba + 1,
-                    bootable: (entry.attributes & 4) != 0,  // Legacy BIOS bootable
+                    bootable: (entry.attributes & 4) != 0, // Legacy BIOS bootable
                     guid: Some(partition_guid),
                 });
-                
+
                 partition_number += 1;
             }
-            
+
             entries_read += 1;
         }
-        
+
         current_lba += 1;
     }
-    
+
     Ok(partitions)
 }
 

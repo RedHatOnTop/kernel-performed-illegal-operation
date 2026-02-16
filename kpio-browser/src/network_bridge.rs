@@ -4,8 +4,8 @@
 //! It wraps syscalls for socket operations and provides TCP/UDP/DNS APIs.
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// Socket descriptor type
@@ -99,10 +99,10 @@ impl TcpSocket {
         if !self.connected {
             return Err(NetError::NotConnected);
         }
-        
+
         let _ = data;
         // TODO: syscall::send(self.fd, data)
-        
+
         Ok(data.len())
     }
 
@@ -111,10 +111,10 @@ impl TcpSocket {
         if !self.connected {
             return Err(NetError::NotConnected);
         }
-        
+
         let _ = buffer;
         // TODO: syscall::recv(self.fd, buffer)
-        
+
         Ok(0) // Mock: no data
     }
 
@@ -246,13 +246,15 @@ impl NetworkBridge {
     pub fn tcp_connect(&self, ip: &str, port: u16) -> Result<TcpSocket, NetError> {
         let addr = self.parse_ip(ip)?;
         let socket_addr = SocketAddr::new(addr, port);
-        
-        let fd = self.next_fd.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-        
-        // TODO: 
+
+        let fd = self
+            .next_fd
+            .fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+
+        // TODO:
         // let fd = syscall::socket(AF_INET, SOCK_STREAM, 0)?;
         // syscall::connect(fd, socket_addr)?;
-        
+
         Ok(TcpSocket {
             fd,
             remote: Some(socket_addr),
@@ -263,13 +265,15 @@ impl NetworkBridge {
 
     /// Create a TCP listener
     pub fn tcp_listen(&self, addr: SocketAddr, backlog: u32) -> Result<TcpListener, NetError> {
-        let fd = self.next_fd.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-        
+        let fd = self
+            .next_fd
+            .fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+
         // TODO:
         // let fd = syscall::socket(AF_INET, SOCK_STREAM, 0)?;
         // syscall::bind(fd, addr)?;
         // syscall::listen(fd, backlog)?;
-        
+
         Ok(TcpListener {
             fd,
             local: addr,
@@ -281,16 +285,12 @@ impl NetworkBridge {
     pub fn resolve_dns(&self, hostname: &str) -> Result<Vec<IpAddr>, NetError> {
         // TODO: Implement via kernel DNS resolver
         // syscall::resolve(hostname)
-        
+
         // Mock implementation
         match hostname {
             "localhost" => Ok(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
-            "example.com" => Ok(vec![
-                IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)),
-            ]),
-            "google.com" => Ok(vec![
-                IpAddr::V4(Ipv4Addr::new(142, 250, 80, 46)),
-            ]),
+            "example.com" => Ok(vec![IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))]),
+            "google.com" => Ok(vec![IpAddr::V4(Ipv4Addr::new(142, 250, 80, 46))]),
             _ => Err(NetError::DnsError),
         }
     }
@@ -299,24 +299,25 @@ impl NetworkBridge {
     pub fn http_get(&self, url: &str) -> Result<HttpResponse, NetError> {
         // Parse URL
         let (host, port, path) = self.parse_url(url)?;
-        
+
         // Resolve DNS
         let ips = self.resolve_dns(&host)?;
         let ip = ips.first().ok_or(NetError::DnsError)?;
-        
+
         // Connect
         let mut socket = self.tcp_connect(&ip.to_string(), port)?;
-        
+
         // Send HTTP request
         let request = alloc::format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            path, host
+            path,
+            host
         );
         socket.send(request.as_bytes())?;
-        
+
         // Read response (mock)
         // TODO: Actually read from socket
-        
+
         Ok(HttpResponse {
             status: 200,
             status_text: String::from("OK"),
@@ -333,11 +334,8 @@ impl NetworkBridge {
         // Try IPv4
         let parts: Vec<&str> = ip.split('.').collect();
         if parts.len() == 4 {
-            let octets: Result<Vec<u8>, _> = parts
-                .iter()
-                .map(|s| s.parse::<u8>())
-                .collect();
-            
+            let octets: Result<Vec<u8>, _> = parts.iter().map(|s| s.parse::<u8>()).collect();
+
             if let Ok(octets) = octets {
                 if octets.len() == 4 {
                     return Ok(IpAddr::V4(Ipv4Addr::new(
@@ -346,20 +344,20 @@ impl NetworkBridge {
                 }
             }
         }
-        
+
         // Try IPv6 (simplified)
         if ip.contains(':') {
             // TODO: Proper IPv6 parsing
             return Ok(IpAddr::V6(Ipv6Addr::LOCALHOST));
         }
-        
+
         Err(NetError::InvalidAddress)
     }
 
     /// Parse URL into (host, port, path)
     fn parse_url(&self, url: &str) -> Result<(String, u16, String), NetError> {
         let url = url.trim();
-        
+
         // Remove scheme
         let without_scheme = if let Some(rest) = url.strip_prefix("http://") {
             (rest, 80u16)
@@ -368,15 +366,15 @@ impl NetworkBridge {
         } else {
             (url, 80u16)
         };
-        
+
         let (rest, default_port) = without_scheme;
-        
+
         // Split host and path
         let (host_port, path) = match rest.find('/') {
             Some(idx) => (&rest[..idx], &rest[idx..]),
             None => (rest, "/"),
         };
-        
+
         // Split host and port
         let (host, port) = match host_port.rfind(':') {
             Some(idx) => {
@@ -386,7 +384,7 @@ impl NetworkBridge {
             }
             None => (host_port, default_port),
         };
-        
+
         Ok((String::from(host), port, String::from(path)))
     }
 
@@ -427,7 +425,7 @@ impl TcpListener {
     pub fn accept(&self) -> Result<(TcpSocket, SocketAddr), NetError> {
         // TODO: syscall::accept(self.fd)
         let remote = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)), 54321);
-        
+
         Ok((
             TcpSocket {
                 fd: self.fd + 100,

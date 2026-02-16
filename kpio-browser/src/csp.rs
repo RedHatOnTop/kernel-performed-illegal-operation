@@ -42,7 +42,7 @@ impl CspPolicy {
             report_uri: None,
         }
     }
-    
+
     /// Parse CSP from header value.
     pub fn parse(header: &str, report_only: bool) -> Self {
         let mut policy = Self {
@@ -50,20 +50,20 @@ impl CspPolicy {
             directives: Vec::new(),
             report_uri: None,
         };
-        
+
         // Split by semicolon
         for directive_str in header.split(';') {
             let directive_str = directive_str.trim();
             if directive_str.is_empty() {
                 continue;
             }
-            
+
             let mut parts = directive_str.split_whitespace();
             let name = match parts.next() {
                 Some(n) => n,
                 None => continue,
             };
-            
+
             // Handle report-uri specially
             if name == "report-uri" {
                 if let Some(uri) = parts.next() {
@@ -71,20 +71,20 @@ impl CspPolicy {
                 }
                 continue;
             }
-            
+
             // Parse directive
             let directive_type = CspDirectiveType::parse(name);
             let sources: Vec<CspSource> = parts.map(CspSource::parse).collect();
-            
+
             policy.directives.push(CspDirective {
                 directive_type,
                 sources,
             });
         }
-        
+
         policy
     }
-    
+
     /// Get sources for a directive type.
     pub fn get_sources(&self, directive_type: &CspDirectiveType) -> Option<&[CspSource]> {
         // First, look for exact match
@@ -93,7 +93,7 @@ impl CspPolicy {
                 return Some(&directive.sources);
             }
         }
-        
+
         // Fall back to default-src
         if directive_type != &CspDirectiveType::DefaultSrc {
             for directive in &self.directives {
@@ -102,94 +102,103 @@ impl CspPolicy {
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Check if a resource URL is allowed.
-    pub fn allows(&self, directive_type: &CspDirectiveType, url: &str, nonce: Option<&str>) -> CspCheck {
+    pub fn allows(
+        &self,
+        directive_type: &CspDirectiveType,
+        url: &str,
+        nonce: Option<&str>,
+    ) -> CspCheck {
         let sources = match self.get_sources(directive_type) {
             Some(s) => s,
-            None => return CspCheck::Allow,  // No policy = allow
+            None => return CspCheck::Allow, // No policy = allow
         };
-        
+
         // Check each source
         for source in sources {
             if source.matches(url, nonce) {
                 return CspCheck::Allow;
             }
         }
-        
+
         if self.report_only {
             CspCheck::ReportOnly
         } else {
             CspCheck::Block
         }
     }
-    
+
     /// Check if inline script is allowed.
     pub fn allows_inline_script(&self, nonce: Option<&str>, hash: Option<&str>) -> CspCheck {
         let sources = match self.get_sources(&CspDirectiveType::ScriptSrc) {
             Some(s) => s,
             None => return CspCheck::Allow,
         };
-        
+
         for source in sources {
             match source {
                 CspSource::UnsafeInline => return CspCheck::Allow,
                 CspSource::Nonce(n) if Some(n.as_str()) == nonce => return CspCheck::Allow,
-                CspSource::Hash(alg, h) if Some(alloc::format!("{}-{}", alg, h).as_str()) == hash => {
+                CspSource::Hash(alg, h)
+                    if Some(alloc::format!("{}-{}", alg, h).as_str()) == hash =>
+                {
                     return CspCheck::Allow;
                 }
                 _ => {}
             }
         }
-        
+
         if self.report_only {
             CspCheck::ReportOnly
         } else {
             CspCheck::Block
         }
     }
-    
+
     /// Check if inline style is allowed.
     pub fn allows_inline_style(&self, nonce: Option<&str>, hash: Option<&str>) -> CspCheck {
         let sources = match self.get_sources(&CspDirectiveType::StyleSrc) {
             Some(s) => s,
             None => return CspCheck::Allow,
         };
-        
+
         for source in sources {
             match source {
                 CspSource::UnsafeInline => return CspCheck::Allow,
                 CspSource::Nonce(n) if Some(n.as_str()) == nonce => return CspCheck::Allow,
-                CspSource::Hash(alg, h) if Some(alloc::format!("{}-{}", alg, h).as_str()) == hash => {
+                CspSource::Hash(alg, h)
+                    if Some(alloc::format!("{}-{}", alg, h).as_str()) == hash =>
+                {
                     return CspCheck::Allow;
                 }
                 _ => {}
             }
         }
-        
+
         if self.report_only {
             CspCheck::ReportOnly
         } else {
             CspCheck::Block
         }
     }
-    
+
     /// Check if eval is allowed.
     pub fn allows_eval(&self) -> CspCheck {
         let sources = match self.get_sources(&CspDirectiveType::ScriptSrc) {
             Some(s) => s,
             None => return CspCheck::Allow,
         };
-        
+
         for source in sources {
             if matches!(source, CspSource::UnsafeEval) {
                 return CspCheck::Allow;
             }
         }
-        
+
         if self.report_only {
             CspCheck::ReportOnly
         } else {
@@ -307,7 +316,7 @@ pub enum CspSource {
     /// Nonce-based source.
     Nonce(String),
     /// Hash-based source.
-    Hash(String, String),  // (algorithm, hash)
+    Hash(String, String), // (algorithm, hash)
     /// Scheme source (e.g., "https:").
     Scheme(String),
     /// Host source (e.g., "*.example.com").
@@ -349,7 +358,7 @@ impl CspSource {
                         return Self::Nonce(nonce.to_string());
                     }
                 }
-                
+
                 // Check for hash
                 for alg in &["sha256", "sha384", "sha512"] {
                     let prefix = alloc::format!("'{}-", alg);
@@ -359,36 +368,36 @@ impl CspSource {
                         }
                     }
                 }
-                
+
                 // Check for scheme
                 if s.ends_with(':') && !s.contains('/') {
                     return Self::Scheme(s.trim_end_matches(':').to_string());
                 }
-                
+
                 // Parse as host source
                 Self::parse_host(s)
             }
         }
     }
-    
+
     /// Parse host source.
     fn parse_host(s: &str) -> Self {
         let mut scheme = None;
         let mut rest = s;
-        
+
         // Extract scheme
         if let Some((sch, r)) = s.split_once("://") {
             scheme = Some(sch.to_string());
             rest = r;
         }
-        
+
         // Extract path
         let (host_port, path) = if let Some((hp, p)) = rest.split_once('/') {
             (hp, Some(alloc::format!("/{}", p)))
         } else {
             (rest, None)
         };
-        
+
         // Extract port
         let (host, port) = if let Some((h, p)) = host_port.rsplit_once(':') {
             // Check if it's IPv6 address
@@ -400,10 +409,15 @@ impl CspSource {
         } else {
             (host_port.to_string(), None)
         };
-        
-        Self::Host { scheme, host, port, path }
+
+        Self::Host {
+            scheme,
+            host,
+            port,
+            path,
+        }
     }
-    
+
     /// Check if source matches a URL.
     pub fn matches(&self, url: &str, nonce: Option<&str>) -> bool {
         match self {
@@ -418,13 +432,22 @@ impl CspSource {
             Self::Data => url.starts_with("data:"),
             Self::Blob => url.starts_with("blob:"),
             Self::Scheme(s) => url.starts_with(&alloc::format!("{}:", s)),
-            Self::Host { scheme, host, port, path } => {
-                self.matches_host(url, scheme.as_deref(), host, port.as_deref(), path.as_deref())
-            }
+            Self::Host {
+                scheme,
+                host,
+                port,
+                path,
+            } => self.matches_host(
+                url,
+                scheme.as_deref(),
+                host,
+                port.as_deref(),
+                path.as_deref(),
+            ),
             _ => false,
         }
     }
-    
+
     /// Check if host source matches URL.
     fn matches_host(
         &self,
@@ -439,14 +462,14 @@ impl CspSource {
             Some((s, r)) => (s, r),
             None => return false,
         };
-        
+
         // Check scheme
         if let Some(s) = scheme {
             if url_scheme != s {
                 return false;
             }
         }
-        
+
         // Extract host from URL
         let (url_host_port, url_path) = rest.split_once('/').unwrap_or((rest, ""));
         let (url_host, url_port) = if let Some((h, p)) = url_host_port.rsplit_once(':') {
@@ -454,7 +477,7 @@ impl CspSource {
         } else {
             (url_host_port, None)
         };
-        
+
         // Check host (support wildcards)
         if host.starts_with("*.") {
             let suffix = &host[1..];
@@ -464,14 +487,14 @@ impl CspSource {
         } else if url_host != host {
             return false;
         }
-        
+
         // Check port
         if let Some(p) = port {
             if p != "*" && url_port != Some(p) {
                 return false;
             }
         }
-        
+
         // Check path
         if let Some(p) = path {
             let check_path = alloc::format!("/{}", url_path);
@@ -479,7 +502,7 @@ impl CspSource {
                 return false;
             }
         }
-        
+
         true
     }
 }
@@ -549,17 +572,22 @@ impl CspContext {
             violations: Vec::new(),
         }
     }
-    
+
     /// Add a policy.
     pub fn add_policy(&mut self, policy: CspPolicy) {
         self.policies.push(policy);
     }
-    
+
     /// Check if resource is allowed (checks all policies).
-    pub fn allows(&mut self, directive_type: &CspDirectiveType, url: &str, nonce: Option<&str>) -> bool {
+    pub fn allows(
+        &mut self,
+        directive_type: &CspDirectiveType,
+        url: &str,
+        nonce: Option<&str>,
+    ) -> bool {
         let mut allowed = true;
         let mut violations = Vec::new();
-        
+
         for policy in &self.policies {
             match policy.allows(directive_type, url, nonce) {
                 CspCheck::Allow => {}
@@ -572,20 +600,20 @@ impl CspContext {
                 }
             }
         }
-        
+
         // Record violations after iteration
         for (directive, blocked_uri) in violations {
             self.record_violation_simple(&directive, &blocked_uri);
         }
-        
+
         allowed
     }
-    
+
     /// Check if inline script is allowed.
     pub fn allows_inline_script(&mut self, nonce: Option<&str>, hash: Option<&str>) -> bool {
         let mut allowed = true;
         let mut has_violation = false;
-        
+
         for policy in &self.policies {
             match policy.allows_inline_script(nonce, hash) {
                 CspCheck::Allow => {}
@@ -598,14 +626,14 @@ impl CspContext {
                 }
             }
         }
-        
+
         if has_violation {
             self.record_violation_simple(&CspDirectiveType::ScriptSrc, "inline");
         }
-        
+
         allowed
     }
-    
+
     /// Record a violation (simple version).
     fn record_violation_simple(&mut self, directive: &CspDirectiveType, blocked_uri: &str) {
         let directive_name = match directive {
@@ -615,7 +643,7 @@ impl CspContext {
             CspDirectiveType::ImgSrc => "img-src",
             _ => "unknown",
         };
-        
+
         self.violations.push(CspViolation::new(
             self.document_uri.clone(),
             directive_name.to_string(),
@@ -624,12 +652,12 @@ impl CspContext {
             blocked_uri.to_string(),
         ));
     }
-    
+
     /// Get collected violations.
     pub fn violations(&self) -> &[CspViolation] {
         &self.violations
     }
-    
+
     /// Clear violations.
     pub fn clear_violations(&mut self) {
         self.violations.clear();
@@ -639,17 +667,17 @@ impl CspContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_policy() {
         let policy = CspPolicy::parse(
             "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src *",
             false,
         );
-        
+
         assert_eq!(policy.directives.len(), 3);
     }
-    
+
     #[test]
     fn test_source_matching() {
         let source = CspSource::Host {
@@ -658,22 +686,25 @@ mod tests {
             port: None,
             path: None,
         };
-        
+
         assert!(source.matches("https://sub.example.com/path", None));
         assert!(source.matches("https://example.com/path", None));
         assert!(!source.matches("http://example.com/path", None));
         assert!(!source.matches("https://other.com/path", None));
     }
-    
+
     #[test]
     fn test_nonce() {
-        let policy = CspPolicy::parse(
-            "script-src 'nonce-abc123'",
-            false,
+        let policy = CspPolicy::parse("script-src 'nonce-abc123'", false);
+
+        assert_eq!(
+            policy.allows_inline_script(Some("abc123"), None),
+            CspCheck::Allow
         );
-        
-        assert_eq!(policy.allows_inline_script(Some("abc123"), None), CspCheck::Allow);
-        assert_eq!(policy.allows_inline_script(Some("wrong"), None), CspCheck::Block);
+        assert_eq!(
+            policy.allows_inline_script(Some("wrong"), None),
+            CspCheck::Block
+        );
         assert_eq!(policy.allows_inline_script(None, None), CspCheck::Block);
     }
 }

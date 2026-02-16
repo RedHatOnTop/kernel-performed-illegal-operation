@@ -7,11 +7,11 @@
 
 #![allow(dead_code)]
 
+use super::crypto::aes::{aes128_cbc_decrypt, aes128_cbc_encrypt};
+use super::crypto::hmac::hmac_sha256;
+use super::crypto::sha::sha256;
 use super::tcp::{self, ConnId};
 use super::NetError;
-use super::crypto::sha::sha256;
-use super::crypto::hmac::hmac_sha256;
-use super::crypto::aes::{aes128_cbc_encrypt, aes128_cbc_decrypt};
 use alloc::vec::Vec;
 
 // ── TLS record types ────────────────────────────────────────

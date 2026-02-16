@@ -267,7 +267,10 @@ pub fn english_bundle() -> MessageBundle {
     // Errors
     bundle.add(BrowserMessages::ERR_NOT_FOUND, "Page not found");
     bundle.add(BrowserMessages::ERR_CONNECTION, "Unable to connect");
-    bundle.add(BrowserMessages::ERR_CERTIFICATE, "Security certificate error");
+    bundle.add(
+        BrowserMessages::ERR_CERTIFICATE,
+        "Security certificate error",
+    );
     bundle.add(BrowserMessages::ERR_TIMEOUT, "Connection timed out");
 
     bundle
@@ -433,7 +436,10 @@ pub fn spanish_bundle() -> MessageBundle {
 
     bundle.add(BrowserMessages::ERR_NOT_FOUND, "Página no encontrada");
     bundle.add(BrowserMessages::ERR_CONNECTION, "No se puede conectar");
-    bundle.add(BrowserMessages::ERR_CERTIFICATE, "Error de certificado de seguridad");
+    bundle.add(
+        BrowserMessages::ERR_CERTIFICATE,
+        "Error de certificado de seguridad",
+    );
     bundle.add(BrowserMessages::ERR_TIMEOUT, "Tiempo de conexión agotado");
 
     bundle
@@ -473,8 +479,14 @@ pub fn german_bundle() -> MessageBundle {
 
     bundle.add(BrowserMessages::ERR_NOT_FOUND, "Seite nicht gefunden");
     bundle.add(BrowserMessages::ERR_CONNECTION, "Verbindung nicht möglich");
-    bundle.add(BrowserMessages::ERR_CERTIFICATE, "Sicherheitszertifikatfehler");
-    bundle.add(BrowserMessages::ERR_TIMEOUT, "Zeitüberschreitung der Verbindung");
+    bundle.add(
+        BrowserMessages::ERR_CERTIFICATE,
+        "Sicherheitszertifikatfehler",
+    );
+    bundle.add(
+        BrowserMessages::ERR_TIMEOUT,
+        "Zeitüberschreitung der Verbindung",
+    );
 
     bundle
 }
@@ -513,7 +525,10 @@ pub fn french_bundle() -> MessageBundle {
 
     bundle.add(BrowserMessages::ERR_NOT_FOUND, "Page introuvable");
     bundle.add(BrowserMessages::ERR_CONNECTION, "Connexion impossible");
-    bundle.add(BrowserMessages::ERR_CERTIFICATE, "Erreur de certificat de sécurité");
+    bundle.add(
+        BrowserMessages::ERR_CERTIFICATE,
+        "Erreur de certificat de sécurité",
+    );
     bundle.add(BrowserMessages::ERR_TIMEOUT, "Délai de connexion dépassé");
 
     bundle

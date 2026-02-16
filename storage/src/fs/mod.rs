@@ -46,8 +46,10 @@ pub fn detect_filesystem(device: &dyn super::driver::BlockDevice) -> Option<&'st
         let magic = u16::from_le_bytes([sb_buffer[56], sb_buffer[57]]);
         if magic == 0xEF53 {
             // Check for ext4 specific features
-            let compat = u32::from_le_bytes([sb_buffer[92], sb_buffer[93], sb_buffer[94], sb_buffer[95]]);
-            let incompat = u32::from_le_bytes([sb_buffer[96], sb_buffer[97], sb_buffer[98], sb_buffer[99]]);
+            let compat =
+                u32::from_le_bytes([sb_buffer[92], sb_buffer[93], sb_buffer[94], sb_buffer[95]]);
+            let incompat =
+                u32::from_le_bytes([sb_buffer[96], sb_buffer[97], sb_buffer[98], sb_buffer[99]]);
 
             // EXT4_FEATURE_INCOMPAT_EXTENTS = 0x0040
             if incompat & 0x0040 != 0 {

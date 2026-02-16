@@ -215,9 +215,7 @@ impl FetchInterceptor {
                     FetchResult::Error(String::from("cache miss (cache-only strategy)"))
                 }
             }
-            CacheStrategy::NetworkOnly => {
-                FetchResult::Passthrough
-            }
+            CacheStrategy::NetworkOnly => FetchResult::Passthrough,
             CacheStrategy::StaleWhileRevalidate => {
                 // Serve from cache immediately (if available)
                 if let Some(resp) = cache_storage.match_in(&rule.cache_name, url) {
@@ -235,8 +233,7 @@ impl FetchInterceptor {
     fn parse_rule(obj: &str) -> Option<CacheRule> {
         let url = extract_json_string(obj, "url")?;
         let strategy_str = extract_json_string(obj, "strategy").unwrap_or_default();
-        let cache = extract_json_string(obj, "cache")
-            .unwrap_or_else(|| String::from("default"));
+        let cache = extract_json_string(obj, "cache").unwrap_or_else(|| String::from("default"));
 
         let strategy = match strategy_str.as_str() {
             "cache-first" => CacheStrategy::CacheFirst,

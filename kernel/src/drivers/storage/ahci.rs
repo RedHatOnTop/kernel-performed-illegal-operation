@@ -2,13 +2,13 @@
 //!
 //! Advanced Host Controller Interface driver for SATA devices.
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use super::{BlockDevice, StorageError, StorageInfo, StorageInterface, StorageManager};
 use alloc::boxed::Box;
 use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::ptr;
 use spin::Mutex;
-use super::{BlockDevice, StorageError, StorageInfo, StorageInterface, StorageManager};
 
 /// AHCI Generic Host Control registers
 #[repr(C)]
@@ -93,8 +93,8 @@ pub struct AhciPort {
 pub mod port_sig {
     pub const SATA_ATA: u32 = 0x00000101;
     pub const SATA_ATAPI: u32 = 0xEB140101;
-    pub const SATA_SEMB: u32 = 0xC33C0101;  // Enclosure Management Bridge
-    pub const SATA_PM: u32 = 0x96690101;    // Port Multiplier
+    pub const SATA_SEMB: u32 = 0xC33C0101; // Enclosure Management Bridge
+    pub const SATA_PM: u32 = 0x96690101; // Port Multiplier
 }
 
 /// AHCI Command Header
@@ -117,11 +117,17 @@ impl AhciCommandHeader {
     /// Create a new command header
     pub fn new(cfl: u8, atapi: bool, write: bool, prefetch: bool, prdtl: u16) -> Self {
         let mut dw0 = (cfl & 0x1F) as u32;
-        if atapi { dw0 |= 1 << 5; }
-        if write { dw0 |= 1 << 6; }
-        if prefetch { dw0 |= 1 << 7; }
+        if atapi {
+            dw0 |= 1 << 5;
+        }
+        if write {
+            dw0 |= 1 << 6;
+        }
+        if prefetch {
+            dw0 |= 1 << 7;
+        }
         dw0 |= (prdtl as u32) << 16;
-        
+
         Self {
             dw0,
             prdbc: 0,
@@ -162,14 +168,14 @@ pub struct AhciCommandTable {
 /// FIS (Frame Information Structure) types
 #[repr(u8)]
 pub enum FisType {
-    RegH2D = 0x27,       // Register FIS - Host to Device
-    RegD2H = 0x34,       // Register FIS - Device to Host
-    DmaActivate = 0x39,  // DMA Activate FIS
-    DmaSetup = 0x41,     // DMA Setup FIS
-    Data = 0x46,         // Data FIS
-    Bist = 0x58,         // BIST Activate FIS
-    PioSetup = 0x5F,     // PIO Setup FIS
-    DevBits = 0xA1,      // Set Device Bits FIS
+    RegH2D = 0x27,      // Register FIS - Host to Device
+    RegD2H = 0x34,      // Register FIS - Device to Host
+    DmaActivate = 0x39, // DMA Activate FIS
+    DmaSetup = 0x41,    // DMA Setup FIS
+    Data = 0x46,        // Data FIS
+    Bist = 0x58,        // BIST Activate FIS
+    PioSetup = 0x5F,    // PIO Setup FIS
+    DevBits = 0xA1,     // Set Device Bits FIS
 }
 
 /// Register FIS - Host to Device
@@ -177,25 +183,25 @@ pub enum FisType {
 #[derive(Clone, Copy, Default)]
 pub struct FisRegH2D {
     pub fis_type: u8,
-    pub pm_port_c: u8,   // Port multiplier and command bit
+    pub pm_port_c: u8, // Port multiplier and command bit
     pub command: u8,
     pub feature_low: u8,
-    
+
     pub lba0: u8,
     pub lba1: u8,
     pub lba2: u8,
     pub device: u8,
-    
+
     pub lba3: u8,
     pub lba4: u8,
     pub lba5: u8,
     pub feature_high: u8,
-    
+
     pub count_low: u8,
     pub count_high: u8,
     pub icc: u8,
     pub control: u8,
-    
+
     pub _reserved: [u8; 4],
 }
 
@@ -204,9 +210,9 @@ impl FisRegH2D {
     pub fn new_command(command: u8) -> Self {
         Self {
             fis_type: FisType::RegH2D as u8,
-            pm_port_c: 0x80,  // Command bit set
+            pm_port_c: 0x80, // Command bit set
             command,
-            device: 0xE0,     // LBA mode
+            device: 0xE0, // LBA mode
             ..Default::default()
         }
     }
@@ -219,7 +225,7 @@ impl FisRegH2D {
         self.lba3 = ((lba >> 24) & 0xFF) as u8;
         self.lba4 = ((lba >> 32) & 0xFF) as u8;
         self.lba5 = ((lba >> 40) & 0xFF) as u8;
-        self.device = 0x40;  // LBA mode
+        self.device = 0x40; // LBA mode
     }
 
     /// Set sector count
@@ -459,7 +465,12 @@ impl BlockDevice for AhciDrive {
         self.block_size
     }
 
-    fn read_blocks(&self, start_block: u64, count: u32, buffer: &mut [u8]) -> Result<(), StorageError> {
+    fn read_blocks(
+        &self,
+        start_block: u64,
+        count: u32,
+        buffer: &mut [u8],
+    ) -> Result<(), StorageError> {
         let expected_size = count as usize * self.block_size as usize;
         if buffer.len() < expected_size {
             return Err(StorageError::BufferTooSmall);
@@ -473,7 +484,12 @@ impl BlockDevice for AhciDrive {
         Err(StorageError::NotSupported)
     }
 
-    fn write_blocks(&self, start_block: u64, count: u32, buffer: &[u8]) -> Result<(), StorageError> {
+    fn write_blocks(
+        &self,
+        start_block: u64,
+        count: u32,
+        buffer: &[u8],
+    ) -> Result<(), StorageError> {
         let expected_size = count as usize * self.block_size as usize;
         if buffer.len() < expected_size {
             return Err(StorageError::BufferTooSmall);
@@ -516,7 +532,7 @@ pub struct AhciController {
 pub fn probe(manager: &mut StorageManager) {
     // Find AHCI controllers via PCI
     // Class 0x01 (Storage), Subclass 0x06 (SATA), ProgIF 0x01 (AHCI)
-    
+
     // In real implementation:
     // 1. Find AHCI controller in PCI config space
     // 2. Map BAR5 (ABAR) for HBA memory registers
@@ -530,22 +546,22 @@ pub fn probe(manager: &mut StorageManager) {
 /// Initialize AHCI controller
 pub unsafe fn init_controller(mmio_base: u64) -> Result<AhciController, &'static str> {
     let hba = mmio_base as *mut AhciHba;
-    
+
     // Read capabilities
     let cap = unsafe { (*hba).cap };
     let num_ports = ((cap & 0x1F) + 1) as u8;
     let ncq_support = (cap & (1 << 30)) != 0;
     let addr64_support = (cap & (1 << 31)) != 0;
-    
+
     // Read ports implemented
     let pi = unsafe { (*hba).pi };
-    
+
     // Enable AHCI mode
     let ghc = unsafe { (*hba).ghc };
     if (ghc & (1 << 31)) == 0 {
-        unsafe { (*hba).ghc = ghc | (1 << 31) };  // Set AE (AHCI Enable)
+        unsafe { (*hba).ghc = ghc | (1 << 31) }; // Set AE (AHCI Enable)
     }
-    
+
     Ok(AhciController {
         mmio_base,
         id: 0,
@@ -559,14 +575,14 @@ pub unsafe fn init_controller(mmio_base: u64) -> Result<AhciController, &'static
 /// Check what type of device is connected to a port
 pub unsafe fn check_port_type(port: &AhciPort) -> Option<&'static str> {
     let ssts = port.ssts;
-    let det = ssts & 0xF;       // Device detection
+    let det = ssts & 0xF; // Device detection
     let ipm = (ssts >> 8) & 0xF; // Interface power management
-    
+
     // Check if device present and PHY communication established
     if det != 3 || ipm != 1 {
         return None;
     }
-    
+
     match port.sig {
         port_sig::SATA_ATA => Some("SATA"),
         port_sig::SATA_ATAPI => Some("ATAPI"),

@@ -149,7 +149,12 @@ impl DhcpPacket {
     }
 
     /// Create a new DHCP request packet.
-    pub fn new_request(xid: u32, mac: MacAddress, requested_ip: [u8; 4], server_ip: [u8; 4]) -> Self {
+    pub fn new_request(
+        xid: u32,
+        mac: MacAddress,
+        requested_ip: [u8; 4],
+        server_ip: [u8; 4],
+    ) -> Self {
         let mut packet = Self::new_discover(xid, mac);
         packet.siaddr = server_ip;
         // Note: requested_ip goes in options, not in packet fields
@@ -358,12 +363,17 @@ impl DhcpClient {
     fn new_xid(&mut self) -> u32 {
         // Simple PRNG based on MAC address and previous XID
         self.xid = self.xid.wrapping_mul(1103515245).wrapping_add(12345);
-        self.xid ^= u32::from_be_bytes([self.mac.0[2], self.mac.0[3], self.mac.0[4], self.mac.0[5]]);
+        self.xid ^=
+            u32::from_be_bytes([self.mac.0[2], self.mac.0[3], self.mac.0[4], self.mac.0[5]]);
         self.xid
     }
 
     /// Build DHCP options.
-    fn build_options(&self, msg_type: DhcpMessageType, requested_ip: Option<[u8; 4]>) -> ([u8; 64], usize) {
+    fn build_options(
+        &self,
+        msg_type: DhcpMessageType,
+        requested_ip: Option<[u8; 4]>,
+    ) -> ([u8; 64], usize) {
         let mut options = [0u8; 64];
         let mut offset = 0;
 
@@ -432,7 +442,10 @@ impl DhcpClient {
     }
 
     /// Handle a DHCP offer.
-    pub fn handle_offer(&mut self, data: &[u8]) -> Result<Option<([u8; 576], usize)>, NetworkError> {
+    pub fn handle_offer(
+        &mut self,
+        data: &[u8],
+    ) -> Result<Option<([u8; 576], usize)>, NetworkError> {
         if self.state != DhcpState::Selecting {
             return Ok(None);
         }
@@ -464,7 +477,10 @@ impl DhcpClient {
 
     /// Handle a DHCP acknowledgment.
     pub fn handle_ack(&mut self, data: &[u8], current_time: u64) -> Result<bool, NetworkError> {
-        if self.state != DhcpState::Requesting && self.state != DhcpState::Renewing && self.state != DhcpState::Rebinding {
+        if self.state != DhcpState::Requesting
+            && self.state != DhcpState::Renewing
+            && self.state != DhcpState::Rebinding
+        {
             return Ok(false);
         }
 
@@ -539,7 +555,12 @@ impl DhcpClient {
     }
 
     /// Parse lease information from packet and options.
-    fn parse_lease(&self, packet: &DhcpPacket, options: &[u8], current_time: u64) -> Result<DhcpLease, NetworkError> {
+    fn parse_lease(
+        &self,
+        packet: &DhcpPacket,
+        options: &[u8],
+        current_time: u64,
+    ) -> Result<DhcpLease, NetworkError> {
         let mut lease = DhcpLease {
             ip_address: packet.yiaddr,
             subnet_mask: [255, 255, 255, 0],
@@ -548,9 +569,9 @@ impl DhcpClient {
             dns_count: 0,
             domain_name: [0; 64],
             domain_len: 0,
-            lease_time: 86400, // Default 24 hours
+            lease_time: 86400,   // Default 24 hours
             renewal_time: 43200, // Default T1 = 0.5 * lease
-            rebind_time: 75600, // Default T2 = 0.875 * lease
+            rebind_time: 75600,  // Default T2 = 0.875 * lease
             server_ip: packet.siaddr,
             acquired_at: current_time,
         };
@@ -582,7 +603,9 @@ impl DhcpClient {
 
             match opt {
                 x if x == DhcpOption::SubnetMask as u8 && len >= 4 => {
-                    lease.subnet_mask.copy_from_slice(&options[offset..offset + 4]);
+                    lease
+                        .subnet_mask
+                        .copy_from_slice(&options[offset..offset + 4]);
                 }
                 x if x == DhcpOption::Router as u8 && len >= 4 => {
                     let mut gw = [0u8; 4];
@@ -592,13 +615,15 @@ impl DhcpClient {
                 x if x == DhcpOption::DnsServer as u8 => {
                     let count = len / 4;
                     for i in 0..count.min(4) {
-                        lease.dns_servers[i].copy_from_slice(&options[offset + i * 4..offset + i * 4 + 4]);
+                        lease.dns_servers[i]
+                            .copy_from_slice(&options[offset + i * 4..offset + i * 4 + 4]);
                         lease.dns_count += 1;
                     }
                 }
                 x if x == DhcpOption::DomainName as u8 => {
                     let copy_len = len.min(64);
-                    lease.domain_name[..copy_len].copy_from_slice(&options[offset..offset + copy_len]);
+                    lease.domain_name[..copy_len]
+                        .copy_from_slice(&options[offset..offset + copy_len]);
                     lease.domain_len = copy_len;
                 }
                 x if x == DhcpOption::LeaseTime as u8 && len >= 4 => {
@@ -626,7 +651,9 @@ impl DhcpClient {
                     ]);
                 }
                 x if x == DhcpOption::ServerIdentifier as u8 && len >= 4 => {
-                    lease.server_ip.copy_from_slice(&options[offset..offset + 4]);
+                    lease
+                        .server_ip
+                        .copy_from_slice(&options[offset..offset + 4]);
                 }
                 _ => {}
             }

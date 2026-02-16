@@ -3,10 +3,10 @@
 //! This module provides a display list structure that serializes rendering
 //! commands from the layout engine for processing by the WebRender compositor.
 
+use super::primitives::*;
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::string::String;
-use super::primitives::*;
 
 /// A serialized list of rendering commands.
 #[derive(Debug, Clone)]
@@ -28,27 +28,27 @@ impl DisplayList {
             epoch: Epoch(0),
         }
     }
-    
+
     /// Get display items.
     pub fn items(&self) -> &[DisplayItem] {
         &self.items
     }
-    
+
     /// Get the bounds.
     pub fn bounds(&self) -> Rect {
         self.bounds
     }
-    
+
     /// Get the epoch.
     pub fn epoch(&self) -> Epoch {
         self.epoch
     }
-    
+
     /// Check if the list is empty.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
-    
+
     /// Get the number of items.
     pub fn len(&self) -> usize {
         self.items.len()
@@ -102,7 +102,7 @@ impl DisplayListBuilder {
             next_clip_id: 1,
         }
     }
-    
+
     /// Build the display list.
     pub fn build(self) -> DisplayList {
         DisplayList {
@@ -111,37 +111,64 @@ impl DisplayListBuilder {
             epoch: self.epoch.next(),
         }
     }
-    
+
     /// Push a rectangle.
     pub fn push_rect(&mut self, rect: Rect, color: Color) {
         self.items.push(DisplayItem::Rectangle { rect, color });
         self.extend_bounds(rect);
     }
-    
+
     /// Push a rounded rectangle.
     pub fn push_rounded_rect(&mut self, rect: Rect, color: Color, radii: BorderRadius) {
-        self.items.push(DisplayItem::RoundedRectangle { rect, color, radii });
+        self.items
+            .push(DisplayItem::RoundedRectangle { rect, color, radii });
         self.extend_bounds(rect);
     }
-    
+
     /// Push text.
-    pub fn push_text(&mut self, rect: Rect, glyphs: Vec<GlyphInstance>, color: Color, font_size: f32) {
-        self.items.push(DisplayItem::Text { rect, glyphs, color, font_size });
+    pub fn push_text(
+        &mut self,
+        rect: Rect,
+        glyphs: Vec<GlyphInstance>,
+        color: Color,
+        font_size: f32,
+    ) {
+        self.items.push(DisplayItem::Text {
+            rect,
+            glyphs,
+            color,
+            font_size,
+        });
         self.extend_bounds(rect);
     }
-    
+
     /// Push an image.
     pub fn push_image(&mut self, rect: Rect, image_key: ImageKey, image_size: Size) {
-        self.items.push(DisplayItem::Image { rect, image_key, image_size });
+        self.items.push(DisplayItem::Image {
+            rect,
+            image_key,
+            image_size,
+        });
         self.extend_bounds(rect);
     }
-    
+
     /// Push a border.
-    pub fn push_border(&mut self, rect: Rect, widths: SideOffsets, colors: BorderColors, styles: BorderStyles) {
-        self.items.push(DisplayItem::Border { rect, widths, colors, styles });
+    pub fn push_border(
+        &mut self,
+        rect: Rect,
+        widths: SideOffsets,
+        colors: BorderColors,
+        styles: BorderStyles,
+    ) {
+        self.items.push(DisplayItem::Border {
+            rect,
+            widths,
+            colors,
+            styles,
+        });
         self.extend_bounds(rect);
     }
-    
+
     /// Push a box shadow.
     pub fn push_box_shadow(
         &mut self,
@@ -173,19 +200,21 @@ impl DisplayListBuilder {
         };
         self.extend_bounds(shadow_rect);
     }
-    
+
     /// Push a linear gradient.
     pub fn push_linear_gradient(&mut self, rect: Rect, gradient: LinearGradient) {
-        self.items.push(DisplayItem::LinearGradient { rect, gradient });
+        self.items
+            .push(DisplayItem::LinearGradient { rect, gradient });
         self.extend_bounds(rect);
     }
-    
+
     /// Push a radial gradient.
     pub fn push_radial_gradient(&mut self, rect: Rect, gradient: RadialGradient) {
-        self.items.push(DisplayItem::RadialGradient { rect, gradient });
+        self.items
+            .push(DisplayItem::RadialGradient { rect, gradient });
         self.extend_bounds(rect);
     }
-    
+
     /// Push a clip rect.
     pub fn push_clip(&mut self, rect: Rect) {
         self.items.push(DisplayItem::PushClip { rect });
@@ -194,64 +223,66 @@ impl DisplayListBuilder {
         self.current_clip = clip_id;
         self.clip_stack.push(clip_id);
     }
-    
+
     /// Pop the current clip.
     pub fn pop_clip(&mut self) {
         self.items.push(DisplayItem::PopClip);
         self.clip_stack.pop();
         self.current_clip = *self.clip_stack.last().unwrap_or(&ClipId::ROOT);
     }
-    
+
     /// Push a stacking context.
     pub fn push_stacking_context(&mut self, transform: Transform, opacity: f32) {
-        self.items.push(DisplayItem::PushStackingContext { transform, opacity });
+        self.items
+            .push(DisplayItem::PushStackingContext { transform, opacity });
         let spatial_id = SpatialId(self.next_spatial_id);
         self.next_spatial_id += 1;
         self.current_spatial = spatial_id;
         self.spatial_stack.push(spatial_id);
     }
-    
+
     /// Pop the current stacking context.
     pub fn pop_stacking_context(&mut self) {
         self.items.push(DisplayItem::PopStackingContext);
         self.spatial_stack.pop();
         self.current_spatial = *self.spatial_stack.last().unwrap_or(&SpatialId::ROOT);
     }
-    
+
     /// Push a reference frame with transform.
     pub fn push_reference_frame(&mut self, origin: Point, transform: Transform) {
-        self.push_stacking_context(Transform::translate(origin.x, origin.y).then(&transform), 1.0);
+        self.push_stacking_context(
+            Transform::translate(origin.x, origin.y).then(&transform),
+            1.0,
+        );
     }
-    
+
     /// Pop reference frame.
     pub fn pop_reference_frame(&mut self) {
         self.pop_stacking_context();
     }
-    
+
     /// Push a scroll frame.
-    pub fn push_scroll_frame(
-        &mut self,
-        content_rect: Rect,
-        clip_rect: Rect,
-        scroll_offset: Point,
-    ) {
+    pub fn push_scroll_frame(&mut self, content_rect: Rect, clip_rect: Rect, scroll_offset: Point) {
         // Clip to the visible area
         self.push_clip(clip_rect);
         // Transform by scroll offset
-        self.push_stacking_context(Transform::translate(-scroll_offset.x, -scroll_offset.y), 1.0);
+        self.push_stacking_context(
+            Transform::translate(-scroll_offset.x, -scroll_offset.y),
+            1.0,
+        );
     }
-    
+
     /// Pop scroll frame.
     pub fn pop_scroll_frame(&mut self) {
         self.pop_stacking_context();
         self.pop_clip();
     }
-    
+
     /// Define a hit test region.
     pub fn push_hit_test(&mut self, rect: Rect, tag: HitTestTag) {
         self.items.push(DisplayItem::HitTest { rect, tag });
     }
-    
+
     fn extend_bounds(&mut self, rect: Rect) {
         self.bounds = self.bounds.union(&rect);
     }
@@ -283,10 +314,7 @@ impl ClipId {
 #[derive(Debug, Clone)]
 pub enum DisplayItem {
     /// A solid rectangle.
-    Rectangle {
-        rect: Rect,
-        color: Color,
-    },
+    Rectangle { rect: Rect, color: Color },
     /// A rounded rectangle.
     RoundedRectangle {
         rect: Rect,
@@ -333,23 +361,15 @@ pub enum DisplayItem {
         gradient: RadialGradient,
     },
     /// Push a clip rect.
-    PushClip {
-        rect: Rect,
-    },
+    PushClip { rect: Rect },
     /// Pop clip.
     PopClip,
     /// Push a stacking context.
-    PushStackingContext {
-        transform: Transform,
-        opacity: f32,
-    },
+    PushStackingContext { transform: Transform, opacity: f32 },
     /// Pop stacking context.
     PopStackingContext,
     /// Hit test region.
-    HitTest {
-        rect: Rect,
-        tag: HitTestTag,
-    },
+    HitTest { rect: Rect, tag: HitTestTag },
 }
 
 /// Hit test tag for event handling.
@@ -395,30 +415,69 @@ pub enum ExtendMode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_display_list_builder() {
-        let mut builder = DisplayListBuilder::new(Rect { x: 0.0, y: 0.0, w: 800.0, h: 600.0 });
-        
-        builder.push_rect(Rect { x: 10.0, y: 10.0, w: 100.0, h: 100.0 }, Color::RED);
-        builder.push_clip(Rect { x: 0.0, y: 0.0, w: 50.0, h: 50.0 });
-        builder.push_rect(Rect { x: 20.0, y: 20.0, w: 30.0, h: 30.0 }, Color::BLUE);
+        let mut builder = DisplayListBuilder::new(Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 800.0,
+            h: 600.0,
+        });
+
+        builder.push_rect(
+            Rect {
+                x: 10.0,
+                y: 10.0,
+                w: 100.0,
+                h: 100.0,
+            },
+            Color::RED,
+        );
+        builder.push_clip(Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 50.0,
+            h: 50.0,
+        });
+        builder.push_rect(
+            Rect {
+                x: 20.0,
+                y: 20.0,
+                w: 30.0,
+                h: 30.0,
+            },
+            Color::BLUE,
+        );
         builder.pop_clip();
-        
+
         let display_list = builder.build();
-        
+
         assert_eq!(display_list.len(), 4);
         assert!(!display_list.is_empty());
     }
-    
+
     #[test]
     fn test_stacking_context() {
-        let mut builder = DisplayListBuilder::new(Rect { x: 0.0, y: 0.0, w: 800.0, h: 600.0 });
-        
+        let mut builder = DisplayListBuilder::new(Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 800.0,
+            h: 600.0,
+        });
+
         builder.push_stacking_context(Transform::identity(), 0.5);
-        builder.push_rect(Rect { x: 0.0, y: 0.0, w: 100.0, h: 100.0 }, Color::WHITE);
+        builder.push_rect(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 100.0,
+                h: 100.0,
+            },
+            Color::WHITE,
+        );
         builder.pop_stacking_context();
-        
+
         let display_list = builder.build();
         assert_eq!(display_list.len(), 3);
     }

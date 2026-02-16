@@ -3,25 +3,25 @@
 //! A comprehensive design system for KPIO Browser OS.
 //! Provides consistent theming, components, and design tokens.
 
-pub mod tokens;
-pub mod theme;
-pub mod components;
-pub mod layout;
-pub mod icons;
 pub mod animation;
 pub mod browser;
+pub mod components;
 pub mod dialogs;
+pub mod icons;
+pub mod layout;
 pub mod pages;
+pub mod theme;
+pub mod tokens;
 
-pub use tokens::*;
-pub use theme::*;
-pub use components::*;
-pub use layout::*;
-pub use icons::*;
 pub use animation::*;
 pub use browser::*;
+pub use components::*;
 pub use dialogs::*;
+pub use icons::*;
+pub use layout::*;
 pub use pages::*;
+pub use theme::*;
+pub use tokens::*;
 
 use alloc::string::String;
 

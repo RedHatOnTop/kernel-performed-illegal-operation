@@ -5,7 +5,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::{CrashInfo, CrashType, CrashDump, DumpFormat, CrashReporter};
+use super::{CrashDump, CrashInfo, CrashReporter, CrashType, DumpFormat};
 
 /// Crash handler
 pub struct CrashHandler {
@@ -97,16 +97,16 @@ impl CrashHandler {
     /// Generate crash dump
     fn generate_dump(&self, crash: &CrashInfo) -> Option<CrashDump> {
         let mut dump = CrashDump::new(crash.clone(), self.dump_format);
-        
+
         // Capture stack
         dump.capture_stack(crash.cpu_state.rsp, 0x4000);
-        
+
         // Capture crash area
         if crash.crash_type == CrashType::PageFault {
             dump.capture_crash_area(crash.cpu_state.cr2);
         }
         dump.capture_crash_area(crash.cpu_state.rip);
-        
+
         Some(dump)
     }
 

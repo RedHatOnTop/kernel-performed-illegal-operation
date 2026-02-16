@@ -7,8 +7,8 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{DirEntry, FileMetadata, MountFlags, OpenFlags, StorageError};
 use crate::vfs::{Filesystem, FsStats};
+use crate::{DirEntry, FileMetadata, MountFlags, OpenFlags, StorageError};
 
 /// FUSE operation codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,8 +141,12 @@ impl FuseInHeader {
         Some(FuseInHeader {
             len: u32::from_le_bytes([data[0], data[1], data[2], data[3]]),
             opcode: u32::from_le_bytes([data[4], data[5], data[6], data[7]]),
-            unique: u64::from_le_bytes([data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]]),
-            nodeid: u64::from_le_bytes([data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23]]),
+            unique: u64::from_le_bytes([
+                data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
+            ]),
+            nodeid: u64::from_le_bytes([
+                data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23],
+            ]),
             uid: u32::from_le_bytes([data[24], data[25], data[26], data[27]]),
             gid: u32::from_le_bytes([data[28], data[29], data[30], data[31]]),
             pid: u32::from_le_bytes([data[32], data[33], data[34], data[35]]),
@@ -454,8 +458,7 @@ impl FuseFilesystem {
 
     /// Process a FUSE request.
     pub fn process_request(&mut self, request: &[u8]) -> Result<&[u8], StorageError> {
-        let header = FuseInHeader::from_bytes(request)
-            .ok_or(StorageError::InvalidArgument)?;
+        let header = FuseInHeader::from_bytes(request).ok_or(StorageError::InvalidArgument)?;
 
         let opcode = match header.opcode {
             1 => FuseOpcode::Lookup,
@@ -532,7 +535,11 @@ impl FuseFilesystem {
     }
 
     /// Handle FUSE_LOOKUP.
-    fn handle_lookup(&mut self, header: &FuseInHeader, _data: &[u8]) -> Result<usize, StorageError> {
+    fn handle_lookup(
+        &mut self,
+        header: &FuseInHeader,
+        _data: &[u8],
+    ) -> Result<usize, StorageError> {
         // TODO: Implement actual lookup
         self.send_error(header, -2) // ENOENT
     }
@@ -603,7 +610,11 @@ impl FuseFilesystem {
     }
 
     /// Handle FUSE_READDIR.
-    fn handle_readdir(&mut self, header: &FuseInHeader, _data: &[u8]) -> Result<usize, StorageError> {
+    fn handle_readdir(
+        &mut self,
+        header: &FuseInHeader,
+        _data: &[u8],
+    ) -> Result<usize, StorageError> {
         // TODO: Implement actual readdir
         let out_header = FuseOutHeader {
             len: FuseOutHeader::SIZE as u32,

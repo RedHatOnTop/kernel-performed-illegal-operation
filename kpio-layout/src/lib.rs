@@ -23,22 +23,22 @@
 
 extern crate alloc;
 
-pub mod box_model;
-pub mod layout_box;
 pub mod block;
-pub mod inline;
+pub mod box_model;
 pub mod flex;
+pub mod inline;
+pub mod layout_box;
 pub mod paint;
 pub mod parallel;
 
-pub use box_model::{Rect, EdgeSizes, BoxDimensions};
-pub use layout_box::{LayoutBox, BoxType};
-pub use paint::{DisplayList, DisplayCommand};
-pub use parallel::{ParallelScheduler, ParallelLayoutContext, LayoutTask};
+pub use box_model::{BoxDimensions, EdgeSizes, Rect};
+pub use layout_box::{BoxType, LayoutBox};
+pub use paint::{DisplayCommand, DisplayList};
+pub use parallel::{LayoutTask, ParallelLayoutContext, ParallelScheduler};
 
 /// Prelude for common imports
 pub mod prelude {
-    pub use crate::{Rect, EdgeSizes, BoxDimensions};
-    pub use crate::{LayoutBox, BoxType};
-    pub use crate::{DisplayList, DisplayCommand};
+    pub use crate::{BoxDimensions, EdgeSizes, Rect};
+    pub use crate::{BoxType, LayoutBox};
+    pub use crate::{DisplayCommand, DisplayList};
 }

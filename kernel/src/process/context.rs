@@ -21,7 +21,7 @@ pub struct ProcessContext {
     pub rbx: u64,
     /// RBP register (frame pointer)
     pub rbp: u64,
-    
+
     // Caller-saved registers
     /// R11 register
     pub r11: u64,
@@ -41,13 +41,13 @@ pub struct ProcessContext {
     pub rcx: u64,
     /// RAX register
     pub rax: u64,
-    
+
     // Segment registers (for user/kernel mode switch)
     /// Data segment
     pub ds: u64,
     /// Extra segment
     pub es: u64,
-    
+
     // Interrupt frame (pushed by CPU on interrupt/syscall)
     /// Instruction pointer
     pub rip: u64,
@@ -95,11 +95,28 @@ impl ProcessContext {
     /// Create a new empty context
     pub const fn new() -> Self {
         Self {
-            r15: 0, r14: 0, r13: 0, r12: 0, rbx: 0, rbp: 0,
-            r11: 0, r10: 0, r9: 0, r8: 0,
-            rdi: 0, rsi: 0, rdx: 0, rcx: 0, rax: 0,
-            ds: 0, es: 0,
-            rip: 0, cs: 0, rflags: 0, rsp: 0, ss: 0,
+            r15: 0,
+            r14: 0,
+            r13: 0,
+            r12: 0,
+            rbx: 0,
+            rbp: 0,
+            r11: 0,
+            r10: 0,
+            r9: 0,
+            r8: 0,
+            rdi: 0,
+            rsi: 0,
+            rdx: 0,
+            rcx: 0,
+            rax: 0,
+            ds: 0,
+            es: 0,
+            rip: 0,
+            cs: 0,
+            rflags: 0,
+            rsp: 0,
+            ss: 0,
         }
     }
 
@@ -111,19 +128,26 @@ impl ProcessContext {
     /// * `stack_pointer` - User stack pointer
     /// * `user_cs` - User code segment selector
     /// * `user_ds` - User data segment selector
-    pub fn new_user(
-        entry_point: u64,
-        stack_pointer: u64,
-        user_cs: u16,
-        user_ds: u16,
-    ) -> Self {
+    pub fn new_user(entry_point: u64, stack_pointer: u64, user_cs: u16, user_ds: u16) -> Self {
         // RFLAGS: IF (Interrupt Flag) enabled, reserved bit 1 set
         const USER_RFLAGS: u64 = 0x200 | 0x2;
-        
+
         Self {
-            r15: 0, r14: 0, r13: 0, r12: 0, rbx: 0, rbp: 0,
-            r11: 0, r10: 0, r9: 0, r8: 0,
-            rdi: 0, rsi: 0, rdx: 0, rcx: 0, rax: 0,
+            r15: 0,
+            r14: 0,
+            r13: 0,
+            r12: 0,
+            rbx: 0,
+            rbp: 0,
+            r11: 0,
+            r10: 0,
+            r9: 0,
+            r8: 0,
+            rdi: 0,
+            rsi: 0,
+            rdx: 0,
+            rcx: 0,
+            rax: 0,
             ds: user_ds as u64,
             es: user_ds as u64,
             rip: entry_point,
@@ -150,11 +174,23 @@ impl ProcessContext {
     ) -> Self {
         // RFLAGS: IF enabled, reserved bit 1 set
         const KERNEL_RFLAGS: u64 = 0x200 | 0x2;
-        
+
         Self {
-            r15: 0, r14: 0, r13: 0, r12: 0, rbx: 0, rbp: 0,
-            r11: 0, r10: 0, r9: 0, r8: 0,
-            rdi: 0, rsi: 0, rdx: 0, rcx: 0, rax: 0,
+            r15: 0,
+            r14: 0,
+            r13: 0,
+            r12: 0,
+            rbx: 0,
+            rbp: 0,
+            r11: 0,
+            r10: 0,
+            r9: 0,
+            r8: 0,
+            rdi: 0,
+            rsi: 0,
+            rdx: 0,
+            rcx: 0,
+            rax: 0,
             ds: kernel_ds as u64,
             es: kernel_ds as u64,
             rip: entry_point,
@@ -217,10 +253,8 @@ pub unsafe extern "C" fn context_switch(old: *mut ProcessContext, new: *const Pr
         "mov [rdi + 3*8], r12",
         "mov [rdi + 4*8], rbx",
         "mov [rdi + 5*8], rbp",
-        
         // Save stack pointer
-        "mov [rdi + 19*8], rsp",  // rsp offset in struct
-        
+        "mov [rdi + 19*8], rsp", // rsp offset in struct
         // Load callee-saved registers from new context
         "mov r15, [rsi + 0*8]",
         "mov r14, [rsi + 1*8]",
@@ -228,10 +262,8 @@ pub unsafe extern "C" fn context_switch(old: *mut ProcessContext, new: *const Pr
         "mov r12, [rsi + 3*8]",
         "mov rbx, [rsi + 4*8]",
         "mov rbp, [rsi + 5*8]",
-        
         // Load stack pointer
         "mov rsp, [rsi + 19*8]",
-        
         // Return to new context
         "ret",
     );
@@ -263,11 +295,9 @@ pub unsafe extern "C" fn enter_userspace(context: *const ProcessContext) -> ! {
         "mov rdx, [rdi + 12*8]",
         "mov rcx, [rdi + 13*8]",
         "mov rax, [rdi + 14*8]",
-        
         // Load segment registers
         "mov ds, [rdi + 15*8]",
         "mov es, [rdi + 16*8]",
-        
         // Prepare iretq frame on stack
         // Push SS
         "push qword ptr [rdi + 21*8]",
@@ -279,10 +309,8 @@ pub unsafe extern "C" fn enter_userspace(context: *const ProcessContext) -> ! {
         "push qword ptr [rdi + 18*8]",
         // Push RIP
         "push qword ptr [rdi + 17*8]",
-        
         // Finally load RDI
         "mov rdi, [rdi + 10*8]",
-        
         // Return to userspace
         "iretq",
     );
@@ -301,7 +329,7 @@ mod tests {
     #[test]
     fn test_user_context() {
         let ctx = ProcessContext::new_user(0x400000, 0x7FFFFF000, 0x1B, 0x23);
-        
+
         assert_eq!(ctx.rip, 0x400000);
         assert_eq!(ctx.rsp, 0x7FFFFF000);
         assert_eq!(ctx.cs, 0x1B);

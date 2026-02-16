@@ -8,9 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::RwLock;
 
-use crate::{
-    DirEntry, FileMetadata, FileType, MountFlags, OpenFlags, SeekFrom, StorageError,
-};
+use crate::{DirEntry, FileMetadata, FileType, MountFlags, OpenFlags, SeekFrom, StorageError};
 
 /// Maximum number of mount points.
 const MAX_MOUNTS: usize = 32;
@@ -477,14 +475,18 @@ pub fn seek(fd: u32, pos: SeekFrom) -> Result<u64, StorageError> {
             // TODO: Get file size
             let size: u64 = 0;
             if offset < 0 {
-                size.checked_sub((-offset) as u64).ok_or(StorageError::InvalidArgument)?
+                size.checked_sub((-offset) as u64)
+                    .ok_or(StorageError::InvalidArgument)?
             } else {
                 size + offset as u64
             }
         }
         SeekFrom::Current(offset) => {
             if offset < 0 {
-                handle.offset.checked_sub((-offset) as u64).ok_or(StorageError::InvalidArgument)?
+                handle
+                    .offset
+                    .checked_sub((-offset) as u64)
+                    .ok_or(StorageError::InvalidArgument)?
             } else {
                 handle.offset + offset as u64
             }
@@ -587,8 +589,12 @@ pub fn rename(old_path: &str, new_path: &str) -> Result<(), StorageError> {
     }
 
     let table = MOUNT_TABLE.read();
-    let old_mount = table.find_mount(old_path).ok_or(StorageError::FileNotFound)?;
-    let new_mount = table.find_mount(new_path).ok_or(StorageError::FileNotFound)?;
+    let old_mount = table
+        .find_mount(old_path)
+        .ok_or(StorageError::FileNotFound)?;
+    let new_mount = table
+        .find_mount(new_path)
+        .ok_or(StorageError::FileNotFound)?;
 
     // Can't rename across filesystems
     if old_mount != new_mount {

@@ -18,24 +18,24 @@
 //! - Profile-guided tiering decisions
 //! - AOT compilation support for system services
 
-pub mod compiler;
-pub mod codegen;
 pub mod cache;
-pub mod profile;
-pub mod ir;
+pub mod codegen;
+pub mod compiler;
 pub mod executable;
+pub mod ir;
+pub mod profile;
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use spin::RwLock;
-use core::sync::atomic::{AtomicU64, AtomicU32, Ordering};
 
-pub use compiler::{JitCompiler, CompilationResult, CompilationError};
+pub use cache::{CacheEntry, CodeCache};
 pub use codegen::{CodeGenerator, NativeCode};
-pub use cache::{CodeCache, CacheEntry};
-pub use profile::{ProfileData, HotnessCounter};
+pub use compiler::{CompilationError, CompilationResult, JitCompiler};
+pub use profile::{HotnessCounter, ProfileData};
 
 /// JIT compilation tier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -72,8 +72,8 @@ impl Default for JitOptions {
         Self {
             baseline_enabled: true,
             optimized_enabled: true,
-            baseline_threshold: 100,      // Compile after 100 calls
-            optimized_threshold: 10_000,  // Optimize after 10k calls
+            baseline_threshold: 100,          // Compile after 100 calls
+            optimized_threshold: 10_000,      // Optimize after 10k calls
             max_cache_size: 64 * 1024 * 1024, // 64 MB code cache
             aot_enabled: true,
             osr_enabled: false, // OSR is complex, disabled by default
@@ -104,17 +104,21 @@ impl JitStats {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn record_baseline_compilation(&self, time_us: u64, code_size: usize) {
         self.baseline_compilations.fetch_add(1, Ordering::Relaxed);
-        self.compilation_time_us.fetch_add(time_us, Ordering::Relaxed);
-        self.generated_code_bytes.fetch_add(code_size as u64, Ordering::Relaxed);
+        self.compilation_time_us
+            .fetch_add(time_us, Ordering::Relaxed);
+        self.generated_code_bytes
+            .fetch_add(code_size as u64, Ordering::Relaxed);
     }
-    
+
     pub fn record_optimized_compilation(&self, time_us: u64, code_size: usize) {
         self.optimized_compilations.fetch_add(1, Ordering::Relaxed);
-        self.compilation_time_us.fetch_add(time_us, Ordering::Relaxed);
-        self.generated_code_bytes.fetch_add(code_size as u64, Ordering::Relaxed);
+        self.compilation_time_us
+            .fetch_add(time_us, Ordering::Relaxed);
+        self.generated_code_bytes
+            .fetch_add(code_size as u64, Ordering::Relaxed);
     }
 }
 
@@ -143,7 +147,10 @@ pub struct FunctionId {
 
 impl FunctionId {
     pub fn new(module_id: u64, func_index: u32) -> Self {
-        Self { module_id, func_index }
+        Self {
+            module_id,
+            func_index,
+        }
     }
 }
 
@@ -152,7 +159,7 @@ impl JitEngine {
     pub fn new() -> Self {
         Self::with_options(JitOptions::default())
     }
-    
+
     /// Create a new JIT engine with custom options.
     pub fn with_options(options: JitOptions) -> Self {
         Self {
@@ -163,7 +170,7 @@ impl JitEngine {
             options,
         }
     }
-    
+
     /// Get or compile code for a function.
     pub fn get_or_compile(
         &self,
@@ -178,33 +185,36 @@ impl JitEngine {
                 return Ok(entry.code.clone());
             }
         }
-        
+
         self.stats.cache_misses.fetch_add(1, Ordering::Relaxed);
-        
+
         // Update profile and check if we should compile
         let tier = self.update_profile_and_get_tier(func_id);
-        
+
         if tier == CompilationTier::Interpreter {
             // Still in interpreter tier, don't compile yet
             return Err(CompilationError::BelowThreshold);
         }
-        
+
         // Compile the function
         let result = self.compile_function(func_id, wasm_bytes, tier)?;
-        
+
         // Store in cache
         {
             let mut cache = self.code_cache.write();
-            cache.insert(func_id, CacheEntry {
-                code: result.clone(),
-                tier,
-                compilation_time_us: 0, // TODO: measure actual time
-            });
+            cache.insert(
+                func_id,
+                CacheEntry {
+                    code: result.clone(),
+                    tier,
+                    compilation_time_us: 0, // TODO: measure actual time
+                },
+            );
         }
-        
+
         Ok(result)
     }
-    
+
     /// Compile a function at the specified tier.
     fn compile_function(
         &self,
@@ -213,9 +223,7 @@ impl JitEngine {
         tier: CompilationTier,
     ) -> Result<Arc<NativeCode>, CompilationError> {
         match tier {
-            CompilationTier::Interpreter => {
-                Err(CompilationError::BelowThreshold)
-            }
+            CompilationTier::Interpreter => Err(CompilationError::BelowThreshold),
             CompilationTier::Baseline => {
                 let code = self.compiler.compile_baseline(func_id, wasm_bytes)?;
                 self.stats.record_baseline_compilation(0, code.size());
@@ -223,20 +231,22 @@ impl JitEngine {
             }
             CompilationTier::Optimized => {
                 let profile = self.profiles.read().get(&func_id).cloned();
-                let code = self.compiler.compile_optimized(func_id, wasm_bytes, profile.as_ref())?;
+                let code =
+                    self.compiler
+                        .compile_optimized(func_id, wasm_bytes, profile.as_ref())?;
                 self.stats.record_optimized_compilation(0, code.size());
                 Ok(Arc::new(code))
             }
         }
     }
-    
+
     /// Update profile data and determine compilation tier.
     pub fn update_profile_and_get_tier(&self, func_id: FunctionId) -> CompilationTier {
         let mut profiles = self.profiles.write();
         let profile = profiles.entry(func_id).or_insert_with(ProfileData::new);
-        
+
         profile.call_count += 1;
-        
+
         if profile.call_count >= self.options.optimized_threshold {
             CompilationTier::Optimized
         } else if profile.call_count >= self.options.baseline_threshold {
@@ -245,7 +255,7 @@ impl JitEngine {
             CompilationTier::Interpreter
         }
     }
-    
+
     /// AOT compile an entire module.
     pub fn aot_compile(
         &self,
@@ -255,21 +265,21 @@ impl JitEngine {
         if !self.options.aot_enabled {
             return Err(CompilationError::AotDisabled);
         }
-        
+
         self.compiler.compile_module(module_id, wasm_bytes)
     }
-    
+
     /// Invalidate cached code for a function.
     pub fn invalidate(&self, func_id: FunctionId) {
         let mut cache = self.code_cache.write();
         cache.remove(&func_id);
     }
-    
+
     /// Get JIT statistics.
     pub fn stats(&self) -> &JitStats {
         &self.stats
     }
-    
+
     /// Get cache statistics.
     pub fn cache_stats(&self) -> CacheStats {
         let cache = self.code_cache.read();
@@ -301,10 +311,10 @@ impl Default for JitEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::ir::*;
-    use super::executable::*;
     use super::cache::CacheEntry;
+    use super::executable::*;
+    use super::ir::*;
+    use super::*;
     use alloc::vec;
 
     // ────────────────────────────────────────────────────────────────────
@@ -439,40 +449,76 @@ mod tests {
         let mut count = 0u32;
 
         let vals: &[i32] = &[
-            0, 1, -1, 2, -2, 7, -7, 42, -42, 100, -100, 127, -128,
-            255, 256, 1000, i32::MAX, i32::MIN, i32::MAX - 1, i32::MIN + 1,
+            0,
+            1,
+            -1,
+            2,
+            -2,
+            7,
+            -7,
+            42,
+            -42,
+            100,
+            -100,
+            127,
+            -128,
+            255,
+            256,
+            1000,
+            i32::MAX,
+            i32::MIN,
+            i32::MAX - 1,
+            i32::MIN + 1,
         ];
 
         for &a in vals {
             for &b in vals {
                 // Add
                 let f = make_i32_binop(IrOpcode::I32Add, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![a.wrapping_add(b) as i64]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![a.wrapping_add(b) as i64])
+                );
                 count += 1;
 
                 // Sub
                 let f = make_i32_binop(IrOpcode::I32Sub, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![a.wrapping_sub(b) as i64]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![a.wrapping_sub(b) as i64])
+                );
                 count += 1;
 
                 // Mul
                 let f = make_i32_binop(IrOpcode::I32Mul, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![a.wrapping_mul(b) as i64]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![a.wrapping_mul(b) as i64])
+                );
                 count += 1;
 
                 // And
                 let f = make_i32_binop(IrOpcode::I32And, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![(a & b) as i64]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![(a & b) as i64])
+                );
                 count += 1;
 
                 // Or
                 let f = make_i32_binop(IrOpcode::I32Or, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![(a | b) as i64]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![(a | b) as i64])
+                );
                 count += 1;
 
                 // Xor
                 let f = make_i32_binop(IrOpcode::I32Xor, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![(a ^ b) as i64]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![(a ^ b) as i64])
+                );
                 count += 1;
             }
         }
@@ -481,11 +527,17 @@ mod tests {
         for &a in vals {
             for &b in vals {
                 let f = make_i32_binop(IrOpcode::I32Eq, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![if a == b { 1 } else { 0 }]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![if a == b { 1 } else { 0 }])
+                );
                 count += 1;
 
                 let f = make_i32_binop(IrOpcode::I32LtS, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![if a < b { 1 } else { 0 }]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![if a < b { 1 } else { 0 }])
+                );
                 count += 1;
             }
         }
@@ -499,22 +551,42 @@ mod tests {
         let mut count = 0u32;
 
         let vals: &[i64] = &[
-            0, 1, -1, 42, -42, 1000, -1000, i64::MAX, i64::MIN,
-            i64::MAX - 1, i64::MIN + 1, 0x7FFF_FFFF, -0x8000_0000,
+            0,
+            1,
+            -1,
+            42,
+            -42,
+            1000,
+            -1000,
+            i64::MAX,
+            i64::MIN,
+            i64::MAX - 1,
+            i64::MIN + 1,
+            0x7FFF_FFFF,
+            -0x8000_0000,
         ];
 
         for &a in vals {
             for &b in vals {
                 let f = make_i64_binop(IrOpcode::I64Add, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![a.wrapping_add(b)]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![a.wrapping_add(b)])
+                );
                 count += 1;
 
                 let f = make_i64_binop(IrOpcode::I64Sub, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![a.wrapping_sub(b)]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![a.wrapping_sub(b)])
+                );
                 count += 1;
 
                 let f = make_i64_binop(IrOpcode::I64Mul, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![a.wrapping_mul(b)]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![a.wrapping_mul(b)])
+                );
                 count += 1;
 
                 let f = make_i64_binop(IrOpcode::I64And, a, b);
@@ -522,7 +594,10 @@ mod tests {
                 count += 1;
 
                 let f = make_i64_binop(IrOpcode::I64Eq, a, b);
-                assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![if a == b { 1 } else { 0 }]));
+                assert_eq!(
+                    interp.execute(&f, &[]),
+                    IrExecResult::Ok(vec![if a == b { 1 } else { 0 }])
+                );
                 count += 1;
             }
         }
@@ -539,7 +614,10 @@ mod tests {
         assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![3]));
 
         let f = make_i32_binop(IrOpcode::I32DivU, -1, 2);
-        assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![(u32::MAX / 2) as i64]));
+        assert_eq!(
+            interp.execute(&f, &[]),
+            IrExecResult::Ok(vec![(u32::MAX / 2) as i64])
+        );
 
         // i32 rem
         let f = make_i32_binop(IrOpcode::I32RemS, 10, 3);
@@ -547,18 +625,27 @@ mod tests {
 
         // div by zero
         let f = make_i32_binop(IrOpcode::I32DivS, 10, 0);
-        assert_eq!(interp.execute(&f, &[]), IrExecResult::Trap(IrTrap::DivisionByZero));
+        assert_eq!(
+            interp.execute(&f, &[]),
+            IrExecResult::Trap(IrTrap::DivisionByZero)
+        );
 
         // i32 overflow: MIN / -1
         let f = make_i32_binop(IrOpcode::I32DivS, i32::MIN, -1);
-        assert_eq!(interp.execute(&f, &[]), IrExecResult::Trap(IrTrap::IntegerOverflow));
+        assert_eq!(
+            interp.execute(&f, &[]),
+            IrExecResult::Trap(IrTrap::IntegerOverflow)
+        );
 
         // i64 div
         let f = make_i64_binop(IrOpcode::I64DivS, 100, 7);
         assert_eq!(interp.execute(&f, &[]), IrExecResult::Ok(vec![14]));
 
         let f = make_i64_binop(IrOpcode::I64DivS, 100, 0);
-        assert_eq!(interp.execute(&f, &[]), IrExecResult::Trap(IrTrap::DivisionByZero));
+        assert_eq!(
+            interp.execute(&f, &[]),
+            IrExecResult::Trap(IrTrap::DivisionByZero)
+        );
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -572,11 +659,11 @@ mod tests {
         // Store 42 at address 0
         let mut f = IrFunction::new(0, vec![], vec![IrType::I32]);
         f.body = vec![
-            IrInstruction::new(IrOpcode::Const32(0), 0),    // addr
-            IrInstruction::new(IrOpcode::Const32(42), 0),   // value
-            IrInstruction::new(IrOpcode::Store32(0), 0),    // mem[0] = 42
-            IrInstruction::new(IrOpcode::Const32(0), 0),    // addr
-            IrInstruction::new(IrOpcode::Load32(0), 0),     // load mem[0]
+            IrInstruction::new(IrOpcode::Const32(0), 0),  // addr
+            IrInstruction::new(IrOpcode::Const32(42), 0), // value
+            IrInstruction::new(IrOpcode::Store32(0), 0),  // mem[0] = 42
+            IrInstruction::new(IrOpcode::Const32(0), 0),  // addr
+            IrInstruction::new(IrOpcode::Load32(0), 0),   // load mem[0]
         ];
         let result = interp.execute(&f, &[]);
         assert_eq!(result, IrExecResult::Ok(vec![42]));
@@ -588,7 +675,7 @@ mod tests {
 
         let mut f = IrFunction::new(0, vec![], vec![IrType::I32]);
         f.body = vec![
-            IrInstruction::new(IrOpcode::Const32(20), 0),  // addr beyond memory
+            IrInstruction::new(IrOpcode::Const32(20), 0), // addr beyond memory
             IrInstruction::new(IrOpcode::Load32(0), 0),
         ];
         let result = interp.execute(&f, &[]);
@@ -601,7 +688,7 @@ mod tests {
 
         let mut f = IrFunction::new(0, vec![], vec![IrType::I32]);
         f.body = vec![
-            IrInstruction::new(IrOpcode::Const32(14), 0),  // addr: 14+4=18 > 16
+            IrInstruction::new(IrOpcode::Const32(14), 0), // addr: 14+4=18 > 16
             IrInstruction::new(IrOpcode::Const32(99), 0),
             IrInstruction::new(IrOpcode::Store32(0), 0),
         ];
@@ -681,12 +768,18 @@ mod tests {
         // Verify codegen compiles this successfully
         let gen = CodeGenerator::new();
         let code = gen.generate_baseline(&f).unwrap();
-        assert!(code.size() > 20, "Recursive function should generate substantial code");
+        assert!(
+            code.size() > 20,
+            "Recursive function should generate substantial code"
+        );
 
         // Verify call instruction is present
         let bytes = code.code();
         let call_count = bytes.windows(1).filter(|w| w[0] == 0xE8).count();
-        assert!(call_count >= 1, "Should contain at least one CALL instruction");
+        assert!(
+            call_count >= 1,
+            "Should contain at least one CALL instruction"
+        );
     }
 
     #[test]
@@ -822,7 +915,11 @@ mod tests {
         let total_ir = n * loop_body_ir;
         let interp_cost = total_ir * 15; // ~15 cycles per interpreted IR op
         let native_cost = estimated_native_instructions * 2; // ~2 cycles per native op
-        let ratio = if native_cost > 0 { interp_cost / native_cost } else { 1 };
+        let ratio = if native_cost > 0 {
+            interp_cost / native_cost
+        } else {
+            1
+        };
         assert!(
             ratio >= 5,
             "Estimated speedup {ratio}× is below 5× threshold"
@@ -955,9 +1052,7 @@ mod tests {
     fn test_dqg8_codegen_unsupported_op_emits_ud2() {
         // Verify that unsupported IR opcodes produce ud2 in generated code
         let mut f = IrFunction::new(0, vec![], vec![IrType::I32]);
-        f.body = vec![
-            IrInstruction::new(IrOpcode::Unreachable, 0),
-        ];
+        f.body = vec![IrInstruction::new(IrOpcode::Unreachable, 0)];
         let gen = CodeGenerator::new();
         let code = gen.generate_baseline(&f).unwrap();
         let bytes = code.code();
@@ -1064,10 +1159,11 @@ mod tests {
     fn test_unreachable_trap() {
         let mut interp = IrInterpreter::new();
         let mut f = IrFunction::new(0, vec![], vec![]);
-        f.body = vec![
-            IrInstruction::new(IrOpcode::Unreachable, 0),
-        ];
-        assert_eq!(interp.execute(&f, &[]), IrExecResult::Trap(IrTrap::Unreachable));
+        f.body = vec![IrInstruction::new(IrOpcode::Unreachable, 0)];
+        assert_eq!(
+            interp.execute(&f, &[]),
+            IrExecResult::Trap(IrTrap::Unreachable)
+        );
     }
 
     #[test]

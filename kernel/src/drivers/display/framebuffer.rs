@@ -2,11 +2,13 @@
 //!
 //! Generic framebuffer implementation for display output.
 
-use super::{Display, DisplayInfo, DisplayMode, DisplayError, PixelFormat, DisplayConnection,
-            CursorInfo, HardwareCursor, color::Color};
+use super::{
+    color::Color, CursorInfo, Display, DisplayConnection, DisplayError, DisplayInfo, DisplayMode,
+    HardwareCursor, PixelFormat,
+};
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// Framebuffer configuration
 #[derive(Debug, Clone)]
@@ -52,7 +54,7 @@ impl Framebuffer {
         };
 
         let buffer_size = (config.width * config.height) as usize;
-        
+
         Self {
             config,
             name: String::from(name),
@@ -65,7 +67,7 @@ impl Framebuffer {
     }
 
     /// Get raw framebuffer pointer
-    /// 
+    ///
     /// # Safety
     /// Caller must ensure the address is valid and mapped
     pub unsafe fn raw_ptr(&self) -> *mut u32 {
@@ -114,7 +116,7 @@ impl Framebuffer {
         if y >= self.config.height {
             return;
         }
-        
+
         let start_x = x.min(self.config.width);
         let end_x = (x + width).min(self.config.width);
         let y_offset = (y * self.config.width) as usize;
@@ -161,16 +163,16 @@ impl Framebuffer {
             if dst_y >= self.config.height {
                 break;
             }
-            
+
             for col in 0..width {
                 let dst_x = x + col;
                 if dst_x >= self.config.width {
                     break;
                 }
-                
+
                 let src_offset = (row * width + col) as usize;
                 let dst_offset = (dst_y * self.config.width + dst_x) as usize;
-                
+
                 if src_offset < src.len() && dst_offset < self.back_buffer.len() {
                     self.back_buffer[dst_offset] = src[src_offset];
                 }
@@ -185,16 +187,16 @@ impl Framebuffer {
             if dst_y >= self.config.height {
                 break;
             }
-            
+
             for col in 0..width {
                 let dst_x = x + col;
                 if dst_x >= self.config.width {
                     break;
                 }
-                
+
                 let src_offset = (row * width + col) as usize;
                 let dst_offset = (dst_y * self.config.width + dst_x) as usize;
-                
+
                 if src_offset < src.len() && dst_offset < self.back_buffer.len() {
                     let src_pixel = src[src_offset];
                     let dst_pixel = self.back_buffer[dst_offset];
@@ -211,15 +213,17 @@ impl Framebuffer {
             unsafe {
                 let fb_ptr = self.raw_ptr();
                 let stride_pixels = self.config.stride / 4;
-                
+
                 for y in 0..self.config.height {
                     let src_offset = (y * self.config.width) as usize;
                     let dst_offset = (y * stride_pixels) as isize;
-                    
+
                     for x in 0..self.config.width {
                         let src_idx = src_offset + x as usize;
                         if src_idx < self.back_buffer.len() {
-                            fb_ptr.offset(dst_offset + x as isize).write_volatile(self.back_buffer[src_idx]);
+                            fb_ptr
+                                .offset(dst_offset + x as isize)
+                                .write_volatile(self.back_buffer[src_idx]);
                         }
                     }
                 }
@@ -233,12 +237,12 @@ impl Framebuffer {
         let width = self.config.width as usize;
         let height = self.config.height as usize;
         let scroll_offset = (lines as usize) * width;
-        
+
         // Move pixels up
         for i in 0..(height - lines as usize) * width {
             self.back_buffer[i] = self.back_buffer[i + scroll_offset];
         }
-        
+
         // Clear bottom lines
         for i in (height - lines as usize) * width..height * width {
             self.back_buffer[i] = 0;
@@ -258,7 +262,7 @@ fn blend_pixel(src: u32, dst: u32) -> u32 {
     let dst_b = (dst & 0xFF) as u32;
 
     let inv_a = 255 - src_a;
-    
+
     let r = (src_r * src_a + dst_r * inv_a) / 255;
     let g = (src_g * src_a + dst_g * inv_a) / 255;
     let b = (src_b * src_a + dst_b * inv_a) / 255;
@@ -405,7 +409,7 @@ impl SoftwareCursor {
                 let screen_x = cursor_x + col;
                 let screen_y = cursor_y + row;
                 let idx = (row * self.image.width + col) as usize;
-                
+
                 if let Some(color) = fb.get_pixel(screen_x, screen_y) {
                     if idx < self.saved_background.len() {
                         self.saved_background[idx] = color.to_argb();
@@ -415,7 +419,13 @@ impl SoftwareCursor {
         }
 
         // Draw cursor with alpha blending
-        fb.blit_alpha(cursor_x, cursor_y, self.image.width, self.image.height, &self.image.data);
+        fb.blit_alpha(
+            cursor_x,
+            cursor_y,
+            self.image.width,
+            self.image.height,
+            &self.image.data,
+        );
     }
 
     /// Erase cursor from framebuffer
@@ -428,7 +438,13 @@ impl SoftwareCursor {
         let cursor_y = self.y.saturating_sub(self.image.hotspot_y);
 
         // Restore background
-        fb.blit(cursor_x, cursor_y, self.image.width, self.image.height, &self.saved_background);
+        fb.blit(
+            cursor_x,
+            cursor_y,
+            self.image.width,
+            self.image.height,
+            &self.saved_background,
+        );
     }
 
     /// Move cursor

@@ -3,8 +3,8 @@
 //! This module provides support for VirtIO block devices commonly used
 //! in virtual machines (QEMU, KVM, etc.).
 
-use crate::{BlockDeviceInfo, StorageError};
 use super::BlockDevice;
+use crate::{BlockDeviceInfo, StorageError};
 
 /// VirtIO block device feature flags.
 #[derive(Debug, Clone, Copy)]
@@ -341,7 +341,10 @@ impl BlockDevice for VirtioBlkDevice {
         for i in 0..blocks {
             let offset = (i * self.block_size as u64) as usize;
             let sector = start_block + i;
-            self.submit_read(sector, &mut buffer[offset..offset + self.block_size as usize])?;
+            self.submit_read(
+                sector,
+                &mut buffer[offset..offset + self.block_size as usize],
+            )?;
         }
 
         Ok(buffer.len())

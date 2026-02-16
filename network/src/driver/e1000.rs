@@ -71,16 +71,16 @@ impl E1000 {
             mtu: 1500,
             link_up: false,
         };
-        
+
         dev.reset()?;
         dev.read_mac()?;
         dev.init_rx()?;
         dev.init_tx()?;
         dev.link_up = dev.check_link();
-        
+
         Ok(dev)
     }
-    
+
     /// Reset the device.
     fn reset(&mut self) -> Result<(), NetworkError> {
         self.write_reg(regs::CTRL, ctrl::RST);
@@ -92,12 +92,12 @@ impl E1000 {
         }
         Err(NetworkError::DriverError("E1000 reset timeout".into()))
     }
-    
+
     /// Read the MAC address.
     fn read_mac(&mut self) -> Result<(), NetworkError> {
         let ral = self.read_reg(regs::RAL);
         let rah = self.read_reg(regs::RAH);
-        
+
         self.mac = MacAddr::new(
             (ral & 0xFF) as u8,
             ((ral >> 8) & 0xFF) as u8,
@@ -106,30 +106,33 @@ impl E1000 {
             (rah & 0xFF) as u8,
             ((rah >> 8) & 0xFF) as u8,
         );
-        
+
         Ok(())
     }
-    
+
     /// Initialize receive descriptors.
     fn init_rx(&mut self) -> Result<(), NetworkError> {
         // Would allocate and set up RX descriptor ring
-        self.write_reg(regs::RCTL, rctl::EN | rctl::BAM | rctl::BSIZE_4096 | rctl::SECRC);
+        self.write_reg(
+            regs::RCTL,
+            rctl::EN | rctl::BAM | rctl::BSIZE_4096 | rctl::SECRC,
+        );
         Ok(())
     }
-    
+
     /// Initialize transmit descriptors.
     fn init_tx(&mut self) -> Result<(), NetworkError> {
         // Would allocate and set up TX descriptor ring
         self.write_reg(regs::TCTL, tctl::EN | tctl::PSP);
         Ok(())
     }
-    
+
     /// Check link status.
     fn check_link(&self) -> bool {
         let status = self.read_reg(regs::STATUS);
         (status & 0x02) != 0 // Link up bit
     }
-    
+
     /// Read a register.
     fn read_reg(&self, offset: u32) -> u32 {
         unsafe {
@@ -137,7 +140,7 @@ impl E1000 {
             ptr.read_volatile()
         }
     }
-    
+
     /// Write a register.
     fn write_reg(&self, offset: u32, value: u32) {
         unsafe {
@@ -151,29 +154,29 @@ impl NetworkDevice for E1000 {
     fn mac_address(&self) -> MacAddr {
         self.mac
     }
-    
+
     fn mtu(&self) -> u16 {
         self.mtu
     }
-    
+
     fn link_up(&self) -> bool {
         self.link_up
     }
-    
+
     fn transmit(&mut self, _packet: &[u8]) -> Result<(), NetworkError> {
         // Would add to TX descriptor ring and notify hardware
         Ok(())
     }
-    
+
     fn receive(&mut self, _buffer: &mut [u8]) -> Result<usize, NetworkError> {
         // Would check RX descriptor ring for received packets
         Err(NetworkError::WouldBlock)
     }
-    
+
     fn can_receive(&self) -> bool {
         false // Placeholder
     }
-    
+
     fn link_speed(&self) -> u32 {
         1000 // 1 Gbps
     }

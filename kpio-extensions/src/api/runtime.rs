@@ -6,15 +6,15 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use spin::RwLock;
 
-use super::{ApiResult, ApiError, ApiContext, EventEmitter};
-use crate::ExtensionId;
+use super::{ApiContext, ApiError, ApiResult, EventEmitter};
 use crate::api::tabs::TabId;
+use crate::ExtensionId;
 
 /// Port name.
 pub type PortName = String;
@@ -42,13 +42,13 @@ impl Port {
             message_id: None,
         }
     }
-    
+
     /// Post a message.
     pub fn post_message(&self, _message: &str) -> ApiResult<()> {
         // Would send message through port
         Ok(())
     }
-    
+
     /// Disconnect the port.
     pub fn disconnect(&self) {
         // Would close the port
@@ -328,23 +328,27 @@ impl RuntimeApi {
             on_message_external: RwLock::new(EventEmitter::new()),
         }
     }
-    
+
     /// Get extension ID.
     pub fn id(&self, ctx: &ApiContext) -> ExtensionId {
         ctx.extension_id.clone()
     }
-    
+
     /// Get URL of a resource.
     pub fn get_url(&self, ctx: &ApiContext, path: &str) -> String {
-        alloc::format!("chrome-extension://{}/{}", ctx.extension_id.as_str(), path.trim_start_matches('/'))
+        alloc::format!(
+            "chrome-extension://{}/{}",
+            ctx.extension_id.as_str(),
+            path.trim_start_matches('/')
+        )
     }
-    
+
     /// Get manifest.
     pub fn get_manifest(&self, _ctx: &ApiContext) -> ApiResult<String> {
         // Would return parsed manifest
         Ok("{}".to_string())
     }
-    
+
     /// Get platform info.
     pub fn get_platform_info(&self, _ctx: &ApiContext) -> ApiResult<PlatformInfo> {
         Ok(PlatformInfo {
@@ -353,19 +357,19 @@ impl RuntimeApi {
             nacl_arch: PlatformNaclArch::X86_64,
         })
     }
-    
+
     /// Get background page.
     pub fn get_background_page(&self, _ctx: &ApiContext) -> ApiResult<Option<String>> {
         // Would return background page window
         Ok(None)
     }
-    
+
     /// Open options page.
     pub fn open_options_page(&self, _ctx: &ApiContext) -> ApiResult<()> {
         // Would open extension options page
         Ok(())
     }
-    
+
     /// Set uninstall URL.
     pub fn set_uninstall_url(&self, _ctx: &ApiContext, url: &str) -> ApiResult<()> {
         if !url.starts_with("http://") && !url.starts_with("https://") && !url.is_empty() {
@@ -374,12 +378,12 @@ impl RuntimeApi {
         // Would set uninstall URL
         Ok(())
     }
-    
+
     /// Reload extension.
     pub fn reload(&self, _ctx: &ApiContext) {
         // Would reload extension
     }
-    
+
     /// Request update check.
     pub fn request_update_check(&self, _ctx: &ApiContext) -> ApiResult<UpdateCheckResult> {
         Ok(UpdateCheckResult {
@@ -387,25 +391,30 @@ impl RuntimeApi {
             version: None,
         })
     }
-    
+
     /// Restart device (Chrome OS only).
     pub fn restart(&self, _ctx: &ApiContext) -> ApiResult<()> {
         Err(ApiError::permission_denied("restart"))
     }
-    
+
     /// Restart after delay (Chrome OS only).
     pub fn restart_after_delay(&self, _ctx: &ApiContext, _seconds: i32) -> ApiResult<()> {
         Err(ApiError::permission_denied("restart"))
     }
-    
+
     /// Connect to extension.
-    pub fn connect(&self, ctx: &ApiContext, extension_id: Option<ExtensionId>, info: ConnectInfo) -> ApiResult<Port> {
+    pub fn connect(
+        &self,
+        ctx: &ApiContext,
+        extension_id: Option<ExtensionId>,
+        info: ConnectInfo,
+    ) -> ApiResult<Port> {
         let target_id = extension_id.unwrap_or_else(|| ctx.extension_id.clone());
-        
+
         let mut next_id = self.next_port_id.write();
         let port_id = *next_id;
         *next_id += 1;
-        
+
         let port = Port {
             name: info.name.unwrap_or_default(),
             sender: Some(MessageSender {
@@ -415,19 +424,19 @@ impl RuntimeApi {
             disconnect_id: None,
             message_id: None,
         };
-        
+
         self.ports.write().insert(port_id, port.clone());
-        
+
         // Emit connect event on target
         if target_id == ctx.extension_id {
             self.on_connect.read().emit(&port);
         } else {
             self.on_connect_external.read().emit(&port);
         }
-        
+
         Ok(port)
     }
-    
+
     /// Connect to native application.
     pub fn connect_native(&self, _ctx: &ApiContext, application: &str) -> ApiResult<Port> {
         let port = Port {
@@ -436,28 +445,37 @@ impl RuntimeApi {
             disconnect_id: None,
             message_id: None,
         };
-        
+
         Ok(port)
     }
-    
+
     /// Send one-time message.
-    pub fn send_message(&self, ctx: &ApiContext, extension_id: Option<ExtensionId>, message: &str) -> ApiResult<Option<String>> {
+    pub fn send_message(
+        &self,
+        ctx: &ApiContext,
+        extension_id: Option<ExtensionId>,
+        message: &str,
+    ) -> ApiResult<Option<String>> {
         let target_id = extension_id.unwrap_or_else(|| ctx.extension_id.clone());
-        
+
         let sender = MessageSender {
             id: Some(ctx.extension_id.clone()),
             tab: ctx.tab_id,
             frame_id: ctx.frame_id.map(|id| id as i32),
             ..Default::default()
         };
-        
+
         // Emit message event
         if target_id == ctx.extension_id {
-            self.on_message.read().emit(&(message.to_string(), sender.clone()));
+            self.on_message
+                .read()
+                .emit(&(message.to_string(), sender.clone()));
         } else {
-            self.on_message_external.read().emit(&(message.to_string(), sender.clone()));
+            self.on_message_external
+                .read()
+                .emit(&(message.to_string(), sender.clone()));
         }
-        
+
         // Check message handlers
         let handlers = self.message_handlers.read();
         for handler in handlers.iter() {
@@ -465,26 +483,31 @@ impl RuntimeApi {
                 return Ok(Some(response));
             }
         }
-        
+
         Ok(None)
     }
-    
+
     /// Send native message.
-    pub fn send_native_message(&self, _ctx: &ApiContext, _application: &str, _message: &str) -> ApiResult<Option<String>> {
+    pub fn send_native_message(
+        &self,
+        _ctx: &ApiContext,
+        _application: &str,
+        _message: &str,
+    ) -> ApiResult<Option<String>> {
         // Would send to native messaging host
         Err(ApiError::not_found("Native host"))
     }
-    
+
     /// Get last error.
     pub fn get_last_error(&self) -> Option<String> {
         self.last_error.read().clone()
     }
-    
+
     /// Set last error.
     pub fn set_last_error(&self, error: Option<String>) {
         *self.last_error.write() = error;
     }
-    
+
     /// Get context type.
     pub fn get_context_type(&self, ctx: &ApiContext) -> ContextType {
         if ctx.tab_id.is_some() {
@@ -493,11 +516,11 @@ impl RuntimeApi {
             ContextType::Background
         }
     }
-    
+
     /// Add message handler.
-    pub fn add_message_handler<F>(&self, handler: F) 
+    pub fn add_message_handler<F>(&self, handler: F)
     where
-        F: Fn(&str, &MessageSender) -> Option<String> + Send + Sync + 'static
+        F: Fn(&str, &MessageSender) -> Option<String> + Send + Sync + 'static,
     {
         self.message_handlers.write().push(Box::new(handler));
     }
@@ -512,30 +535,30 @@ impl Default for RuntimeApi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_runtime_api() {
         let api = RuntimeApi::new();
         let ctx = ApiContext::new(ExtensionId::new("test-extension"));
-        
+
         // Get URL
         let url = api.get_url(&ctx, "/popup.html");
         assert_eq!(url, "chrome-extension://test-extension/popup.html");
-        
+
         // Get platform info
         let info = api.get_platform_info(&ctx).unwrap();
         assert_eq!(info.os, PlatformOs::Linux);
     }
-    
+
     #[test]
     fn test_messaging() {
         let api = RuntimeApi::new();
         let ctx = ApiContext::new(ExtensionId::new("test"));
-        
+
         // Connect
         let port = api.connect(&ctx, None, ConnectInfo::default()).unwrap();
         assert!(port.sender.is_some());
-        
+
         // Send message
         let response = api.send_message(&ctx, None, "hello").unwrap();
         assert!(response.is_none()); // No handler

@@ -82,7 +82,7 @@ impl MeasurementHandle {
     pub fn stop(self) -> Measurement {
         let end_time = current_time_us();
         let memory_end = current_memory_usage();
-        
+
         Measurement {
             name: self.name,
             duration_us: end_time.saturating_sub(self.start_time),
@@ -197,12 +197,14 @@ impl ReportSummary {
         let max = durations[count - 1];
 
         // Calculate standard deviation
-        let variance: f64 = durations.iter()
+        let variance: f64 = durations
+            .iter()
             .map(|d| {
                 let diff = *d as f64 - avg;
                 diff * diff
             })
-            .sum::<f64>() / count as f64;
+            .sum::<f64>()
+            / count as f64;
         let std_dev = libm::sqrt(variance);
 
         // Calculate percentiles
@@ -239,7 +241,11 @@ fn percentile(sorted: &[u64], p: u32) -> u64 {
 impl fmt::Display for ReportSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Performance Summary ({} measurements)", self.count)?;
-        writeln!(f, "  Total:  {:.2}ms", self.total_duration_us as f64 / 1000.0)?;
+        writeln!(
+            f,
+            "  Total:  {:.2}ms",
+            self.total_duration_us as f64 / 1000.0
+        )?;
         writeln!(f, "  Avg:    {:.2}ms", self.avg_duration_us / 1000.0)?;
         writeln!(f, "  Min:    {:.2}ms", self.min_duration_us as f64 / 1000.0)?;
         writeln!(f, "  Max:    {:.2}ms", self.max_duration_us as f64 / 1000.0)?;
@@ -363,18 +369,18 @@ impl RegressionChecker {
     /// Check for regression against baselines
     pub fn check(&self, current: &PerformanceReport) -> RegressionResult {
         let baseline = self.baselines.iter().find(|b| b.name == current.name);
-        
+
         match baseline {
             Some(baseline) => {
                 let baseline_avg = baseline.summary.avg_duration_us;
                 let current_avg = current.summary.avg_duration_us;
-                
+
                 if baseline_avg == 0.0 {
                     return RegressionResult::NoBaseline;
                 }
-                
+
                 let change_percent = ((current_avg - baseline_avg) / baseline_avg) * 100.0;
-                
+
                 if change_percent > self.threshold_percent {
                     RegressionResult::Regression {
                         baseline_avg_us: baseline_avg,

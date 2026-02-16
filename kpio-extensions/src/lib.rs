@@ -15,11 +15,11 @@
 
 extern crate alloc;
 
+pub mod api;
+pub mod content;
 pub mod manifest;
 pub mod sandbox;
-pub mod api;
 pub mod store;
-pub mod content;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -35,12 +35,12 @@ impl ExtensionId {
     pub fn new(id: &str) -> Self {
         Self(id.into())
     }
-    
+
     /// Get as string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    
+
     /// Generate an ID from extension name (for development).
     pub fn from_name(name: &str) -> Self {
         // Create a simple hash-like ID from name
@@ -93,12 +93,12 @@ impl Extension {
             is_dev: false,
         }
     }
-    
+
     /// Check if extension has a permission.
     pub fn has_permission(&self, permission: &str) -> bool {
         self.manifest.permissions.iter().any(|p| p == permission)
     }
-    
+
     /// Check if extension has host permission for URL.
     pub fn has_host_permission(&self, url: &str) -> bool {
         // Check against host_permissions patterns
@@ -145,23 +145,27 @@ impl ExtensionManager {
             listeners: RwLock::new(Vec::new()),
         }
     }
-    
+
     /// Load an extension from manifest.
-    pub fn load_extension(&self, manifest: manifest::Manifest, path: &str) -> Result<ExtensionId, ExtensionError> {
+    pub fn load_extension(
+        &self,
+        manifest: manifest::Manifest,
+        path: &str,
+    ) -> Result<ExtensionId, ExtensionError> {
         let id = ExtensionId::from_name(&manifest.name);
         let extension = Extension::new(id.clone(), manifest, path);
-        
+
         let mut extensions = self.extensions.write();
         if extensions.contains_key(&id.0) {
             return Err(ExtensionError::AlreadyInstalled);
         }
-        
+
         extensions.insert(id.0.clone(), extension);
         self.emit_event(ExtensionEvent::Installed(id.clone()));
-        
+
         Ok(id)
     }
-    
+
     /// Unload an extension.
     pub fn unload_extension(&self, id: &ExtensionId) -> Result<(), ExtensionError> {
         let mut extensions = self.extensions.write();
@@ -172,7 +176,7 @@ impl ExtensionManager {
             Err(ExtensionError::NotFound)
         }
     }
-    
+
     /// Enable an extension.
     pub fn enable_extension(&self, id: &ExtensionId) -> Result<(), ExtensionError> {
         let mut extensions = self.extensions.write();
@@ -184,7 +188,7 @@ impl ExtensionManager {
             Err(ExtensionError::NotFound)
         }
     }
-    
+
     /// Disable an extension.
     pub fn disable_extension(&self, id: &ExtensionId) -> Result<(), ExtensionError> {
         let mut extensions = self.extensions.write();
@@ -196,31 +200,32 @@ impl ExtensionManager {
             Err(ExtensionError::NotFound)
         }
     }
-    
+
     /// Get an extension by ID.
     pub fn get_extension(&self, id: &ExtensionId) -> Option<Extension> {
         self.extensions.read().get(&id.0).cloned()
     }
-    
+
     /// Get all extensions.
     pub fn get_all_extensions(&self) -> Vec<Extension> {
         self.extensions.read().values().cloned().collect()
     }
-    
+
     /// Get enabled extensions.
     pub fn get_enabled_extensions(&self) -> Vec<Extension> {
-        self.extensions.read()
+        self.extensions
+            .read()
             .values()
             .filter(|e| e.state == ExtensionState::Enabled)
             .cloned()
             .collect()
     }
-    
+
     /// Add event listener.
     pub fn add_listener(&self, listener: ExtensionEventListener) {
         self.listeners.write().push(listener);
     }
-    
+
     /// Emit event to listeners.
     fn emit_event(&self, event: ExtensionEvent) {
         for listener in self.listeners.read().iter() {

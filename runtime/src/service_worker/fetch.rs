@@ -516,3 +516,146 @@ impl Default for FetchInterceptor {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_request_creation() {
+        let req = Request::new("https://example.com/page");
+        assert_eq!(req.url, "https://example.com/page");
+        assert_eq!(req.method, RequestMethod::Get);
+        assert!(req.body.is_none());
+    }
+
+    #[test]
+    fn test_request_method_as_str() {
+        assert_eq!(RequestMethod::Get.as_str(), "GET");
+        assert_eq!(RequestMethod::Post.as_str(), "POST");
+        assert_eq!(RequestMethod::Delete.as_str(), "DELETE");
+    }
+
+    #[test]
+    fn test_response_new() {
+        let resp = Response::new(200);
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.status_text, "OK");
+        assert!(resp.ok());
+    }
+
+    #[test]
+    fn test_response_ok_range() {
+        assert!(Response::new(200).ok());
+        assert!(Response::new(201).ok());
+        assert!(Response::new(299).ok());
+        assert!(!Response::new(300).ok());
+        assert!(!Response::new(404).ok());
+        assert!(!Response::new(500).ok());
+    }
+
+    #[test]
+    fn test_response_error() {
+        let resp = Response::error();
+        assert_eq!(resp.response_type, ResponseType::Error);
+        assert_eq!(resp.status, 0);
+        assert!(!resp.ok());
+    }
+
+    #[test]
+    fn test_response_redirect() {
+        let resp = Response::redirect("https://other.com", 301);
+        assert_eq!(resp.status, 301);
+        assert_eq!(
+            resp.headers.get("Location"),
+            Some(&"https://other.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_fetch_event_respond_with() {
+        let req = Request::new("https://example.com/api/data");
+        let mut event = FetchEvent::new(req);
+        assert!(!event.responded());
+        event.respond_with(Response::new(200));
+        assert!(event.responded());
+        let resp = event.take_response().unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    #[test]
+    fn test_fetch_event_respond_with_once() {
+        let req = Request::new("https://example.com/");
+        let mut event = FetchEvent::new(req);
+        event.respond_with(Response::new(200));
+        // Second call should be ignored
+        event.respond_with(Response::new(404));
+        assert!(event.responded());
+        let resp = event.take_response().unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    #[test]
+    fn test_fetch_event_handled() {
+        let req = Request::new("https://example.com/");
+        let mut event = FetchEvent::new(req);
+        assert!(!event.handled());
+        event.mark_handled();
+        assert!(event.handled());
+    }
+
+    #[test]
+    fn test_default_fetch_handler_no_response() {
+        let handler = DefaultFetchHandler;
+        let req = Request::new("https://example.com/");
+        let mut event = FetchEvent::new(req);
+        handler.handle(&mut event);
+        assert!(!event.responded()); // Default does not respond
+    }
+
+    #[test]
+    fn test_fetch_interceptor_register_unregister() {
+        let mut interceptor = FetchInterceptor::new();
+        let worker_id = ServiceWorkerId::new();
+        interceptor.register(worker_id, Box::new(DefaultFetchHandler));
+
+        let req = Request::new("https://example.com/");
+        let mut event = FetchEvent::new(req);
+        let result = interceptor.intercept(worker_id, &mut event);
+        assert!(!result); // DefaultFetchHandler doesn't respond
+
+        interceptor.unregister(worker_id);
+        let req = Request::new("https://example.com/");
+        let mut event = FetchEvent::new(req);
+        let result = interceptor.intercept(worker_id, &mut event);
+        assert!(!result); // Not registered
+    }
+
+    #[test]
+    fn test_fetch_interceptor_custom_handler() {
+        struct TestHandler;
+        impl FetchHandler for TestHandler {
+            fn handle(&self, event: &mut FetchEvent) {
+                event.respond_with(Response::new(418)); // I'm a teapot
+            }
+        }
+
+        let mut interceptor = FetchInterceptor::new();
+        let worker_id = ServiceWorkerId::new();
+        interceptor.register(worker_id, Box::new(TestHandler));
+
+        let req = Request::new("https://example.com/");
+        let mut event = FetchEvent::new(req);
+        let result = interceptor.intercept(worker_id, &mut event);
+        assert!(result);
+        let resp = event.take_response().unwrap();
+        assert_eq!(resp.status, 418);
+    }
+
+    #[test]
+    fn test_fetch_event_id_unique() {
+        let id1 = FetchEventId::new();
+        let id2 = FetchEventId::new();
+        assert_ne!(id1, id2);
+    }
+}

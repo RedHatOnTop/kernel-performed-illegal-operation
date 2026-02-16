@@ -4,9 +4,9 @@
 //! Each app gets a `AppPermissions` set that constrains its access to
 //! filesystem paths, network, notifications, clipboard, and system resources.
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 
 use super::error::AppError;
 use super::registry::KernelAppId;
@@ -64,11 +64,11 @@ impl AppPermissions {
     pub fn default_web_app() -> Self {
         Self {
             filesystem: FsScope::AppDataOnly,
-            network: NetScope::Full,    // PWAs typically need network
-            notifications: false,       // ask first
+            network: NetScope::Full, // PWAs typically need network
+            notifications: false,    // ask first
             clipboard: false,
             background: false,
-            max_memory_kb: 64 * 1024,   // 64 MiB
+            max_memory_kb: 64 * 1024, // 64 MiB
         }
     }
 
@@ -80,7 +80,7 @@ impl AppPermissions {
             notifications: false,
             clipboard: false,
             background: false,
-            max_memory_kb: 32 * 1024,   // 32 MiB
+            max_memory_kb: 32 * 1024, // 32 MiB
         }
     }
 
@@ -124,11 +124,7 @@ impl PermissionChecker {
         }
 
         // Always allow read access to system shared resources.
-        const GLOBAL_READ_PATHS: &[&str] = &[
-            "/system/fonts",
-            "/system/locale",
-            "/system/theme",
-        ];
+        const GLOBAL_READ_PATHS: &[&str] = &["/system/fonts", "/system/locale", "/system/theme"];
         if !write {
             for allowed in GLOBAL_READ_PATHS {
                 if normalised.starts_with(allowed) {
@@ -170,10 +166,7 @@ impl PermissionChecker {
     }
 
     /// Check network access for an app.
-    pub fn check_net(
-        permissions: &AppPermissions,
-        domain: &str,
-    ) -> Result<(), AppError> {
+    pub fn check_net(permissions: &AppPermissions, domain: &str) -> Result<(), AppError> {
         match &permissions.network {
             NetScope::None => Err(AppError::PermissionDenied),
             NetScope::LocalOnly => {
@@ -294,7 +287,11 @@ impl AppPermissions {
             let needle = format!("\"{}\":", key);
             if let Some(pos) = json.find(&needle) {
                 let rest = &json[pos + needle.len()..];
-                let num: String = rest.trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
+                let num: String = rest
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
                 num.parse().unwrap_or(0)
             } else {
                 0
@@ -349,13 +346,10 @@ mod tests {
     #[test]
     fn test_fs_outside_app_data_denied() {
         let perm = AppPermissions::default_web_app();
-        assert!(PermissionChecker::check_fs(
-            &perm,
-            "/apps/data/5/",
-            "/system/config.json",
-            false
-        )
-        .is_err());
+        assert!(
+            PermissionChecker::check_fs(&perm, "/apps/data/5/", "/system/config.json", false)
+                .is_err()
+        );
     }
 
     #[test]
@@ -385,13 +379,9 @@ mod tests {
     #[test]
     fn test_fs_system_app_full_access() {
         let perm = AppPermissions::system_app();
-        assert!(PermissionChecker::check_fs(
-            &perm,
-            "/apps/data/0/",
-            "/anywhere/anything",
-            true
-        )
-        .is_ok());
+        assert!(
+            PermissionChecker::check_fs(&perm, "/apps/data/0/", "/anywhere/anything", true).is_ok()
+        );
     }
 
     #[test]
@@ -409,13 +399,7 @@ mod tests {
         )
         .is_ok());
         // But outside app data is denied
-        assert!(PermissionChecker::check_fs(
-            &perm,
-            "/apps/data/1/",
-            "/other",
-            false
-        )
-        .is_err());
+        assert!(PermissionChecker::check_fs(&perm, "/apps/data/1/", "/other", false).is_err());
     }
 
     #[test]
@@ -441,9 +425,10 @@ mod tests {
     #[test]
     fn test_net_allow_list() {
         let perm = AppPermissions {
-            network: NetScope::AllowList(
-                alloc::vec![String::from("api.example.com"), String::from("cdn.example.com")]
-            ),
+            network: NetScope::AllowList(alloc::vec![
+                String::from("api.example.com"),
+                String::from("cdn.example.com")
+            ]),
             ..AppPermissions::default_web_app()
         };
         assert!(PermissionChecker::check_net(&perm, "api.example.com").is_ok());

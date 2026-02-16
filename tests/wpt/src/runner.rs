@@ -2,13 +2,13 @@
 //!
 //! Executes WPT tests against the KPIO browser.
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 
 use crate::{
-    WptConfig, TestMetadata, TestResult, TestStatus, SubtestResult, SubtestStatus,
-    RunSummary, TestType, ExpectedResult,
+    ExpectedResult, RunSummary, SubtestResult, SubtestStatus, TestMetadata, TestResult, TestStatus,
+    TestType, WptConfig,
 };
 
 /// WPT test runner
@@ -25,13 +25,13 @@ pub struct WptRunner {
 pub trait RunnerListener {
     /// Called when run starts
     fn on_run_start(&mut self, total_tests: usize);
-    
+
     /// Called when a test starts
     fn on_test_start(&mut self, test: &TestMetadata);
-    
+
     /// Called when a test ends
     fn on_test_end(&mut self, test: &TestMetadata, result: &TestResult);
-    
+
     /// Called when run ends
     fn on_run_end(&mut self, summary: &RunSummary);
 }
@@ -117,7 +117,7 @@ impl WptRunner {
     /// Run all loaded tests
     pub fn run(&mut self) -> RunSummary {
         let total_tests = self.tests.len();
-        
+
         for listener in &mut self.listeners {
             listener.on_run_start(total_tests);
         }
@@ -184,7 +184,7 @@ impl WptRunner {
         // 2. Navigate to test page
         // 3. Wait for testharness.js to complete
         // 4. Collect results from page
-        
+
         TestResult {
             path: test.path.clone(),
             status: TestStatus::Ok,
@@ -201,7 +201,7 @@ impl WptRunner {
         // 1. Render test page
         // 2. Render reference page
         // 3. Compare screenshots
-        
+
         TestResult {
             path: test.path.clone(),
             status: TestStatus::Ok,
@@ -217,7 +217,7 @@ impl WptRunner {
         // In real implementation:
         // 1. Load page
         // 2. If browser doesn't crash, test passes
-        
+
         TestResult {
             path: test.path.clone(),
             status: TestStatus::Ok,
@@ -321,7 +321,12 @@ impl TestHarness {
     }
 
     /// Assert equals
-    pub fn assert_equals<T: PartialEq + core::fmt::Debug>(&mut self, actual: T, expected: T, message: &str) {
+    pub fn assert_equals<T: PartialEq + core::fmt::Debug>(
+        &mut self,
+        actual: T,
+        expected: T,
+        message: &str,
+    ) {
         let status = if actual == expected {
             SubtestStatus::Pass
         } else {
@@ -336,7 +341,12 @@ impl TestHarness {
     }
 
     /// Assert throws
-    pub fn assert_throws<F: FnOnce() -> Result<(), String>>(&mut self, f: F, expected_error: &str, message: &str) {
+    pub fn assert_throws<F: FnOnce() -> Result<(), String>>(
+        &mut self,
+        f: F,
+        expected_error: &str,
+        message: &str,
+    ) {
         match f() {
             Ok(_) => {
                 self.add_subtest(
@@ -414,7 +424,8 @@ impl PromiseTest {
 
     /// Fulfill the promise
     pub fn fulfill(mut self) -> TestHarness {
-        self.harness.add_subtest(self.name.clone(), SubtestStatus::Pass, None);
+        self.harness
+            .add_subtest(self.name.clone(), SubtestStatus::Pass, None);
         self.harness.complete();
         self.harness
     }

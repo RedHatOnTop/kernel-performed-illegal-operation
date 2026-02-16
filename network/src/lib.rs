@@ -20,15 +20,15 @@
 
 extern crate alloc;
 
+pub mod dhcp;
+pub mod dns;
 pub mod driver;
+pub mod http;
 pub mod interface;
 pub mod socket;
 pub mod tcp;
-pub mod udp;
-pub mod dns;
-pub mod dhcp;
-pub mod http;
 pub mod tls;
+pub mod udp;
 pub mod websocket;
 
 use alloc::string::String;
@@ -86,28 +86,28 @@ pub struct Ipv4Addr(pub [u8; 4]);
 impl Ipv4Addr {
     /// Unspecified address (0.0.0.0).
     pub const UNSPECIFIED: Ipv4Addr = Ipv4Addr([0, 0, 0, 0]);
-    
+
     /// Loopback address (127.0.0.1).
     pub const LOCALHOST: Ipv4Addr = Ipv4Addr([127, 0, 0, 1]);
-    
+
     /// Broadcast address (255.255.255.255).
     pub const BROADCAST: Ipv4Addr = Ipv4Addr([255, 255, 255, 255]);
-    
+
     /// Create a new IPv4 address.
     pub const fn new(a: u8, b: u8, c: u8, d: u8) -> Self {
         Ipv4Addr([a, b, c, d])
     }
-    
+
     /// Get the octets.
     pub fn octets(&self) -> [u8; 4] {
         self.0
     }
-    
+
     /// Check if this is a loopback address.
     pub fn is_loopback(&self) -> bool {
         self.0[0] == 127
     }
-    
+
     /// Check if this is a private address.
     pub fn is_private(&self) -> bool {
         match self.0 {
@@ -126,10 +126,10 @@ pub struct Ipv6Addr(pub [u8; 16]);
 impl Ipv6Addr {
     /// Unspecified address (::).
     pub const UNSPECIFIED: Ipv6Addr = Ipv6Addr([0; 16]);
-    
+
     /// Loopback address (::1).
     pub const LOCALHOST: Ipv6Addr = Ipv6Addr([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-    
+
     /// Get the octets.
     pub fn octets(&self) -> [u8; 16] {
         self.0
@@ -164,7 +164,7 @@ impl SocketAddr {
     pub fn new(ip: IpAddr, port: u16) -> Self {
         SocketAddr { ip, port }
     }
-    
+
     /// Create an IPv4 socket address.
     pub fn v4(a: u8, b: u8, c: u8, d: u8, port: u16) -> Self {
         SocketAddr {
@@ -187,12 +187,12 @@ pub type MacAddress = MacAddr;
 impl MacAddr {
     /// Broadcast address.
     pub const BROADCAST: MacAddr = MacAddr([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
-    
+
     /// Create a new MAC address.
     pub const fn new(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8) -> Self {
         MacAddr([a, b, c, d, e, f])
     }
-    
+
     /// Get the bytes.
     pub fn bytes(&self) -> [u8; 6] {
         self.0
@@ -231,4 +231,6 @@ pub fn interfaces() -> Vec<InterfaceConfig> {
 }
 
 // Re-export HTTP types for convenience
-pub use http::{HttpClient, HttpRequest, HttpResponse, HttpMethod, HttpError, HttpParser, Url, StatusCode};
+pub use http::{
+    HttpClient, HttpError, HttpMethod, HttpParser, HttpRequest, HttpResponse, StatusCode, Url,
+};

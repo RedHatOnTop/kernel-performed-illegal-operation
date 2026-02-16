@@ -2,14 +2,14 @@
 //!
 //! Screen reader support, keyboard navigation, and visual accessibility.
 
-pub mod screen_reader;
-pub mod focus;
 pub mod aria;
+pub mod focus;
+pub mod screen_reader;
 pub mod visual;
 
-pub use screen_reader::*;
-pub use focus::*;
 pub use aria::*;
+pub use focus::*;
+pub use screen_reader::*;
 pub use visual::*;
 
 use alloc::string::{String, ToString};
@@ -290,9 +290,7 @@ impl A11yTree {
     pub fn set_focus(&mut self, id: u64) -> Result<(), A11yError> {
         if let Some(node) = self.nodes.get_mut(&id) {
             if !node.state.focusable {
-                return Err(A11yError::InvalidOperation(
-                    "Node is not focusable".into()
-                ));
+                return Err(A11yError::InvalidOperation("Node is not focusable".into()));
             }
             node.state.focused = true;
         } else {
@@ -323,9 +321,7 @@ impl A11yTree {
 
     /// Find nodes by role
     pub fn find_by_role(&self, role: Role) -> Vec<&A11yNode> {
-        self.nodes.values()
-            .filter(|n| n.role == role)
-            .collect()
+        self.nodes.values().filter(|n| n.role == role).collect()
     }
 
     /// Clear tree

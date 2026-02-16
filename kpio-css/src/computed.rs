@@ -1,12 +1,12 @@
 //! Computed Style - Final computed style values
 
+use crate::cascade::CascadedValues;
 use crate::properties::PropertyId;
 use crate::values::{
-    Color, Length, LengthContext, Display, Position, BoxSizing, Overflow, Visibility,
-    FlexDirection, FlexWrap, JustifyContent, AlignItems, AlignContent, AlignSelf,
-    TextAlign, FontWeight, FontStyle, WhiteSpace,
+    AlignContent, AlignItems, AlignSelf, BoxSizing, Color, Display, FlexDirection, FlexWrap,
+    FontStyle, FontWeight, JustifyContent, Length, LengthContext, Overflow, Position, TextAlign,
+    Visibility, WhiteSpace,
 };
-use crate::cascade::CascadedValues;
 
 /// Computed style for an element.
 ///
@@ -18,7 +18,7 @@ pub struct ComputedStyle {
     pub display: Display,
     pub position: Position,
     pub box_sizing: BoxSizing,
-    
+
     // Dimensions
     pub width: Option<Length>,
     pub height: Option<Length>,
@@ -447,9 +447,7 @@ impl ComputedStyle {
 
     /// Check if this element creates a stacking context.
     pub fn creates_stacking_context(&self) -> bool {
-        self.position.creates_stacking_context()
-            || self.opacity < 1.0
-            || self.z_index.is_some()
+        self.position.creates_stacking_context() || self.opacity < 1.0 || self.z_index.is_some()
     }
 
     /// Check if this element is positioned.

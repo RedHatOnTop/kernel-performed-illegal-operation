@@ -201,7 +201,10 @@ impl ExecutableMemoryManager {
 
     /// Number of active regions.
     pub fn active_count(&self) -> usize {
-        self.regions.iter().filter(|r| r.state() != RegionState::Freed).count()
+        self.regions
+            .iter()
+            .filter(|r| r.state() != RegionState::Freed)
+            .count()
     }
 }
 

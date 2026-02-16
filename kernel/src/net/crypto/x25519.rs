@@ -73,11 +73,19 @@ fn fe_encode(f: &Fe) -> [u8; 32] {
     q = (h[4] + q) >> 51;
 
     h[0] += 19 * q;
-    let carry = h[0] >> 51; h[0] &= REDUCE_MASK;
-    h[1] += carry; let carry = h[1] >> 51; h[1] &= REDUCE_MASK;
-    h[2] += carry; let carry = h[2] >> 51; h[2] &= REDUCE_MASK;
-    h[3] += carry; let carry = h[3] >> 51; h[3] &= REDUCE_MASK;
-    h[4] += carry; h[4] &= REDUCE_MASK;
+    let carry = h[0] >> 51;
+    h[0] &= REDUCE_MASK;
+    h[1] += carry;
+    let carry = h[1] >> 51;
+    h[1] &= REDUCE_MASK;
+    h[2] += carry;
+    let carry = h[2] >> 51;
+    h[2] &= REDUCE_MASK;
+    h[3] += carry;
+    let carry = h[3] >> 51;
+    h[3] &= REDUCE_MASK;
+    h[4] += carry;
+    h[4] &= REDUCE_MASK;
 
     let v: u128 = (h[0] as u128) | ((h[1] as u128) << 51) | ((h[2] as u128) << 102);
     let w: u128 = ((h[2] as u128) >> 26) | ((h[3] as u128) << 25) | ((h[4] as u128) << 76);
@@ -94,23 +102,41 @@ fn fe_encode(f: &Fe) -> [u8; 32] {
 }
 
 fn fe_reduce(f: &mut Fe) {
-    let carry = f[0] >> 51; f[0] &= REDUCE_MASK;
-    f[1] += carry; let carry = f[1] >> 51; f[1] &= REDUCE_MASK;
-    f[2] += carry; let carry = f[2] >> 51; f[2] &= REDUCE_MASK;
-    f[3] += carry; let carry = f[3] >> 51; f[3] &= REDUCE_MASK;
-    f[4] += carry; let carry = f[4] >> 51; f[4] &= REDUCE_MASK;
+    let carry = f[0] >> 51;
+    f[0] &= REDUCE_MASK;
+    f[1] += carry;
+    let carry = f[1] >> 51;
+    f[1] &= REDUCE_MASK;
+    f[2] += carry;
+    let carry = f[2] >> 51;
+    f[2] &= REDUCE_MASK;
+    f[3] += carry;
+    let carry = f[3] >> 51;
+    f[3] &= REDUCE_MASK;
+    f[4] += carry;
+    let carry = f[4] >> 51;
+    f[4] &= REDUCE_MASK;
     f[0] += carry * 19; // 2^255 ≡ 19
 }
 
 fn fe_add(a: &Fe, b: &Fe) -> Fe {
-    [a[0]+b[0], a[1]+b[1], a[2]+b[2], a[3]+b[3], a[4]+b[4]]
+    [
+        a[0] + b[0],
+        a[1] + b[1],
+        a[2] + b[2],
+        a[3] + b[3],
+        a[4] + b[4],
+    ]
 }
 
 fn fe_sub(a: &Fe, b: &Fe) -> Fe {
     // Add 2*p to avoid underflow
     const TWO_P: [u64; 5] = [
-        0xFFFFFFFFFFFDA, 0x7FFFFFFFFFFFF, 0x7FFFFFFFFFFFF,
-        0x7FFFFFFFFFFFF, 0x7FFFFFFFFFFFF,
+        0xFFFFFFFFFFFDA,
+        0x7FFFFFFFFFFFF,
+        0x7FFFFFFFFFFFF,
+        0x7FFFFFFFFFFFF,
+        0x7FFFFFFFFFFFF,
     ];
     [
         a[0] + TWO_P[0] - b[0],
@@ -122,28 +148,50 @@ fn fe_sub(a: &Fe, b: &Fe) -> Fe {
 }
 
 fn fe_mul(a: &Fe, b: &Fe) -> Fe {
-    let (a0, a1, a2, a3, a4) = (a[0] as u128, a[1] as u128, a[2] as u128, a[3] as u128, a[4] as u128);
-    let (b0, b1, b2, b3, b4) = (b[0] as u128, b[1] as u128, b[2] as u128, b[3] as u128, b[4] as u128);
+    let (a0, a1, a2, a3, a4) = (
+        a[0] as u128,
+        a[1] as u128,
+        a[2] as u128,
+        a[3] as u128,
+        a[4] as u128,
+    );
+    let (b0, b1, b2, b3, b4) = (
+        b[0] as u128,
+        b[1] as u128,
+        b[2] as u128,
+        b[3] as u128,
+        b[4] as u128,
+    );
 
     let b1_19 = b1 * 19;
     let b2_19 = b2 * 19;
     let b3_19 = b3 * 19;
     let b4_19 = b4 * 19;
 
-    let mut r0 = a0*b0 + a1*b4_19 + a2*b3_19 + a3*b2_19 + a4*b1_19;
-    let mut r1 = a0*b1 + a1*b0 + a2*b4_19 + a3*b3_19 + a4*b2_19;
-    let mut r2 = a0*b2 + a1*b1 + a2*b0 + a3*b4_19 + a4*b3_19;
-    let mut r3 = a0*b3 + a1*b2 + a2*b1 + a3*b0 + a4*b4_19;
-    let mut r4 = a0*b4 + a1*b3 + a2*b2 + a3*b1 + a4*b0;
+    let mut r0 = a0 * b0 + a1 * b4_19 + a2 * b3_19 + a3 * b2_19 + a4 * b1_19;
+    let mut r1 = a0 * b1 + a1 * b0 + a2 * b4_19 + a3 * b3_19 + a4 * b2_19;
+    let mut r2 = a0 * b2 + a1 * b1 + a2 * b0 + a3 * b4_19 + a4 * b3_19;
+    let mut r3 = a0 * b3 + a1 * b2 + a2 * b1 + a3 * b0 + a4 * b4_19;
+    let mut r4 = a0 * b4 + a1 * b3 + a2 * b2 + a3 * b1 + a4 * b0;
 
     let mask = REDUCE_MASK as u128;
-    let c = r0 >> 51; r0 &= mask;
-    r1 += c; let c = r1 >> 51; r1 &= mask;
-    r2 += c; let c = r2 >> 51; r2 &= mask;
-    r3 += c; let c = r3 >> 51; r3 &= mask;
-    r4 += c; let c = r4 >> 51; r4 &= mask;
+    let c = r0 >> 51;
+    r0 &= mask;
+    r1 += c;
+    let c = r1 >> 51;
+    r1 &= mask;
+    r2 += c;
+    let c = r2 >> 51;
+    r2 &= mask;
+    r3 += c;
+    let c = r3 >> 51;
+    r3 &= mask;
+    r4 += c;
+    let c = r4 >> 51;
+    r4 &= mask;
     r0 += c * 19;
-    let c = r0 >> 51; r0 &= mask;
+    let c = r0 >> 51;
+    r0 &= mask;
     r1 += c;
 
     [r0 as u64, r1 as u64, r2 as u64, r3 as u64, r4 as u64]
@@ -162,11 +210,20 @@ fn fe_mul_scalar(a: &Fe, s: u64) -> Fe {
     let mut r3 = (a[3] as u128) * s;
     let mut r4 = (a[4] as u128) * s;
 
-    let c = r0 >> 51; r0 &= mask;
-    r1 += c; let c = r1 >> 51; r1 &= mask;
-    r2 += c; let c = r2 >> 51; r2 &= mask;
-    r3 += c; let c = r3 >> 51; r3 &= mask;
-    r4 += c; let c = r4 >> 51; r4 &= mask;
+    let c = r0 >> 51;
+    r0 &= mask;
+    r1 += c;
+    let c = r1 >> 51;
+    r1 &= mask;
+    r2 += c;
+    let c = r2 >> 51;
+    r2 &= mask;
+    r3 += c;
+    let c = r3 >> 51;
+    r3 &= mask;
+    r4 += c;
+    let c = r4 >> 51;
+    r4 &= mask;
     r0 += c * 19;
 
     [r0 as u64, r1 as u64, r2 as u64, r3 as u64, r4 as u64]
@@ -176,49 +233,66 @@ fn fe_mul_scalar(a: &Fe, s: u64) -> Fe {
 /// p = 2^255 - 19, so p-2 = 2^255 - 21.
 fn fe_invert(a: &Fe) -> Fe {
     // Use an addition chain for 2^255-21
-    let z2 = fe_sq(a);                    // a^2
-    let z8 = { let t = fe_sq(&z2); fe_sq(&t) }; // a^8
-    let z9 = fe_mul(a, &z8);             // a^9
-    let z11 = fe_mul(&z2, &z9);          // a^11
-    let z22 = fe_sq(&z11);               // a^22
-    let z_5_0 = fe_mul(&z9, &z22);       // a^(2^5-1)
+    let z2 = fe_sq(a); // a^2
+    let z8 = {
+        let t = fe_sq(&z2);
+        fe_sq(&t)
+    }; // a^8
+    let z9 = fe_mul(a, &z8); // a^9
+    let z11 = fe_mul(&z2, &z9); // a^11
+    let z22 = fe_sq(&z11); // a^22
+    let z_5_0 = fe_mul(&z9, &z22); // a^(2^5-1)
 
     let mut t = fe_sq(&z_5_0);
-    for _ in 1..5 { t = fe_sq(&t); }
-    let z_10_0 = fe_mul(&z_5_0, &t);     // a^(2^10-1)
+    for _ in 1..5 {
+        t = fe_sq(&t);
+    }
+    let z_10_0 = fe_mul(&z_5_0, &t); // a^(2^10-1)
 
     t = fe_sq(&z_10_0);
-    for _ in 1..10 { t = fe_sq(&t); }
-    let z_20_0 = fe_mul(&z_10_0, &t);    // a^(2^20-1)
+    for _ in 1..10 {
+        t = fe_sq(&t);
+    }
+    let z_20_0 = fe_mul(&z_10_0, &t); // a^(2^20-1)
 
     t = fe_sq(&z_20_0);
-    for _ in 1..20 { t = fe_sq(&t); }
-    t = fe_mul(&z_20_0, &t);             // a^(2^40-1)
+    for _ in 1..20 {
+        t = fe_sq(&t);
+    }
+    t = fe_mul(&z_20_0, &t); // a^(2^40-1)
 
     t = fe_sq(&t);
-    for _ in 1..10 { t = fe_sq(&t); }
-    let z_50_0 = fe_mul(&z_10_0, &t);    // a^(2^50-1)
+    for _ in 1..10 {
+        t = fe_sq(&t);
+    }
+    let z_50_0 = fe_mul(&z_10_0, &t); // a^(2^50-1)
 
     t = fe_sq(&z_50_0);
-    for _ in 1..50 { t = fe_sq(&t); }
-    let z_100_0 = fe_mul(&z_50_0, &t);   // a^(2^100-1)
+    for _ in 1..50 {
+        t = fe_sq(&t);
+    }
+    let z_100_0 = fe_mul(&z_50_0, &t); // a^(2^100-1)
 
     t = fe_sq(&z_100_0);
-    for _ in 1..100 { t = fe_sq(&t); }
-    t = fe_mul(&z_100_0, &t);            // a^(2^200-1)
+    for _ in 1..100 {
+        t = fe_sq(&t);
+    }
+    t = fe_mul(&z_100_0, &t); // a^(2^200-1)
 
     t = fe_sq(&t);
-    for _ in 1..50 { t = fe_sq(&t); }
-    t = fe_mul(&z_50_0, &t);             // a^(2^250-1)
+    for _ in 1..50 {
+        t = fe_sq(&t);
+    }
+    t = fe_mul(&z_50_0, &t); // a^(2^250-1)
 
     t = fe_sq(&t);
     t = fe_sq(&t);
-    t = fe_mul(a, &t);                   // a^(2^252-3)
+    t = fe_mul(a, &t); // a^(2^252-3)
 
     t = fe_sq(&t);
     t = fe_sq(&t);
     t = fe_sq(&t);
-    fe_mul(&z11, &t)                     // a^(2^255-21) = a^(p-2)
+    fe_mul(&z11, &t) // a^(2^255-21) = a^(p-2)
 }
 
 /// Constant-time conditional swap.

@@ -4,7 +4,7 @@
 //! system calls (106-111). These allow userspace programs and the
 //! browser crate to install, launch, query, and uninstall apps.
 
-use crate::syscall::{self, SyscallNumber, SyscallError, SyscallResult};
+use crate::syscall::{self, SyscallError, SyscallNumber, SyscallResult};
 
 /// Install/register a new app.
 ///

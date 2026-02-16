@@ -2,11 +2,11 @@
 //!
 //! Provides result collection, reporting, and export functionality.
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 
-use crate::{RunSummary, TestResult, TestStatus, SubtestResult, SubtestStatus};
+use crate::{RunSummary, SubtestResult, SubtestStatus, TestResult, TestStatus};
 
 /// Result reporter trait
 pub trait ResultReporter {
@@ -32,7 +32,7 @@ impl Default for JsonReporter {
 impl ResultReporter for JsonReporter {
     fn generate(&self, summary: &RunSummary) -> String {
         let mut json = String::from("{\n");
-        
+
         json.push_str(&format!("  \"total\": {},\n", summary.total));
         json.push_str(&format!("  \"passed\": {},\n", summary.passed));
         json.push_str(&format!("  \"failed\": {},\n", summary.failed));
@@ -40,14 +40,12 @@ impl ResultReporter for JsonReporter {
         json.push_str(&format!("  \"skipped\": {},\n", summary.skipped));
         json.push_str(&format!("  \"pass_rate\": {:.2},\n", summary.pass_rate()));
         json.push_str(&format!("  \"duration_s\": {:.2},\n", summary.duration_s));
-        
+
         json.push_str("  \"results\": [\n");
         for (i, result) in summary.results.iter().enumerate() {
             json.push_str(&format!(
                 "    {{\"path\": \"{}\", \"status\": \"{:?}\", \"duration_ms\": {}}}",
-                result.path,
-                result.status,
-                result.duration_ms
+                result.path, result.status, result.duration_ms
             ));
             if i < summary.results.len() - 1 {
                 json.push_str(",\n");
@@ -57,7 +55,7 @@ impl ResultReporter for JsonReporter {
         }
         json.push_str("  ]\n");
         json.push_str("}");
-        
+
         json
     }
 }
@@ -76,7 +74,7 @@ impl MarkdownReporter {
 impl ResultReporter for MarkdownReporter {
     fn generate(&self, summary: &RunSummary) -> String {
         let mut md = String::from("# WPT Test Results\n\n");
-        
+
         md.push_str("## Summary\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
@@ -87,12 +85,14 @@ impl ResultReporter for MarkdownReporter {
         md.push_str(&format!("| Skipped | {} |\n", summary.skipped));
         md.push_str(&format!("| Pass Rate | {:.2}% |\n", summary.pass_rate()));
         md.push_str(&format!("| Duration | {:.2}s |\n\n", summary.duration_s));
-        
+
         if self.include_failures {
-            let failures: Vec<_> = summary.results.iter()
+            let failures: Vec<_> = summary
+                .results
+                .iter()
                 .filter(|r| matches!(r.status, TestStatus::Error | TestStatus::Timeout))
                 .collect();
-            
+
             if !failures.is_empty() {
                 md.push_str("## Failures\n\n");
                 for result in failures {
@@ -105,7 +105,7 @@ impl ResultReporter for MarkdownReporter {
                 }
             }
         }
-        
+
         md
     }
 }
@@ -127,7 +127,8 @@ impl Default for HtmlReporter {
 
 impl ResultReporter for HtmlReporter {
     fn generate(&self, summary: &RunSummary) -> String {
-        let mut html = String::from(r#"<!DOCTYPE html>
+        let mut html = String::from(
+            r#"<!DOCTYPE html>
 <html>
 <head>
     <title>WPT Test Results</title>
@@ -151,7 +152,8 @@ impl ResultReporter for HtmlReporter {
 </head>
 <body>
     <h1>WPT Test Results</h1>
-"#);
+"#,
+        );
 
         // Summary cards
         html.push_str("<div class=\"summary\">\n");
@@ -192,10 +194,7 @@ impl ResultReporter for HtmlReporter {
             };
             html.push_str(&format!(
                 "<tr><td>{}</td><td class=\"{}\">{:?}</td><td>{}ms</td></tr>\n",
-                result.path,
-                status_class,
-                result.status,
-                result.duration_ms
+                result.path, status_class, result.status, result.duration_ms
             ));
         }
         html.push_str("</tbody>\n");
@@ -271,8 +270,10 @@ pub struct WptSubtest {
 impl WptReportFormat {
     /// Create from run summary
     pub fn from_summary(summary: &RunSummary, run_info: RunInfo) -> Self {
-        let results = summary.results.iter().map(|r| {
-            WptResult {
+        let results = summary
+            .results
+            .iter()
+            .map(|r| WptResult {
                 test: r.path.clone(),
                 status: match r.status {
                     TestStatus::Ok => String::from("OK"),
@@ -283,21 +284,25 @@ impl WptReportFormat {
                 },
                 message: r.message.clone(),
                 duration: r.duration_ms,
-                subtests: r.subtests.iter().map(|s| {
-                    WptSubtest {
+                subtests: r
+                    .subtests
+                    .iter()
+                    .map(|s| WptSubtest {
                         name: s.name.clone(),
                         status: match s.status {
                             SubtestStatus::Pass => String::from("PASS"),
                             SubtestStatus::Fail => String::from("FAIL"),
                             SubtestStatus::Timeout => String::from("TIMEOUT"),
                             SubtestStatus::NotRun => String::from("NOTRUN"),
-                            SubtestStatus::PreconditionFailed => String::from("PRECONDITION_FAILED"),
+                            SubtestStatus::PreconditionFailed => {
+                                String::from("PRECONDITION_FAILED")
+                            }
                         },
                         message: s.message.clone(),
-                    }
-                }).collect(),
-            }
-        }).collect();
+                    })
+                    .collect(),
+            })
+            .collect();
 
         Self { run_info, results }
     }
@@ -305,16 +310,28 @@ impl WptReportFormat {
     /// Generate JSON output
     pub fn to_json(&self) -> String {
         let mut json = String::from("{\n");
-        
+
         // Run info
         json.push_str("  \"run_info\": {\n");
-        json.push_str(&format!("    \"product\": \"{}\",\n", self.run_info.product));
-        json.push_str(&format!("    \"browser_version\": \"{}\",\n", self.run_info.browser_version));
+        json.push_str(&format!(
+            "    \"product\": \"{}\",\n",
+            self.run_info.product
+        ));
+        json.push_str(&format!(
+            "    \"browser_version\": \"{}\",\n",
+            self.run_info.browser_version
+        ));
         json.push_str(&format!("    \"os\": \"{}\",\n", self.run_info.os));
-        json.push_str(&format!("    \"os_version\": \"{}\",\n", self.run_info.os_version));
-        json.push_str(&format!("    \"revision\": \"{}\"\n", self.run_info.revision));
+        json.push_str(&format!(
+            "    \"os_version\": \"{}\",\n",
+            self.run_info.os_version
+        ));
+        json.push_str(&format!(
+            "    \"revision\": \"{}\"\n",
+            self.run_info.revision
+        ));
         json.push_str("  },\n");
-        
+
         // Results
         json.push_str("  \"results\": [\n");
         for (i, result) in self.results.iter().enumerate() {
@@ -322,7 +339,7 @@ impl WptReportFormat {
             json.push_str(&format!("      \"test\": \"{}\",\n", result.test));
             json.push_str(&format!("      \"status\": \"{}\",\n", result.status));
             json.push_str(&format!("      \"duration\": {},\n", result.duration));
-            
+
             // Subtests
             json.push_str("      \"subtests\": [\n");
             for (j, subtest) in result.subtests.iter().enumerate() {
@@ -337,7 +354,7 @@ impl WptReportFormat {
                 }
             }
             json.push_str("      ]\n");
-            
+
             json.push_str("    }");
             if i < self.results.len() - 1 {
                 json.push_str(",\n");
@@ -347,7 +364,7 @@ impl WptReportFormat {
         }
         json.push_str("  ]\n");
         json.push_str("}");
-        
+
         json
     }
 }
@@ -378,17 +395,15 @@ impl ResultComparator {
 
         for current_result in &current.results {
             match baseline_map.get(current_result.path.as_str()) {
-                Some(baseline_result) => {
-                    match (&baseline_result.status, &current_result.status) {
-                        (TestStatus::Error, TestStatus::Ok) => {
-                            fixed.push(current_result.path.clone());
-                        }
-                        (TestStatus::Ok, TestStatus::Error) => {
-                            regressions.push(current_result.path.clone());
-                        }
-                        _ => {}
+                Some(baseline_result) => match (&baseline_result.status, &current_result.status) {
+                    (TestStatus::Error, TestStatus::Ok) => {
+                        fixed.push(current_result.path.clone());
                     }
-                }
+                    (TestStatus::Ok, TestStatus::Error) => {
+                        regressions.push(current_result.path.clone());
+                    }
+                    _ => {}
+                },
                 None => {
                     // New test
                     if current_result.status == TestStatus::Ok {
@@ -442,8 +457,12 @@ impl ComparisonResult {
     /// Generate summary
     pub fn summary(&self) -> String {
         let mut summary = String::new();
-        summary.push_str(&format!("Pass rate: {:.2}% -> {:.2}% ({:+.2}%)\n",
-            self.baseline_pass_rate, self.current_pass_rate, self.pass_rate_delta()));
+        summary.push_str(&format!(
+            "Pass rate: {:.2}% -> {:.2}% ({:+.2}%)\n",
+            self.baseline_pass_rate,
+            self.current_pass_rate,
+            self.pass_rate_delta()
+        ));
         summary.push_str(&format!("Fixed: {}\n", self.fixed.len()));
         summary.push_str(&format!("Regressions: {}\n", self.regressions.len()));
         summary.push_str(&format!("New passes: {}\n", self.new_passes.len()));

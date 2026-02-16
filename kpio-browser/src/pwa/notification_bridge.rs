@@ -75,8 +75,7 @@ pub struct NotificationBridge {
 }
 
 /// Global notification bridge.
-pub static NOTIFICATION_BRIDGE: RwLock<NotificationBridge> =
-    RwLock::new(NotificationBridge::new());
+pub static NOTIFICATION_BRIDGE: RwLock<NotificationBridge> = RwLock::new(NotificationBridge::new());
 
 impl NotificationBridge {
     /// Create a new bridge (const for static init).
@@ -211,30 +210,21 @@ mod tests {
     #[test]
     fn default_permission() {
         let b = make_bridge();
-        assert_eq!(
-            b.get_permission(1),
-            NotificationPermission::Default
-        );
+        assert_eq!(b.get_permission(1), NotificationPermission::Default);
     }
 
     #[test]
     fn grant_and_check() {
         let mut b = make_bridge();
         b.grant_permission(1);
-        assert_eq!(
-            b.get_permission(1),
-            NotificationPermission::Granted
-        );
+        assert_eq!(b.get_permission(1), NotificationPermission::Granted);
     }
 
     #[test]
     fn deny_and_check() {
         let mut b = make_bridge();
         b.deny_permission(1);
-        assert_eq!(
-            b.get_permission(1),
-            NotificationPermission::Denied
-        );
+        assert_eq!(b.get_permission(1), NotificationPermission::Denied);
     }
 
     #[test]
@@ -267,10 +257,7 @@ mod tests {
         let mut b = make_bridge();
         b.grant_permission(1);
         b.reset_permission(1);
-        assert_eq!(
-            b.get_permission(1),
-            NotificationPermission::Default
-        );
+        assert_eq!(b.get_permission(1), NotificationPermission::Default);
     }
 
     #[test]

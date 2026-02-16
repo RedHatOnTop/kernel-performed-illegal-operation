@@ -11,40 +11,40 @@
 
 extern crate alloc;
 
-pub mod browser;
-pub mod document;
-pub mod window;
-pub mod navigation;
-pub mod renderer;
-pub mod events;
-pub mod tabs;
-pub mod pipeline;
-pub mod input;
-pub mod loader;
-pub mod csp;
-pub mod ui;
-pub mod pwa;
-pub mod account;
-pub mod design;
 pub mod a11y;
-pub mod i18n;
+pub mod account;
 pub mod apps;
-pub mod kernel_bridge;
+pub mod browser;
+pub mod csp;
+pub mod design;
+pub mod document;
+pub mod events;
 pub mod fs_bridge;
-pub mod network_bridge;
+pub mod i18n;
+pub mod input;
 pub mod input_bridge;
+pub mod kernel_bridge;
+pub mod loader;
+pub mod navigation;
+pub mod network_bridge;
+pub mod pipeline;
+pub mod pwa;
+pub mod renderer;
+pub mod tabs;
+pub mod ui;
+pub mod window;
 
 #[cfg(test)]
 mod tests;
 
 pub use browser::Browser;
+pub use csp::{CspCheck, CspContext, CspPolicy};
 pub use document::Document;
-pub use window::Window;
+pub use input::{DomInputEvent, HitTestResult, InputManager, RawInputEvent};
+pub use loader::{DocumentLoader, LoadResult, LoaderError, PageLoader};
 pub use navigation::Navigator;
-pub use pipeline::{RenderPipeline, PipelineError};
-pub use input::{InputManager, RawInputEvent, DomInputEvent, HitTestResult};
-pub use csp::{CspPolicy, CspContext, CspCheck};
-pub use loader::{PageLoader, DocumentLoader, LoadResult, LoaderError};
+pub use pipeline::{PipelineError, RenderPipeline};
+pub use window::Window;
 
 use alloc::string::String;
 

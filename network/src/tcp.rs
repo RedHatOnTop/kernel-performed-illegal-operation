@@ -36,7 +36,7 @@ impl TcpConnection {
             window_size: 65535,
         }
     }
-    
+
     /// Get the connection state.
     pub fn state(&self) -> TcpState {
         self.state

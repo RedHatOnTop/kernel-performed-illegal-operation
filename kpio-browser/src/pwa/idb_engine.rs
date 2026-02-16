@@ -122,15 +122,8 @@ impl IDBValue {
             IDBValue::Number(_) => 8,
             IDBValue::String(s) => s.len(),
             IDBValue::Blob(b) => b.len(),
-            IDBValue::Object(map) => {
-                map.iter()
-                    .map(|(k, v)| k.len() + v.size())
-                    .sum::<usize>()
-                    + 2
-            }
-            IDBValue::Array(arr) => {
-                arr.iter().map(|v| v.size()).sum::<usize>() + 2
-            }
+            IDBValue::Object(map) => map.iter().map(|(k, v)| k.len() + v.size()).sum::<usize>() + 2,
+            IDBValue::Array(arr) => arr.iter().map(|v| v.size()).sum::<usize>() + 2,
         }
     }
 
@@ -243,11 +236,7 @@ impl IDBEngine {
 
     /// VFS base path for this database.
     pub fn vfs_path(&self) -> String {
-        alloc::format!(
-            "/apps/storage/{}/idb/{}/",
-            self.app_id,
-            self.db_name
-        )
+        alloc::format!("/apps/storage/{}/idb/{}/", self.app_id, self.db_name)
     }
 
     /// Current total size.
@@ -258,25 +247,16 @@ impl IDBEngine {
     // ── Store management ────────────────────────────────────
 
     /// Create an object store.
-    pub fn create_store(
-        &mut self,
-        _db_name: &str,
-        store_name: &str,
-    ) -> Result<(), EngineError> {
+    pub fn create_store(&mut self, _db_name: &str, store_name: &str) -> Result<(), EngineError> {
         if self.stores.contains_key(store_name) {
             return Err(EngineError::AlreadyExists);
         }
-        self.stores
-            .insert(String::from(store_name), Store::new());
+        self.stores.insert(String::from(store_name), Store::new());
         Ok(())
     }
 
     /// Delete an object store.
-    pub fn delete_store(
-        &mut self,
-        _db_name: &str,
-        store_name: &str,
-    ) -> Result<(), EngineError> {
+    pub fn delete_store(&mut self, _db_name: &str, store_name: &str) -> Result<(), EngineError> {
         if let Some(store) = self.stores.remove(store_name) {
             self.total_size = self.total_size.saturating_sub(store.size);
         }
@@ -326,9 +306,7 @@ impl IDBEngine {
 
         store.size = store.size + entry_size - old_size;
         self.total_size = new_total;
-        store
-            .data
-            .insert(sort_key, (key.clone(), value));
+        store.data.insert(sort_key, (key.clone(), value));
 
         Ok(())
     }
@@ -340,10 +318,7 @@ impl IDBEngine {
         store_name: &str,
         key: &IDBKey,
     ) -> Result<Option<IDBValue>, EngineError> {
-        let store = self
-            .stores
-            .get(store_name)
-            .ok_or(EngineError::NotFound)?;
+        let store = self.stores.get(store_name).ok_or(EngineError::NotFound)?;
         let sort_key = key.to_sort_key();
         Ok(store.data.get(&sort_key).map(|(_, v)| v.clone()))
     }
@@ -368,20 +343,14 @@ impl IDBEngine {
 
             // Remove from indices
             for idx_store in store.indices.values_mut() {
-                idx_store
-                    .mapping
-                    .retain(|_, primary| primary != &sort_key);
+                idx_store.mapping.retain(|_, primary| primary != &sort_key);
             }
         }
         Ok(())
     }
 
     /// Clear all entries in a store.
-    pub fn clear_store(
-        &mut self,
-        _db_name: &str,
-        store_name: &str,
-    ) -> Result<(), EngineError> {
+    pub fn clear_store(&mut self, _db_name: &str, store_name: &str) -> Result<(), EngineError> {
         let store = self
             .stores
             .get_mut(store_name)
@@ -396,15 +365,8 @@ impl IDBEngine {
     }
 
     /// Count entries in a store.
-    pub fn count(
-        &self,
-        _db_name: &str,
-        store_name: &str,
-    ) -> Result<usize, EngineError> {
-        let store = self
-            .stores
-            .get(store_name)
-            .ok_or(EngineError::NotFound)?;
+    pub fn count(&self, _db_name: &str, store_name: &str) -> Result<usize, EngineError> {
+        let store = self.stores.get(store_name).ok_or(EngineError::NotFound)?;
         Ok(store.data.len())
     }
 
@@ -415,10 +377,7 @@ impl IDBEngine {
         store_name: &str,
         limit: Option<usize>,
     ) -> Result<Vec<(IDBKey, IDBValue)>, EngineError> {
-        let store = self
-            .stores
-            .get(store_name)
-            .ok_or(EngineError::NotFound)?;
+        let store = self.stores.get(store_name).ok_or(EngineError::NotFound)?;
         let iter = store.data.values().map(|(k, v)| (k.clone(), v.clone()));
         match limit {
             Some(n) => Ok(iter.take(n).collect()),
@@ -427,20 +386,9 @@ impl IDBEngine {
     }
 
     /// Get all keys in a store (sorted).
-    pub fn all_keys(
-        &self,
-        _db_name: &str,
-        store_name: &str,
-    ) -> Result<Vec<IDBKey>, EngineError> {
-        let store = self
-            .stores
-            .get(store_name)
-            .ok_or(EngineError::NotFound)?;
-        Ok(store
-            .data
-            .values()
-            .map(|(k, _)| k.clone())
-            .collect())
+    pub fn all_keys(&self, _db_name: &str, store_name: &str) -> Result<Vec<IDBKey>, EngineError> {
+        let store = self.stores.get(store_name).ok_or(EngineError::NotFound)?;
+        Ok(store.data.values().map(|(k, _)| k.clone()).collect())
     }
 
     // ── Index operations ────────────────────────────────────
@@ -465,8 +413,7 @@ impl IDBEngine {
         // Build the index from existing data
         let mut mapping = BTreeMap::new();
         for (sort_key, (_, value)) in &store.data {
-            if let Some(idx_key) = value.get_field(key_path).and_then(|v| v.to_key())
-            {
+            if let Some(idx_key) = value.get_field(key_path).and_then(|v| v.to_key()) {
                 mapping.insert(idx_key.to_sort_key(), sort_key.clone());
             }
         }
@@ -507,21 +454,12 @@ impl IDBEngine {
         index_name: &str,
         indexed_value: &IDBKey,
     ) -> Result<Option<IDBValue>, EngineError> {
-        let store = self
-            .stores
-            .get(store_name)
-            .ok_or(EngineError::NotFound)?;
-        let idx = store
-            .indices
-            .get(index_name)
-            .ok_or(EngineError::NotFound)?;
+        let store = self.stores.get(store_name).ok_or(EngineError::NotFound)?;
+        let idx = store.indices.get(index_name).ok_or(EngineError::NotFound)?;
 
         let idx_sort = indexed_value.to_sort_key();
         if let Some(primary_sort) = idx.mapping.get(&idx_sort) {
-            Ok(store
-                .data
-                .get(primary_sort)
-                .map(|(_, v)| v.clone()))
+            Ok(store.data.get(primary_sort).map(|(_, v)| v.clone()))
         } else {
             Ok(None)
         }
@@ -564,13 +502,8 @@ mod tests {
     fn clear_store() {
         let mut e = make_engine();
         for i in 0..5 {
-            e.put(
-                "testdb",
-                "items",
-                &IDBKey::Number(i as f64),
-                IDBValue::Null,
-            )
-            .unwrap();
+            e.put("testdb", "items", &IDBKey::Number(i as f64), IDBValue::Null)
+                .unwrap();
         }
         assert_eq!(e.count("testdb", "items").unwrap(), 5);
         e.clear_store("testdb", "items").unwrap();

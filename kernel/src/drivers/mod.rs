@@ -8,8 +8,8 @@ pub mod net;
 pub mod storage;
 
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Driver error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +100,10 @@ impl DriverManager {
 
     /// Find driver by name
     pub fn find(&self, name: &str) -> Option<&dyn Driver> {
-        self.drivers.iter().find(|d| d.name() == name).map(|d| d.as_ref())
+        self.drivers
+            .iter()
+            .find(|d| d.name() == name)
+            .map(|d| d.as_ref())
     }
 
     /// Initialize all drivers

@@ -4,8 +4,8 @@
 //! (RADV for AMD, ANV for Intel, NVK for NVIDIA).
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 use spin::Mutex;
 
 use crate::{GpuInfo, GpuType, GraphicsError};
@@ -24,9 +24,9 @@ pub fn init() -> Result<(), GraphicsError> {
 pub fn enumerate_gpus() -> Result<Vec<GpuInfo>, GraphicsError> {
     let ctx = VULKAN_CONTEXT.lock();
     let ctx = ctx.as_ref().ok_or(GraphicsError::InitializationFailed(
-        "Vulkan not initialized".into()
+        "Vulkan not initialized".into(),
     ))?;
-    
+
     Ok(ctx.physical_devices.clone())
 }
 
@@ -34,22 +34,22 @@ pub fn enumerate_gpus() -> Result<Vec<GpuInfo>, GraphicsError> {
 pub struct VulkanContext {
     /// Physical devices.
     physical_devices: Vec<GpuInfo>,
-    
+
     /// Selected device index.
     selected_device: usize,
-    
+
     /// Vulkan instance handle.
     instance: u64,
-    
+
     /// Logical device handle.
     device: u64,
-    
+
     /// Graphics queue family index.
     graphics_queue_family: u32,
-    
+
     /// Present queue family index.
     present_queue_family: u32,
-    
+
     /// Compute queue family index.
     compute_queue_family: u32,
 }
@@ -59,23 +59,23 @@ impl VulkanContext {
     pub fn new() -> Result<Self, GraphicsError> {
         // Create Vulkan instance
         let instance = Self::create_instance()?;
-        
+
         // Enumerate physical devices
         let physical_devices = Self::enumerate_physical_devices(instance)?;
-        
+
         if physical_devices.is_empty() {
             return Err(GraphicsError::NoGpuFound);
         }
-        
+
         // Select best device (prefer discrete GPU)
         let selected_device = physical_devices
             .iter()
             .position(|d| d.gpu_type == GpuType::Discrete)
             .unwrap_or(0);
-        
+
         // Create logical device
         let device = Self::create_device(instance, selected_device as u32)?;
-        
+
         Ok(VulkanContext {
             physical_devices,
             selected_device,
@@ -86,45 +86,43 @@ impl VulkanContext {
             compute_queue_family: 0,
         })
     }
-    
+
     /// Create Vulkan instance.
     fn create_instance() -> Result<u64, GraphicsError> {
         // Placeholder - actual implementation would use Vulkan API
         Ok(1)
     }
-    
+
     /// Enumerate physical devices.
     fn enumerate_physical_devices(_instance: u64) -> Result<Vec<GpuInfo>, GraphicsError> {
         // Placeholder - actual implementation would use vkEnumeratePhysicalDevices
-        Ok(vec![
-            GpuInfo {
-                name: String::from("Virtual GPU"),
-                vendor_id: 0,
-                device_id: 0,
-                gpu_type: GpuType::Virtual,
-                vram_size: 256 * 1024 * 1024,
-                vulkan_version: (1, 3, 0),
-                driver_version: 1,
-            }
-        ])
+        Ok(vec![GpuInfo {
+            name: String::from("Virtual GPU"),
+            vendor_id: 0,
+            device_id: 0,
+            gpu_type: GpuType::Virtual,
+            vram_size: 256 * 1024 * 1024,
+            vulkan_version: (1, 3, 0),
+            driver_version: 1,
+        }])
     }
-    
+
     /// Create logical device.
     fn create_device(_instance: u64, _device_index: u32) -> Result<u64, GraphicsError> {
         // Placeholder - actual implementation would use vkCreateDevice
         Ok(1)
     }
-    
+
     /// Get the instance handle.
     pub fn instance(&self) -> u64 {
         self.instance
     }
-    
+
     /// Get the device handle.
     pub fn device(&self) -> u64 {
         self.device
     }
-    
+
     /// Get the selected physical device info.
     pub fn selected_device(&self) -> &GpuInfo {
         &self.physical_devices[self.selected_device]
@@ -174,7 +172,7 @@ impl Queue {
     pub fn handle(&self) -> u64 {
         self.handle
     }
-    
+
     /// Get the family index.
     pub fn family_index(&self) -> u32 {
         self.family_index

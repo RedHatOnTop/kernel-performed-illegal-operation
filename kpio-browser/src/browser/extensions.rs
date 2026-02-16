@@ -2,9 +2,9 @@
 //!
 //! Experimental browser extension support.
 
+use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 
 /// Extension manager
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ impl ExtensionManager {
 
         let id = extension.id.clone();
         self.extensions.push(extension);
-        
+
         if self.settings.auto_enable {
             self.enabled.push(id);
         }
@@ -141,7 +141,7 @@ impl ExtensionManager {
     /// Get extensions with content scripts for URL
     pub fn content_scripts_for_url(&self, url: &str) -> Vec<(&Extension, &ContentScript)> {
         let mut result = Vec::new();
-        
+
         for ext in self.enabled_extensions() {
             for script in &ext.manifest.content_scripts {
                 if script.matches_url(url) {
@@ -149,7 +149,7 @@ impl ExtensionManager {
                 }
             }
         }
-        
+
         result
     }
 
@@ -157,8 +157,15 @@ impl ExtensionManager {
     fn is_dangerous_permission(perm: &str) -> bool {
         matches!(
             perm,
-            "tabs" | "history" | "cookies" | "webRequest" | "webRequestBlocking"
-                | "<all_urls>" | "*://*/*" | "nativeMessaging" | "debugger"
+            "tabs"
+                | "history"
+                | "cookies"
+                | "webRequest"
+                | "webRequestBlocking"
+                | "<all_urls>"
+                | "*://*/*"
+                | "nativeMessaging"
+                | "debugger"
         )
     }
 }
@@ -315,12 +322,12 @@ impl ContentScript {
         if pattern.contains('*') {
             let parts: Vec<&str> = pattern.split('*').collect();
             let mut pos = 0;
-            
+
             for (i, part) in parts.iter().enumerate() {
                 if part.is_empty() {
                     continue;
                 }
-                
+
                 if let Some(found) = url[pos..].find(part) {
                     if i == 0 && found != 0 {
                         return false;

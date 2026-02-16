@@ -2,8 +2,8 @@
 //!
 //! Light and dark themes with semantic color mappings.
 
+use super::tokens::{palette, Color};
 use alloc::string::String;
-use super::tokens::{Color, palette};
 
 /// Theme mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -71,7 +71,7 @@ pub struct ThemeColors {
     pub bg_active: Color,
     /// Selected item background
     pub bg_selected: Color,
-    
+
     // Surfaces
     /// Card/panel surface
     pub surface: Color,
@@ -79,7 +79,7 @@ pub struct ThemeColors {
     pub surface_elevated: Color,
     /// Overlay background
     pub overlay: Color,
-    
+
     // Text
     /// Primary text
     pub text_primary: Color,
@@ -91,7 +91,7 @@ pub struct ThemeColors {
     pub text_disabled: Color,
     /// Text on primary color
     pub text_on_primary: Color,
-    
+
     // Borders
     /// Default border
     pub border: Color,
@@ -101,7 +101,7 @@ pub struct ThemeColors {
     pub border_subtle: Color,
     /// Focused border color
     pub border_focus: Color,
-    
+
     // Brand
     /// Primary brand color
     pub primary: Color,
@@ -111,7 +111,7 @@ pub struct ThemeColors {
     pub primary_active: Color,
     /// Subtle primary (tinted backgrounds)
     pub primary_subtle: Color,
-    
+
     // Semantic
     /// Success color
     pub success: Color,
@@ -129,7 +129,7 @@ pub struct ThemeColors {
     pub info: Color,
     /// Info background
     pub info_subtle: Color,
-    
+
     // Interactive
     /// Link color
     pub link: Color,
@@ -137,7 +137,7 @@ pub struct ThemeColors {
     pub link_hover: Color,
     /// Focus ring color
     pub focus_ring: Color,
-    
+
     // Browser specific
     /// Tab bar background
     pub tab_bar: Color,
@@ -162,31 +162,31 @@ impl ThemeColors {
             bg_hover: palette::GRAY_100,
             bg_active: palette::GRAY_200,
             bg_selected: palette::PRIMARY_50,
-            
+
             // Surfaces
             surface: Color::white(),
             surface_elevated: Color::white(),
             overlay: Color::black().with_alpha(128),
-            
+
             // Text
             text_primary: palette::GRAY_900,
             text_secondary: palette::GRAY_600,
             text_tertiary: palette::GRAY_500,
             text_disabled: palette::GRAY_400,
             text_on_primary: Color::white(),
-            
+
             // Borders
             border: palette::GRAY_200,
             border_strong: palette::GRAY_300,
             border_subtle: palette::GRAY_100,
             border_focus: palette::PRIMARY_500,
-            
+
             // Brand
             primary: palette::PRIMARY_500,
             primary_hover: palette::PRIMARY_600,
             primary_active: palette::PRIMARY_700,
             primary_subtle: palette::PRIMARY_50,
-            
+
             // Semantic
             success: palette::SUCCESS_500,
             success_subtle: palette::SUCCESS_50,
@@ -196,12 +196,12 @@ impl ThemeColors {
             error_subtle: palette::ERROR_50,
             info: palette::INFO_500,
             info_subtle: palette::INFO_50,
-            
+
             // Interactive
             link: palette::PRIMARY_600,
             link_hover: palette::PRIMARY_700,
             focus_ring: palette::PRIMARY_500.with_alpha(128),
-            
+
             // Browser
             tab_bar: palette::GRAY_100,
             tab_active: Color::white(),
@@ -221,31 +221,31 @@ impl ThemeColors {
             bg_hover: palette::GRAY_800,
             bg_active: palette::GRAY_700,
             bg_selected: Color::from_hex(0x1E3A5F), // Dark blue
-            
+
             // Surfaces
             surface: palette::GRAY_900,
             surface_elevated: palette::GRAY_800,
             overlay: Color::black().with_alpha(180),
-            
+
             // Text
             text_primary: palette::GRAY_50,
             text_secondary: palette::GRAY_400,
             text_tertiary: palette::GRAY_500,
             text_disabled: palette::GRAY_600,
             text_on_primary: Color::white(),
-            
+
             // Borders
             border: palette::GRAY_700,
             border_strong: palette::GRAY_600,
             border_subtle: palette::GRAY_800,
             border_focus: palette::PRIMARY_400,
-            
+
             // Brand
             primary: palette::PRIMARY_400,
             primary_hover: palette::PRIMARY_300,
             primary_active: palette::PRIMARY_500,
             primary_subtle: Color::from_hex(0x1E3A5F),
-            
+
             // Semantic
             success: Color::from_hex(0x4ADE80),
             success_subtle: Color::from_hex(0x14532D),
@@ -255,12 +255,12 @@ impl ThemeColors {
             error_subtle: Color::from_hex(0x7F1D1D),
             info: Color::from_hex(0x60A5FA),
             info_subtle: Color::from_hex(0x1E3A8A),
-            
+
             // Interactive
             link: palette::PRIMARY_400,
             link_hover: palette::PRIMARY_300,
             focus_ring: palette::PRIMARY_400.with_alpha(128),
-            
+
             // Browser
             tab_bar: palette::GRAY_900,
             tab_active: palette::GRAY_800,

@@ -15,7 +15,7 @@ pub struct TaskId(pub u64);
 impl TaskId {
     /// The kernel task ID (always 0).
     pub const KERNEL: TaskId = TaskId(0);
-    
+
     /// The idle task ID (always 1).
     pub const IDLE: TaskId = TaskId(1);
 }
@@ -66,7 +66,7 @@ pub struct TaskContext {
     pub r13: u64,
     pub r14: u64,
     pub r15: u64,
-    
+
     /// Instruction pointer.
     pub rip: u64,
     /// Stack pointer.
@@ -77,10 +77,10 @@ pub struct TaskContext {
     pub cs: u64,
     /// Stack segment.
     pub ss: u64,
-    
+
     /// CR3 (page table root).
     pub cr3: u64,
-    
+
     /// FPU/SSE state (if enabled).
     pub fpu_state: Option<Box<FpuState>>,
 }
@@ -145,14 +145,14 @@ impl Task {
     /// Create a new kernel task.
     pub fn new_kernel(name: &str, entry: u64, stack_top: u64) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(2);
-        
+
         let mut context = TaskContext::default();
         context.rip = entry;
         context.rsp = stack_top;
         context.rflags = 0x202; // IF flag set
         context.cs = 0x08; // Kernel code segment
         context.ss = 0x10; // Kernel data segment
-        
+
         Task {
             id: TaskId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
             name: String::from(name),
@@ -167,17 +167,17 @@ impl Task {
             parent: None,
         }
     }
-    
+
     /// Create a new WASM process task.
     pub fn new_wasm(name: &str, stack_top: u64) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(2);
-        
+
         let mut context = TaskContext::default();
         context.rsp = stack_top;
         context.rflags = 0x202;
         context.cs = 0x08;
         context.ss = 0x10;
-        
+
         Task {
             id: TaskId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
             name: String::from(name),
@@ -192,7 +192,7 @@ impl Task {
             parent: None,
         }
     }
-    
+
     /// Create the idle task.
     pub fn new_idle() -> Self {
         Task {
@@ -209,92 +209,92 @@ impl Task {
             parent: None,
         }
     }
-    
+
     /// Get the task ID.
     pub fn id(&self) -> TaskId {
         self.id
     }
-    
+
     /// Get the task name.
     pub fn name(&self) -> &str {
         &self.name
     }
-    
+
     /// Get the task type.
     pub fn task_type(&self) -> TaskType {
         self.task_type
     }
-    
+
     /// Get the task state.
     pub fn state(&self) -> TaskState {
         self.state
     }
-    
+
     /// Set the task state.
     pub fn set_state(&mut self, state: TaskState) {
         self.state = state;
     }
-    
+
     /// Get the task priority.
     pub fn priority(&self) -> Priority {
         self.priority
     }
-    
+
     /// Set the task priority.
     pub fn set_priority(&mut self, priority: Priority) {
         self.priority = priority;
     }
-    
+
     /// Get a reference to the task context.
     pub fn context(&self) -> &TaskContext {
         &self.context
     }
-    
+
     /// Get a mutable reference to the task context.
     pub fn context_mut(&mut self) -> &mut TaskContext {
         &mut self.context
     }
-    
+
     /// Get a reference to the task statistics.
     pub fn stats(&self) -> &TaskStats {
         &self.stats
     }
-    
+
     /// Get a mutable reference to the task statistics.
     pub fn stats_mut(&mut self) -> &mut TaskStats {
         &mut self.stats
     }
-    
+
     /// Get the exit code.
     pub fn exit_code(&self) -> Option<i32> {
         self.exit_code
     }
-    
+
     /// Set the exit code.
     pub fn set_exit_code(&mut self, code: i32) {
         self.exit_code = Some(code);
     }
-    
+
     /// Get the stack top address.
     pub fn stack_top(&self) -> u64 {
         self.stack_top
     }
-    
+
     /// Get the stack size.
     pub fn stack_size(&self) -> usize {
         self.stack_size
     }
-    
+
     /// Get the parent task ID.
     pub fn parent(&self) -> Option<TaskId> {
         self.parent
     }
-    
+
     /// Set the parent task ID.
     pub fn set_parent(&mut self, parent: TaskId) {
         self.parent = Some(parent);
     }
-    
+
     /// Check if the task is runnable.
     pub fn is_runnable(&self) -> bool {
         matches!(self.state, TaskState::Ready | TaskState::Running)

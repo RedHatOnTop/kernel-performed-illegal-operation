@@ -3,13 +3,13 @@
 //! Implements a simplified HTML5 tokenizer.
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 use core::iter::Peekable;
 use core::str::Chars;
 
-use servo_types::{LocalName, QualName, Namespace};
 use servo_types::namespace::HTML_NAMESPACE;
+use servo_types::{LocalName, Namespace, QualName};
 
 /// An HTML token.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,8 +84,20 @@ impl TagToken {
     pub fn is_void_element(&self) -> bool {
         matches!(
             self.name.as_str(),
-            "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input"
-            | "link" | "meta" | "param" | "source" | "track" | "wbr"
+            "area"
+                | "base"
+                | "br"
+                | "col"
+                | "embed"
+                | "hr"
+                | "img"
+                | "input"
+                | "link"
+                | "meta"
+                | "param"
+                | "source"
+                | "track"
+                | "wbr"
         )
     }
 }
@@ -187,73 +199,67 @@ impl<'a> Tokenizer<'a> {
     pub fn next_token(&mut self) -> Token {
         loop {
             match self.state {
-                State::Data => {
-                    match self.consume_char() {
-                        Some('<') => self.state = State::TagOpen,
-                        Some('&') => {
-                            self.return_state = State::Data;
-                            self.state = State::CharacterReferenceInData;
-                        }
-                        Some(c) => return Token::Character(c),
-                        None => return Token::Eof,
+                State::Data => match self.consume_char() {
+                    Some('<') => self.state = State::TagOpen,
+                    Some('&') => {
+                        self.return_state = State::Data;
+                        self.state = State::CharacterReferenceInData;
                     }
-                }
+                    Some(c) => return Token::Character(c),
+                    None => return Token::Eof,
+                },
 
-                State::TagOpen => {
-                    match self.peek_char() {
-                        Some('!') => {
-                            self.consume_char();
-                            self.state = State::MarkupDeclarationOpen;
-                        }
-                        Some('/') => {
-                            self.consume_char();
-                            self.state = State::EndTagOpen;
-                        }
-                        Some(c) if c.is_ascii_alphabetic() => {
-                            self.current_tag = Some(TagToken {
-                                kind: TagKind::Start,
-                                name: LocalName::new(""),
-                                self_closing: false,
-                                attributes: Vec::new(),
-                            });
-                            self.state = State::TagName;
-                        }
-                        Some('?') => {
-                            self.current_comment = String::new();
-                            self.state = State::BogusComment;
-                        }
-                        _ => {
-                            self.state = State::Data;
-                            return Token::Character('<');
-                        }
+                State::TagOpen => match self.peek_char() {
+                    Some('!') => {
+                        self.consume_char();
+                        self.state = State::MarkupDeclarationOpen;
                     }
-                }
+                    Some('/') => {
+                        self.consume_char();
+                        self.state = State::EndTagOpen;
+                    }
+                    Some(c) if c.is_ascii_alphabetic() => {
+                        self.current_tag = Some(TagToken {
+                            kind: TagKind::Start,
+                            name: LocalName::new(""),
+                            self_closing: false,
+                            attributes: Vec::new(),
+                        });
+                        self.state = State::TagName;
+                    }
+                    Some('?') => {
+                        self.current_comment = String::new();
+                        self.state = State::BogusComment;
+                    }
+                    _ => {
+                        self.state = State::Data;
+                        return Token::Character('<');
+                    }
+                },
 
-                State::EndTagOpen => {
-                    match self.peek_char() {
-                        Some(c) if c.is_ascii_alphabetic() => {
-                            self.current_tag = Some(TagToken {
-                                kind: TagKind::End,
-                                name: LocalName::new(""),
-                                self_closing: false,
-                                attributes: Vec::new(),
-                            });
-                            self.state = State::TagName;
-                        }
-                        Some('>') => {
-                            self.consume_char();
-                            self.state = State::Data;
-                        }
-                        None => {
-                            self.state = State::Data;
-                            return Token::Character('<');
-                        }
-                        _ => {
-                            self.current_comment = String::new();
-                            self.state = State::BogusComment;
-                        }
+                State::EndTagOpen => match self.peek_char() {
+                    Some(c) if c.is_ascii_alphabetic() => {
+                        self.current_tag = Some(TagToken {
+                            kind: TagKind::End,
+                            name: LocalName::new(""),
+                            self_closing: false,
+                            attributes: Vec::new(),
+                        });
+                        self.state = State::TagName;
                     }
-                }
+                    Some('>') => {
+                        self.consume_char();
+                        self.state = State::Data;
+                    }
+                    None => {
+                        self.state = State::Data;
+                        return Token::Character('<');
+                    }
+                    _ => {
+                        self.current_comment = String::new();
+                        self.state = State::BogusComment;
+                    }
+                },
 
                 State::TagName => {
                     match self.consume_char() {
@@ -268,7 +274,7 @@ impl<'a> Tokenizer<'a> {
                             let tag = self.current_tag.take().unwrap();
                             if tag.kind == TagKind::Start {
                                 self.last_start_tag_name = Some(tag.name.to_string());
-                                
+
                                 // Switch to rawtext/script state for special elements
                                 match tag.name.as_str() {
                                     "script" => self.state = State::ScriptData,
@@ -311,197 +317,181 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
 
-                State::AttributeName => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
-                            self.finish_attribute();
-                            self.state = State::AfterAttributeName;
-                        }
-                        Some('/') => {
-                            self.finish_attribute();
-                            self.state = State::SelfClosingStartTag;
-                        }
-                        Some('=') => {
-                            self.consume_char();
-                            self.state = State::BeforeAttributeValue;
-                        }
-                        Some('>') => {
-                            self.finish_attribute();
-                            self.state = State::AfterAttributeName;
-                        }
-                        Some(c) => {
-                            self.consume_char();
-                            if let Some(ref mut attr) = self.current_attribute {
-                                let mut name = attr.name.to_string();
-                                name.push(c.to_ascii_lowercase());
-                                attr.name = LocalName::new(&name);
-                            }
-                        }
-                        None => return Token::Eof,
+                State::AttributeName => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
+                        self.finish_attribute();
+                        self.state = State::AfterAttributeName;
                     }
-                }
+                    Some('/') => {
+                        self.finish_attribute();
+                        self.state = State::SelfClosingStartTag;
+                    }
+                    Some('=') => {
+                        self.consume_char();
+                        self.state = State::BeforeAttributeValue;
+                    }
+                    Some('>') => {
+                        self.finish_attribute();
+                        self.state = State::AfterAttributeName;
+                    }
+                    Some(c) => {
+                        self.consume_char();
+                        if let Some(ref mut attr) = self.current_attribute {
+                            let mut name = attr.name.to_string();
+                            name.push(c.to_ascii_lowercase());
+                            attr.name = LocalName::new(&name);
+                        }
+                    }
+                    None => return Token::Eof,
+                },
 
-                State::AfterAttributeName => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
+                State::AfterAttributeName => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
+                    }
+                    Some('/') => {
+                        self.consume_char();
+                        self.state = State::SelfClosingStartTag;
+                    }
+                    Some('=') => {
+                        self.consume_char();
+                        self.state = State::BeforeAttributeValue;
+                    }
+                    Some('>') => {
+                        self.consume_char();
+                        self.state = State::Data;
+                        let tag = self.current_tag.take().unwrap();
+                        if tag.kind == TagKind::Start {
+                            self.last_start_tag_name = Some(tag.name.to_string());
+                            match tag.name.as_str() {
+                                "script" => self.state = State::ScriptData,
+                                "style" | "textarea" | "title" => self.state = State::Rawtext,
+                                _ => {}
+                            }
+                            return Token::StartTag(tag);
+                        } else {
+                            return Token::EndTag(tag);
                         }
-                        Some('/') => {
-                            self.consume_char();
-                            self.state = State::SelfClosingStartTag;
+                    }
+                    _ => {
+                        self.current_attribute = Some(Attribute::new("", ""));
+                        self.state = State::AttributeName;
+                    }
+                },
+
+                State::BeforeAttributeValue => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
+                    }
+                    Some('"') => {
+                        self.consume_char();
+                        self.state = State::AttributeValueDoubleQuoted;
+                    }
+                    Some('\'') => {
+                        self.consume_char();
+                        self.state = State::AttributeValueSingleQuoted;
+                    }
+                    Some('>') => {
+                        self.finish_attribute();
+                        self.state = State::AfterAttributeName;
+                    }
+                    _ => {
+                        self.state = State::AttributeValueUnquoted;
+                    }
+                },
+
+                State::AttributeValueDoubleQuoted => match self.consume_char() {
+                    Some('"') => {
+                        self.finish_attribute();
+                        self.state = State::AfterAttributeValueQuoted;
+                    }
+                    Some(c) => {
+                        if let Some(ref mut attr) = self.current_attribute {
+                            attr.value.push(c);
                         }
-                        Some('=') => {
-                            self.consume_char();
-                            self.state = State::BeforeAttributeValue;
+                    }
+                    None => return Token::Eof,
+                },
+
+                State::AttributeValueSingleQuoted => match self.consume_char() {
+                    Some('\'') => {
+                        self.finish_attribute();
+                        self.state = State::AfterAttributeValueQuoted;
+                    }
+                    Some(c) => {
+                        if let Some(ref mut attr) = self.current_attribute {
+                            attr.value.push(c);
                         }
-                        Some('>') => {
-                            self.consume_char();
-                            self.state = State::Data;
-                            let tag = self.current_tag.take().unwrap();
+                    }
+                    None => return Token::Eof,
+                },
+
+                State::AttributeValueUnquoted => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
+                        self.finish_attribute();
+                        self.state = State::BeforeAttributeName;
+                    }
+                    Some('>') => {
+                        self.finish_attribute();
+                        self.state = State::AfterAttributeName;
+                    }
+                    Some(c) => {
+                        self.consume_char();
+                        if let Some(ref mut attr) = self.current_attribute {
+                            attr.value.push(c);
+                        }
+                    }
+                    None => return Token::Eof,
+                },
+
+                State::AfterAttributeValueQuoted => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
+                        self.state = State::BeforeAttributeName;
+                    }
+                    Some('/') => {
+                        self.consume_char();
+                        self.state = State::SelfClosingStartTag;
+                    }
+                    Some('>') => {
+                        self.consume_char();
+                        self.state = State::Data;
+                        let tag = self.current_tag.take().unwrap();
+                        if tag.kind == TagKind::Start {
+                            self.last_start_tag_name = Some(tag.name.to_string());
+                            match tag.name.as_str() {
+                                "script" => self.state = State::ScriptData,
+                                "style" | "textarea" | "title" => self.state = State::Rawtext,
+                                _ => {}
+                            }
+                            return Token::StartTag(tag);
+                        } else {
+                            return Token::EndTag(tag);
+                        }
+                    }
+                    _ => {
+                        self.state = State::BeforeAttributeName;
+                    }
+                },
+
+                State::SelfClosingStartTag => match self.consume_char() {
+                    Some('>') => {
+                        self.state = State::Data;
+                        if let Some(mut tag) = self.current_tag.take() {
+                            tag.self_closing = true;
                             if tag.kind == TagKind::Start {
-                                self.last_start_tag_name = Some(tag.name.to_string());
-                                match tag.name.as_str() {
-                                    "script" => self.state = State::ScriptData,
-                                    "style" | "textarea" | "title" => self.state = State::Rawtext,
-                                    _ => {}
-                                }
                                 return Token::StartTag(tag);
                             } else {
                                 return Token::EndTag(tag);
                             }
                         }
-                        _ => {
-                            self.current_attribute = Some(Attribute::new("", ""));
-                            self.state = State::AttributeName;
-                        }
                     }
-                }
-
-                State::BeforeAttributeValue => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
-                        }
-                        Some('"') => {
-                            self.consume_char();
-                            self.state = State::AttributeValueDoubleQuoted;
-                        }
-                        Some('\'') => {
-                            self.consume_char();
-                            self.state = State::AttributeValueSingleQuoted;
-                        }
-                        Some('>') => {
-                            self.finish_attribute();
-                            self.state = State::AfterAttributeName;
-                        }
-                        _ => {
-                            self.state = State::AttributeValueUnquoted;
-                        }
+                    _ => {
+                        self.state = State::BeforeAttributeName;
                     }
-                }
-
-                State::AttributeValueDoubleQuoted => {
-                    match self.consume_char() {
-                        Some('"') => {
-                            self.finish_attribute();
-                            self.state = State::AfterAttributeValueQuoted;
-                        }
-                        Some(c) => {
-                            if let Some(ref mut attr) = self.current_attribute {
-                                attr.value.push(c);
-                            }
-                        }
-                        None => return Token::Eof,
-                    }
-                }
-
-                State::AttributeValueSingleQuoted => {
-                    match self.consume_char() {
-                        Some('\'') => {
-                            self.finish_attribute();
-                            self.state = State::AfterAttributeValueQuoted;
-                        }
-                        Some(c) => {
-                            if let Some(ref mut attr) = self.current_attribute {
-                                attr.value.push(c);
-                            }
-                        }
-                        None => return Token::Eof,
-                    }
-                }
-
-                State::AttributeValueUnquoted => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
-                            self.finish_attribute();
-                            self.state = State::BeforeAttributeName;
-                        }
-                        Some('>') => {
-                            self.finish_attribute();
-                            self.state = State::AfterAttributeName;
-                        }
-                        Some(c) => {
-                            self.consume_char();
-                            if let Some(ref mut attr) = self.current_attribute {
-                                attr.value.push(c);
-                            }
-                        }
-                        None => return Token::Eof,
-                    }
-                }
-
-                State::AfterAttributeValueQuoted => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
-                            self.state = State::BeforeAttributeName;
-                        }
-                        Some('/') => {
-                            self.consume_char();
-                            self.state = State::SelfClosingStartTag;
-                        }
-                        Some('>') => {
-                            self.consume_char();
-                            self.state = State::Data;
-                            let tag = self.current_tag.take().unwrap();
-                            if tag.kind == TagKind::Start {
-                                self.last_start_tag_name = Some(tag.name.to_string());
-                                match tag.name.as_str() {
-                                    "script" => self.state = State::ScriptData,
-                                    "style" | "textarea" | "title" => self.state = State::Rawtext,
-                                    _ => {}
-                                }
-                                return Token::StartTag(tag);
-                            } else {
-                                return Token::EndTag(tag);
-                            }
-                        }
-                        _ => {
-                            self.state = State::BeforeAttributeName;
-                        }
-                    }
-                }
-
-                State::SelfClosingStartTag => {
-                    match self.consume_char() {
-                        Some('>') => {
-                            self.state = State::Data;
-                            if let Some(mut tag) = self.current_tag.take() {
-                                tag.self_closing = true;
-                                if tag.kind == TagKind::Start {
-                                    return Token::StartTag(tag);
-                                } else {
-                                    return Token::EndTag(tag);
-                                }
-                            }
-                        }
-                        _ => {
-                            self.state = State::BeforeAttributeName;
-                        }
-                    }
-                }
+                },
 
                 State::MarkupDeclarationOpen => {
                     if self.starts_with("--") {
@@ -517,174 +507,158 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
 
-                State::CommentStart => {
-                    match self.peek_char() {
-                        Some('-') => {
-                            self.consume_char();
-                            self.state = State::CommentStartDash;
-                        }
-                        Some('>') => {
-                            self.consume_char();
-                            self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
-                        _ => {
-                            self.state = State::Comment;
-                        }
+                State::CommentStart => match self.peek_char() {
+                    Some('-') => {
+                        self.consume_char();
+                        self.state = State::CommentStartDash;
                     }
-                }
+                    Some('>') => {
+                        self.consume_char();
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                    _ => {
+                        self.state = State::Comment;
+                    }
+                },
 
-                State::CommentStartDash => {
-                    match self.peek_char() {
-                        Some('-') => {
-                            self.consume_char();
-                            self.state = State::CommentEnd;
-                        }
-                        Some('>') => {
-                            self.consume_char();
-                            self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
-                        None => {
-                            self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
-                        _ => {
-                            self.current_comment.push('-');
-                            self.state = State::Comment;
-                        }
+                State::CommentStartDash => match self.peek_char() {
+                    Some('-') => {
+                        self.consume_char();
+                        self.state = State::CommentEnd;
                     }
-                }
+                    Some('>') => {
+                        self.consume_char();
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                    None => {
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                    _ => {
+                        self.current_comment.push('-');
+                        self.state = State::Comment;
+                    }
+                },
 
-                State::Comment => {
-                    match self.consume_char() {
-                        Some('-') => {
-                            self.state = State::CommentEndDash;
-                        }
-                        Some(c) => {
-                            self.current_comment.push(c);
-                        }
-                        None => {
-                            self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
+                State::Comment => match self.consume_char() {
+                    Some('-') => {
+                        self.state = State::CommentEndDash;
                     }
-                }
+                    Some(c) => {
+                        self.current_comment.push(c);
+                    }
+                    None => {
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                },
 
-                State::CommentEndDash => {
-                    match self.peek_char() {
-                        Some('-') => {
-                            self.consume_char();
-                            self.state = State::CommentEnd;
-                        }
-                        None => {
-                            self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
-                        _ => {
-                            self.current_comment.push('-');
-                            self.state = State::Comment;
-                        }
+                State::CommentEndDash => match self.peek_char() {
+                    Some('-') => {
+                        self.consume_char();
+                        self.state = State::CommentEnd;
                     }
-                }
+                    None => {
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                    _ => {
+                        self.current_comment.push('-');
+                        self.state = State::Comment;
+                    }
+                },
 
-                State::CommentEnd => {
-                    match self.peek_char() {
-                        Some('>') => {
-                            self.consume_char();
-                            self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
-                        Some('-') => {
-                            self.consume_char();
-                            self.current_comment.push('-');
-                        }
-                        None => {
-                            self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
-                        _ => {
-                            self.current_comment.push_str("--");
-                            self.state = State::Comment;
-                        }
+                State::CommentEnd => match self.peek_char() {
+                    Some('>') => {
+                        self.consume_char();
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
                     }
-                }
+                    Some('-') => {
+                        self.consume_char();
+                        self.current_comment.push('-');
+                    }
+                    None => {
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                    _ => {
+                        self.current_comment.push_str("--");
+                        self.state = State::Comment;
+                    }
+                },
 
-                State::Doctype => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
-                            self.state = State::BeforeDoctypeName;
-                        }
-                        Some('>') => {
-                            self.state = State::BeforeDoctypeName;
-                        }
-                        None => {
-                            self.current_doctype.force_quirks = true;
-                            self.state = State::Data;
-                            return Token::Doctype(core::mem::take(&mut self.current_doctype));
-                        }
-                        _ => {
-                            self.state = State::BeforeDoctypeName;
-                        }
+                State::Doctype => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
+                        self.state = State::BeforeDoctypeName;
                     }
-                }
+                    Some('>') => {
+                        self.state = State::BeforeDoctypeName;
+                    }
+                    None => {
+                        self.current_doctype.force_quirks = true;
+                        self.state = State::Data;
+                        return Token::Doctype(core::mem::take(&mut self.current_doctype));
+                    }
+                    _ => {
+                        self.state = State::BeforeDoctypeName;
+                    }
+                },
 
-                State::BeforeDoctypeName => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
-                        }
-                        Some('>') => {
-                            self.consume_char();
-                            self.current_doctype.force_quirks = true;
-                            self.state = State::Data;
-                            return Token::Doctype(core::mem::take(&mut self.current_doctype));
-                        }
-                        Some(c) => {
-                            self.consume_char();
-                            self.current_doctype.name = Some(c.to_ascii_lowercase().to_string());
-                            self.state = State::DoctypeName;
-                        }
-                        None => {
-                            self.current_doctype.force_quirks = true;
-                            self.state = State::Data;
-                            return Token::Doctype(core::mem::take(&mut self.current_doctype));
-                        }
+                State::BeforeDoctypeName => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
                     }
-                }
+                    Some('>') => {
+                        self.consume_char();
+                        self.current_doctype.force_quirks = true;
+                        self.state = State::Data;
+                        return Token::Doctype(core::mem::take(&mut self.current_doctype));
+                    }
+                    Some(c) => {
+                        self.consume_char();
+                        self.current_doctype.name = Some(c.to_ascii_lowercase().to_string());
+                        self.state = State::DoctypeName;
+                    }
+                    None => {
+                        self.current_doctype.force_quirks = true;
+                        self.state = State::Data;
+                        return Token::Doctype(core::mem::take(&mut self.current_doctype));
+                    }
+                },
 
-                State::DoctypeName => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            self.consume_char();
-                            self.state = State::AfterDoctypeName;
-                        }
-                        Some('>') => {
-                            self.consume_char();
-                            self.state = State::Data;
-                            return Token::Doctype(core::mem::take(&mut self.current_doctype));
-                        }
-                        Some(c) => {
-                            self.consume_char();
-                            if let Some(ref mut name) = self.current_doctype.name {
-                                name.push(c.to_ascii_lowercase());
-                            }
-                        }
-                        None => {
-                            self.current_doctype.force_quirks = true;
-                            self.state = State::Data;
-                            return Token::Doctype(core::mem::take(&mut self.current_doctype));
+                State::DoctypeName => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        self.consume_char();
+                        self.state = State::AfterDoctypeName;
+                    }
+                    Some('>') => {
+                        self.consume_char();
+                        self.state = State::Data;
+                        return Token::Doctype(core::mem::take(&mut self.current_doctype));
+                    }
+                    Some(c) => {
+                        self.consume_char();
+                        if let Some(ref mut name) = self.current_doctype.name {
+                            name.push(c.to_ascii_lowercase());
                         }
                     }
-                }
+                    None => {
+                        self.current_doctype.force_quirks = true;
+                        self.state = State::Data;
+                        return Token::Doctype(core::mem::take(&mut self.current_doctype));
+                    }
+                },
 
                 State::AfterDoctypeName => {
                     match self.peek_char() {
@@ -719,191 +693,173 @@ impl<'a> Tokenizer<'a> {
                     return Token::Character('&');
                 }
 
-                State::BogusComment => {
-                    match self.consume_char() {
-                        Some('>') => {
+                State::BogusComment => match self.consume_char() {
+                    Some('>') => {
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                    Some(c) => {
+                        self.current_comment.push(c);
+                    }
+                    None => {
+                        self.state = State::Data;
+                        let comment = core::mem::take(&mut self.current_comment);
+                        return Token::Comment(comment);
+                    }
+                },
+
+                State::Rawtext => match self.consume_char() {
+                    Some('<') => {
+                        self.state = State::RawtextLessThanSign;
+                    }
+                    Some(c) => return Token::Character(c),
+                    None => return Token::Eof,
+                },
+
+                State::RawtextLessThanSign => match self.peek_char() {
+                    Some('/') => {
+                        self.consume_char();
+                        self.temp_buffer.clear();
+                        self.state = State::RawtextEndTagOpen;
+                    }
+                    _ => {
+                        self.state = State::Rawtext;
+                        return Token::Character('<');
+                    }
+                },
+
+                State::RawtextEndTagOpen => match self.peek_char() {
+                    Some(c) if c.is_ascii_alphabetic() => {
+                        self.current_tag = Some(TagToken {
+                            kind: TagKind::End,
+                            name: LocalName::new(""),
+                            self_closing: false,
+                            attributes: Vec::new(),
+                        });
+                        self.state = State::RawtextEndTagName;
+                    }
+                    _ => {
+                        self.state = State::Rawtext;
+                        return Token::Character('<');
+                    }
+                },
+
+                State::RawtextEndTagName => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        if self.is_appropriate_end_tag() {
+                            self.consume_char();
+                            self.state = State::BeforeAttributeName;
+                        } else {
+                            self.state = State::Rawtext;
+                        }
+                    }
+                    Some('/') => {
+                        if self.is_appropriate_end_tag() {
+                            self.consume_char();
+                            self.state = State::SelfClosingStartTag;
+                        } else {
+                            self.state = State::Rawtext;
+                        }
+                    }
+                    Some('>') => {
+                        if self.is_appropriate_end_tag() {
+                            self.consume_char();
                             self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
+                            return Token::EndTag(self.current_tag.take().unwrap());
+                        } else {
+                            self.state = State::Rawtext;
                         }
-                        Some(c) => {
-                            self.current_comment.push(c);
+                    }
+                    Some(c) if c.is_ascii_alphabetic() => {
+                        self.consume_char();
+                        if let Some(ref mut tag) = self.current_tag {
+                            let mut name = tag.name.to_string();
+                            name.push(c.to_ascii_lowercase());
+                            tag.name = LocalName::new(&name);
                         }
-                        None => {
+                        self.temp_buffer.push(c);
+                    }
+                    _ => {
+                        self.state = State::Rawtext;
+                    }
+                },
+
+                State::ScriptData => match self.consume_char() {
+                    Some('<') => {
+                        self.state = State::ScriptDataLessThanSign;
+                    }
+                    Some(c) => return Token::Character(c),
+                    None => return Token::Eof,
+                },
+
+                State::ScriptDataLessThanSign => match self.peek_char() {
+                    Some('/') => {
+                        self.consume_char();
+                        self.temp_buffer.clear();
+                        self.state = State::ScriptDataEndTagOpen;
+                    }
+                    _ => {
+                        self.state = State::ScriptData;
+                        return Token::Character('<');
+                    }
+                },
+
+                State::ScriptDataEndTagOpen => match self.peek_char() {
+                    Some(c) if c.is_ascii_alphabetic() => {
+                        self.current_tag = Some(TagToken {
+                            kind: TagKind::End,
+                            name: LocalName::new(""),
+                            self_closing: false,
+                            attributes: Vec::new(),
+                        });
+                        self.state = State::ScriptDataEndTagName;
+                    }
+                    _ => {
+                        self.state = State::ScriptData;
+                        return Token::Character('<');
+                    }
+                },
+
+                State::ScriptDataEndTagName => match self.peek_char() {
+                    Some(c) if c.is_whitespace() => {
+                        if self.is_appropriate_end_tag() {
+                            self.consume_char();
+                            self.state = State::BeforeAttributeName;
+                        } else {
+                            self.state = State::ScriptData;
+                        }
+                    }
+                    Some('/') => {
+                        if self.is_appropriate_end_tag() {
+                            self.consume_char();
+                            self.state = State::SelfClosingStartTag;
+                        } else {
+                            self.state = State::ScriptData;
+                        }
+                    }
+                    Some('>') => {
+                        if self.is_appropriate_end_tag() {
+                            self.consume_char();
                             self.state = State::Data;
-                            let comment = core::mem::take(&mut self.current_comment);
-                            return Token::Comment(comment);
-                        }
-                    }
-                }
-
-                State::Rawtext => {
-                    match self.consume_char() {
-                        Some('<') => {
-                            self.state = State::RawtextLessThanSign;
-                        }
-                        Some(c) => return Token::Character(c),
-                        None => return Token::Eof,
-                    }
-                }
-
-                State::RawtextLessThanSign => {
-                    match self.peek_char() {
-                        Some('/') => {
-                            self.consume_char();
-                            self.temp_buffer.clear();
-                            self.state = State::RawtextEndTagOpen;
-                        }
-                        _ => {
-                            self.state = State::Rawtext;
-                            return Token::Character('<');
-                        }
-                    }
-                }
-
-                State::RawtextEndTagOpen => {
-                    match self.peek_char() {
-                        Some(c) if c.is_ascii_alphabetic() => {
-                            self.current_tag = Some(TagToken {
-                                kind: TagKind::End,
-                                name: LocalName::new(""),
-                                self_closing: false,
-                                attributes: Vec::new(),
-                            });
-                            self.state = State::RawtextEndTagName;
-                        }
-                        _ => {
-                            self.state = State::Rawtext;
-                            return Token::Character('<');
-                        }
-                    }
-                }
-
-                State::RawtextEndTagName => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            if self.is_appropriate_end_tag() {
-                                self.consume_char();
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                self.state = State::Rawtext;
-                            }
-                        }
-                        Some('/') => {
-                            if self.is_appropriate_end_tag() {
-                                self.consume_char();
-                                self.state = State::SelfClosingStartTag;
-                            } else {
-                                self.state = State::Rawtext;
-                            }
-                        }
-                        Some('>') => {
-                            if self.is_appropriate_end_tag() {
-                                self.consume_char();
-                                self.state = State::Data;
-                                return Token::EndTag(self.current_tag.take().unwrap());
-                            } else {
-                                self.state = State::Rawtext;
-                            }
-                        }
-                        Some(c) if c.is_ascii_alphabetic() => {
-                            self.consume_char();
-                            if let Some(ref mut tag) = self.current_tag {
-                                let mut name = tag.name.to_string();
-                                name.push(c.to_ascii_lowercase());
-                                tag.name = LocalName::new(&name);
-                            }
-                            self.temp_buffer.push(c);
-                        }
-                        _ => {
-                            self.state = State::Rawtext;
-                        }
-                    }
-                }
-
-                State::ScriptData => {
-                    match self.consume_char() {
-                        Some('<') => {
-                            self.state = State::ScriptDataLessThanSign;
-                        }
-                        Some(c) => return Token::Character(c),
-                        None => return Token::Eof,
-                    }
-                }
-
-                State::ScriptDataLessThanSign => {
-                    match self.peek_char() {
-                        Some('/') => {
-                            self.consume_char();
-                            self.temp_buffer.clear();
-                            self.state = State::ScriptDataEndTagOpen;
-                        }
-                        _ => {
-                            self.state = State::ScriptData;
-                            return Token::Character('<');
-                        }
-                    }
-                }
-
-                State::ScriptDataEndTagOpen => {
-                    match self.peek_char() {
-                        Some(c) if c.is_ascii_alphabetic() => {
-                            self.current_tag = Some(TagToken {
-                                kind: TagKind::End,
-                                name: LocalName::new(""),
-                                self_closing: false,
-                                attributes: Vec::new(),
-                            });
-                            self.state = State::ScriptDataEndTagName;
-                        }
-                        _ => {
-                            self.state = State::ScriptData;
-                            return Token::Character('<');
-                        }
-                    }
-                }
-
-                State::ScriptDataEndTagName => {
-                    match self.peek_char() {
-                        Some(c) if c.is_whitespace() => {
-                            if self.is_appropriate_end_tag() {
-                                self.consume_char();
-                                self.state = State::BeforeAttributeName;
-                            } else {
-                                self.state = State::ScriptData;
-                            }
-                        }
-                        Some('/') => {
-                            if self.is_appropriate_end_tag() {
-                                self.consume_char();
-                                self.state = State::SelfClosingStartTag;
-                            } else {
-                                self.state = State::ScriptData;
-                            }
-                        }
-                        Some('>') => {
-                            if self.is_appropriate_end_tag() {
-                                self.consume_char();
-                                self.state = State::Data;
-                                return Token::EndTag(self.current_tag.take().unwrap());
-                            } else {
-                                self.state = State::ScriptData;
-                            }
-                        }
-                        Some(c) if c.is_ascii_alphabetic() => {
-                            self.consume_char();
-                            if let Some(ref mut tag) = self.current_tag {
-                                let mut name = tag.name.to_string();
-                                name.push(c.to_ascii_lowercase());
-                                tag.name = LocalName::new(&name);
-                            }
-                            self.temp_buffer.push(c);
-                        }
-                        _ => {
+                            return Token::EndTag(self.current_tag.take().unwrap());
+                        } else {
                             self.state = State::ScriptData;
                         }
                     }
-                }
+                    Some(c) if c.is_ascii_alphabetic() => {
+                        self.consume_char();
+                        if let Some(ref mut tag) = self.current_tag {
+                            let mut name = tag.name.to_string();
+                            name.push(c.to_ascii_lowercase());
+                            tag.name = LocalName::new(&name);
+                        }
+                        self.temp_buffer.push(c);
+                    }
+                    _ => {
+                        self.state = State::ScriptData;
+                    }
+                },
             }
         }
     }

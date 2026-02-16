@@ -189,12 +189,27 @@ pub struct DisplaySettings {
 impl Default for DisplaySettings {
     fn default() -> Self {
         Self {
-            resolution: Resolution { width: 1920, height: 1080 },
+            resolution: Resolution {
+                width: 1920,
+                height: 1080,
+            },
             available_resolutions: alloc::vec![
-                Resolution { width: 1920, height: 1080 },
-                Resolution { width: 1600, height: 900 },
-                Resolution { width: 1366, height: 768 },
-                Resolution { width: 1280, height: 720 },
+                Resolution {
+                    width: 1920,
+                    height: 1080
+                },
+                Resolution {
+                    width: 1600,
+                    height: 900
+                },
+                Resolution {
+                    width: 1366,
+                    height: 768
+                },
+                Resolution {
+                    width: 1280,
+                    height: 720
+                },
             ],
             refresh_rate: 60,
             scale: 100,
@@ -655,10 +670,7 @@ impl Default for LanguageSettings {
     fn default() -> Self {
         Self {
             display_language: String::from("ko-KR"),
-            installed_languages: alloc::vec![
-                String::from("ko-KR"),
-                String::from("en-US"),
-            ],
+            installed_languages: alloc::vec![String::from("ko-KR"), String::from("en-US"),],
             input_methods: alloc::vec![
                 InputMethod {
                     id: String::from("hangul"),

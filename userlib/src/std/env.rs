@@ -21,11 +21,11 @@ pub struct Args {
 
 impl Iterator for Args {
     type Item = String;
-    
+
     fn next(&mut self) -> Option<String> {
         self.inner.next()
     }
-    
+
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
@@ -39,8 +39,7 @@ impl ExactSizeIterator for Args {
 
 /// Fetches the environment variable `key`.
 pub fn var(key: &str) -> Result<String, VarError> {
-    syscall::env_get(key)
-        .map_err(|_| VarError::NotPresent)
+    syscall::env_get(key).map_err(|_| VarError::NotPresent)
 }
 
 /// Sets the environment variable `key` to `value`.
@@ -67,7 +66,7 @@ pub struct Vars {
 
 impl Iterator for Vars {
     type Item = (String, String);
-    
+
     fn next(&mut self) -> Option<(String, String)> {
         self.inner.next()
     }
@@ -82,8 +81,7 @@ pub enum VarError {
 
 /// Returns the current working directory.
 pub fn current_dir() -> Result<String, super::net::IoError> {
-    syscall::getcwd()
-        .map_err(|_| super::net::IoError::Other)
+    syscall::getcwd().map_err(|_| super::net::IoError::Other)
 }
 
 /// Changes the current working directory.
@@ -95,8 +93,7 @@ pub fn set_current_dir(path: &str) -> Result<(), super::net::IoError> {
 
 /// Returns the path of the current executable.
 pub fn current_exe() -> Result<String, super::net::IoError> {
-    syscall::current_exe()
-        .map_err(|_| super::net::IoError::Other)
+    syscall::current_exe().map_err(|_| super::net::IoError::Other)
 }
 
 /// Returns the full filesystem path of the current running executable.
@@ -113,25 +110,25 @@ pub fn home_dir() -> Option<String> {
 pub mod consts {
     /// Target architecture
     pub const ARCH: &str = "x86_64";
-    
+
     /// Target OS
     pub const OS: &str = "kpio";
-    
+
     /// Target family
     pub const FAMILY: &str = "kpio";
-    
+
     /// DLL prefix
     pub const DLL_PREFIX: &str = "lib";
-    
+
     /// DLL suffix
     pub const DLL_SUFFIX: &str = ".so";
-    
+
     /// DLL extension
     pub const DLL_EXTENSION: &str = "so";
-    
+
     /// Executable suffix
     pub const EXE_SUFFIX: &str = "";
-    
+
     /// Executable extension
     pub const EXE_EXTENSION: &str = "";
 }

@@ -32,32 +32,32 @@ impl JsError {
     pub fn syntax<S: Into<String>>(msg: S) -> Self {
         JsError::SyntaxError(msg.into())
     }
-    
+
     /// Create a type error.
     pub fn type_error<S: Into<String>>(msg: S) -> Self {
         JsError::TypeError(msg.into())
     }
-    
+
     /// Create a reference error.
     pub fn reference<S: Into<String>>(msg: S) -> Self {
         JsError::ReferenceError(msg.into())
     }
-    
+
     /// Create a range error.
     pub fn range<S: Into<String>>(msg: S) -> Self {
         JsError::RangeError(msg.into())
     }
-    
+
     /// Create an internal error.
     pub fn internal<S: Into<String>>(msg: S) -> Self {
         JsError::InternalError(msg.into())
     }
-    
+
     /// Create a generic error with custom type name.
     pub fn error<S: Into<String>, M: Into<String>>(_name: S, msg: M) -> Self {
         JsError::Error(msg.into())
     }
-    
+
     /// Get error name.
     pub fn name(&self) -> &'static str {
         match self {
@@ -71,7 +71,7 @@ impl JsError {
             JsError::Error(_) => "Error",
         }
     }
-    
+
     /// Get error message.
     pub fn message(&self) -> &str {
         match self {

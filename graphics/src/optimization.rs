@@ -19,7 +19,12 @@ pub struct Rect {
 impl Rect {
     /// Create new rectangle
     pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Check if rectangles overlap
@@ -36,7 +41,7 @@ impl Rect {
         let min_y = self.y.min(other.y);
         let max_x = (self.x + self.width as i32).max(other.x + other.width as i32);
         let max_y = (self.y + self.height as i32).max(other.y + other.height as i32);
-        
+
         Rect {
             x: min_x,
             y: min_y,
@@ -85,7 +90,7 @@ impl DamageTracker {
         // Merge with overlapping regions
         let mut i = 0;
         let mut merged_rect = rect;
-        
+
         while i < self.regions.len() {
             if merged_rect.intersects(&self.regions[i]) {
                 merged_rect = merged_rect.union(&self.regions[i]);
@@ -94,9 +99,9 @@ impl DamageTracker {
                 i += 1;
             }
         }
-        
+
         self.regions.push(merged_rect);
-        
+
         // If too many regions, switch to full damage
         if self.regions.len() > self.max_regions {
             self.set_full_damage();
@@ -177,7 +182,7 @@ impl FramePacer {
     /// Create new frame pacer
     pub fn new(target_fps: u32) -> Self {
         let frame_time_ns = Self::NS_PER_SEC / target_fps as u64;
-        
+
         Self {
             target_fps,
             frame_time_ns,
@@ -199,13 +204,13 @@ impl FramePacer {
     pub fn frame_complete(&mut self, current_time_ns: u64) {
         let last = self.last_frame_ns.swap(current_time_ns, Ordering::Relaxed);
         let frame_time = current_time_ns.saturating_sub(last);
-        
+
         // Record frame time
         self.frame_times[self.frame_index] = frame_time;
         self.frame_index = (self.frame_index + 1) % 60;
-        
+
         self.frames_rendered.fetch_add(1, Ordering::Relaxed);
-        
+
         // Check for dropped frames
         if frame_time > self.frame_time_ns * 2 {
             let dropped = (frame_time / self.frame_time_ns).saturating_sub(1);
@@ -299,18 +304,18 @@ impl LayerCache {
     /// Insert layer into cache
     pub fn insert(&mut self, id: u64, data: Vec<u8>, bounds: Rect, timestamp: u64) {
         let size = data.len();
-        
+
         // Evict if needed
         while self.current_size + size > self.max_size && !self.layers.is_empty() {
             self.evict_oldest();
         }
-        
+
         // Remove existing entry with same ID
         if let Some(pos) = self.layers.iter().position(|l| l.id == id) {
             self.current_size -= self.layers[pos].data.len();
             self.layers.remove(pos);
         }
-        
+
         self.layers.push(CachedLayer {
             id,
             data,
@@ -322,10 +327,12 @@ impl LayerCache {
 
     /// Evict oldest entry
     fn evict_oldest(&mut self) {
-        if let Some(pos) = self.layers.iter()
+        if let Some(pos) = self
+            .layers
+            .iter()
             .enumerate()
             .min_by_key(|(_, l)| l.last_access)
-            .map(|(i, _)| i) 
+            .map(|(i, _)| i)
         {
             self.current_size -= self.layers[pos].data.len();
             self.layers.remove(pos);
@@ -351,14 +358,18 @@ impl LayerCache {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
         let total = hits + misses;
-        
+
         CacheStats {
             entries: self.layers.len(),
             size_bytes: self.current_size,
             max_size_bytes: self.max_size,
             hits,
             misses,
-            hit_rate: if total > 0 { hits as f32 / total as f32 } else { 0.0 },
+            hit_rate: if total > 0 {
+                hits as f32 / total as f32
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -402,19 +413,27 @@ impl GlyphCache {
 
     /// Get cached glyph
     pub fn get(&self, codepoint: u32, font_id: u16, size_px: u16) -> Option<&[u8]> {
-        self.glyphs.iter()
+        self.glyphs
+            .iter()
             .find(|g| g.codepoint == codepoint && g.font_id == font_id && g.size_px == size_px)
             .map(|g| g.bitmap.as_slice())
     }
 
     /// Cache a glyph
-    pub fn insert(&mut self, codepoint: u32, font_id: u16, size_px: u16, 
-                  bitmap: Vec<u8>, width: u16, height: u16) {
+    pub fn insert(
+        &mut self,
+        codepoint: u32,
+        font_id: u16,
+        size_px: u16,
+        bitmap: Vec<u8>,
+        width: u16,
+        height: u16,
+    ) {
         // Evict if at capacity
         if self.glyphs.len() >= self.max_glyphs {
             self.glyphs.remove(0);
         }
-        
+
         self.glyphs.push(CachedGlyph {
             codepoint,
             font_id,
@@ -445,7 +464,7 @@ mod tests {
         let r1 = Rect::new(0, 0, 100, 100);
         let r2 = Rect::new(50, 50, 100, 100);
         let r3 = Rect::new(200, 200, 100, 100);
-        
+
         assert!(r1.intersects(&r2));
         assert!(!r1.intersects(&r3));
     }
@@ -454,12 +473,12 @@ mod tests {
     fn test_damage_tracker() {
         let mut tracker = DamageTracker::new(1920, 1080);
         tracker.clear(); // Clear initial full damage
-        
+
         assert!(!tracker.has_damage());
-        
+
         tracker.add_damage(Rect::new(0, 0, 100, 100));
         assert!(tracker.has_damage());
-        
+
         tracker.clear();
         assert!(!tracker.has_damage());
     }
@@ -467,7 +486,7 @@ mod tests {
     #[test]
     fn test_frame_pacer() {
         let pacer = FramePacer::new(60);
-        
+
         assert_eq!(pacer.target_fps, 60);
         assert!(pacer.should_render(pacer.frame_time_ns + 1));
     }
@@ -475,11 +494,11 @@ mod tests {
     #[test]
     fn test_layer_cache() {
         let mut cache = LayerCache::new(1000);
-        
+
         cache.insert(1, vec![0u8; 100], Rect::new(0, 0, 10, 10), 0);
         assert!(cache.get(1).is_some());
         assert!(cache.get(2).is_none());
-        
+
         cache.invalidate(1);
         assert!(cache.get(1).is_none());
     }

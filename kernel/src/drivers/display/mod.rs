@@ -3,12 +3,12 @@
 //! Provides display hardware abstraction and driver implementations.
 
 pub mod framebuffer;
-pub mod vesa;
 pub mod i915;
+pub mod vesa;
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 
 /// Display error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,7 +282,7 @@ impl DisplayManager {
         let is_primary = display.info().is_primary;
         let index = self.displays.len();
         self.displays.push(display);
-        
+
         if is_primary || self.primary_index.is_none() {
             self.primary_index = Some(index);
         }
@@ -324,7 +324,10 @@ impl DisplayManager {
 
     /// Enumerate all displays
     pub fn enumerate(&self) -> impl Iterator<Item = (usize, &dyn Display)> {
-        self.displays.iter().enumerate().map(|(i, d)| (i, d.as_ref()))
+        self.displays
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (i, d.as_ref()))
     }
 }
 
@@ -358,10 +361,10 @@ pub mod color {
 
         /// To ARGB u32
         pub const fn to_argb(&self) -> u32 {
-            ((self.a as u32) << 24) |
-            ((self.r as u32) << 16) |
-            ((self.g as u32) << 8) |
-            (self.b as u32)
+            ((self.a as u32) << 24)
+                | ((self.r as u32) << 16)
+                | ((self.g as u32) << 8)
+                | (self.b as u32)
         }
 
         /// From ARGB u32

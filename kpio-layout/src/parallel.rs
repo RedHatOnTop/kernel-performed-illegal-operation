@@ -81,19 +81,19 @@ impl WorkQueue {
             pending: AtomicUsize::new(0),
         }
     }
-    
+
     /// Push a task to the local queue.
     pub fn push_local(&self, task: LayoutTask) {
         self.local.lock().push_back(task);
         self.pending.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     /// Push a task to the shared queue (for stealing).
     pub fn push_shared(&self, task: LayoutTask) {
         self.shared.lock().push_back(task);
         self.pending.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     /// Pop from local queue (LIFO).
     pub fn pop_local(&self) -> Option<LayoutTask> {
         let task = self.local.lock().pop_back();
@@ -102,7 +102,7 @@ impl WorkQueue {
         }
         task
     }
-    
+
     /// Steal from shared queue (FIFO for fairness).
     pub fn steal(&self) -> Option<LayoutTask> {
         let task = self.shared.lock().pop_front();
@@ -111,12 +111,12 @@ impl WorkQueue {
         }
         task
     }
-    
+
     /// Check if queue is empty.
     pub fn is_empty(&self) -> bool {
         self.pending.load(Ordering::Relaxed) == 0
     }
-    
+
     /// Get pending count.
     pub fn pending_count(&self) -> usize {
         self.pending.load(Ordering::Relaxed)
@@ -147,12 +147,7 @@ pub struct LayoutTask {
 
 impl LayoutTask {
     /// Create a new layout task.
-    pub fn new(
-        id: u64,
-        task_type: LayoutTaskType,
-        containing_block: Rect,
-        priority: u32,
-    ) -> Self {
+    pub fn new(id: u64, task_type: LayoutTaskType, containing_block: Rect, priority: u32) -> Self {
         Self {
             id,
             task_type,
@@ -162,7 +157,7 @@ impl LayoutTask {
             user_data: 0,
         }
     }
-    
+
     /// Set parent task.
     pub fn with_parent(mut self, parent_id: u64) -> Self {
         self.parent_id = Some(parent_id);
@@ -248,7 +243,7 @@ impl LayoutResult {
             execution_ns: 0,
         }
     }
-    
+
     /// Create a failed result.
     pub fn failure(task_id: u64) -> Self {
         Self {
@@ -296,7 +291,7 @@ impl ParallelScheduler {
         for _ in 0..count {
             work_queues.push(WorkQueue::new());
         }
-        
+
         Self {
             work_queues,
             worker_count: AtomicUsize::new(count),
@@ -305,22 +300,22 @@ impl ParallelScheduler {
             running: AtomicBool::new(false),
         }
     }
-    
+
     /// Start the scheduler.
     pub fn start(&self) {
         self.running.store(true, Ordering::Release);
     }
-    
+
     /// Stop the scheduler.
     pub fn stop(&self) {
         self.running.store(false, Ordering::Release);
     }
-    
+
     /// Check if running.
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::Acquire)
     }
-    
+
     /// Schedule a task.
     pub fn schedule(&self, task: LayoutTask, worker_hint: Option<usize>) -> u64 {
         let worker = worker_hint.unwrap_or_else(|| {
@@ -336,37 +331,37 @@ impl ParallelScheduler {
             }
             min_worker
         }) % self.work_queues.len();
-        
+
         let task_id = task.id;
         self.work_queues[worker].push_shared(task);
         self.stats.tasks_scheduled.fetch_add(1, Ordering::Relaxed);
-        
+
         task_id
     }
-    
+
     /// Generate a new task ID.
     pub fn next_task_id(&self) -> u64 {
         self.task_counter.fetch_add(1, Ordering::Relaxed)
     }
-    
+
     /// Process tasks on a worker.
     pub fn process_worker(&self, worker_id: usize) -> Vec<LayoutResult> {
         let mut results = Vec::new();
-        
+
         // Try local queue first
         while let Some(task) = self.work_queues[worker_id].pop_local() {
             if let Some(result) = self.execute_task(task) {
                 results.push(result);
             }
         }
-        
+
         // Try shared queue
         while let Some(task) = self.work_queues[worker_id].steal() {
             if let Some(result) = self.execute_task(task) {
                 results.push(result);
             }
         }
-        
+
         // Try stealing from other workers
         for i in 0..self.work_queues.len() {
             if i != worker_id {
@@ -378,40 +373,45 @@ impl ParallelScheduler {
                 }
             }
         }
-        
+
         results
     }
-    
+
     /// Execute a single task.
     fn execute_task(&self, task: LayoutTask) -> Option<LayoutResult> {
         let result = match task.task_type {
-            LayoutTaskType::Block { box_id, child_count } => {
-                self.execute_block_layout(task.id, box_id, child_count, &task.containing_block)
-            }
+            LayoutTaskType::Block {
+                box_id,
+                child_count,
+            } => self.execute_block_layout(task.id, box_id, child_count, &task.containing_block),
             LayoutTaskType::Inline { start_id, end_id } => {
                 self.execute_inline_layout(task.id, start_id, end_id, &task.containing_block)
             }
-            LayoutTaskType::Flex { container_id, item_count } => {
+            LayoutTaskType::Flex {
+                container_id,
+                item_count,
+            } => {
                 self.execute_flex_layout(task.id, container_id, item_count, &task.containing_block)
             }
-            LayoutTaskType::Grid { container_id, rows, cols } => {
+            LayoutTaskType::Grid {
+                container_id,
+                rows,
+                cols,
+            } => {
                 self.execute_grid_layout(task.id, container_id, rows, cols, &task.containing_block)
             }
-            LayoutTaskType::TextMeasure { run_id } => {
-                self.execute_text_measure(task.id, run_id)
-            }
-            LayoutTaskType::ImageSize { image_id } => {
-                self.execute_image_size(task.id, image_id)
-            }
-            LayoutTaskType::MergeResults { parent_id, ref child_ids } => {
-                self.execute_merge_results(task.id, parent_id, child_ids)
-            }
+            LayoutTaskType::TextMeasure { run_id } => self.execute_text_measure(task.id, run_id),
+            LayoutTaskType::ImageSize { image_id } => self.execute_image_size(task.id, image_id),
+            LayoutTaskType::MergeResults {
+                parent_id,
+                ref child_ids,
+            } => self.execute_merge_results(task.id, parent_id, child_ids),
         };
-        
+
         self.stats.tasks_completed.fetch_add(1, Ordering::Relaxed);
         Some(result)
     }
-    
+
     /// Execute block layout.
     fn execute_block_layout(
         &self,
@@ -430,10 +430,10 @@ impl ParallelScheduler {
             },
             ..Default::default()
         };
-        
+
         LayoutResult::success(task_id, dimensions)
     }
-    
+
     /// Execute inline layout.
     fn execute_inline_layout(
         &self,
@@ -451,10 +451,10 @@ impl ParallelScheduler {
             },
             ..Default::default()
         };
-        
+
         LayoutResult::success(task_id, dimensions)
     }
-    
+
     /// Execute flexbox layout.
     fn execute_flex_layout(
         &self,
@@ -467,10 +467,10 @@ impl ParallelScheduler {
             content: *containing_block,
             ..Default::default()
         };
-        
+
         LayoutResult::success(task_id, dimensions)
     }
-    
+
     /// Execute grid layout.
     fn execute_grid_layout(
         &self,
@@ -484,10 +484,10 @@ impl ParallelScheduler {
             content: *containing_block,
             ..Default::default()
         };
-        
+
         LayoutResult::success(task_id, dimensions)
     }
-    
+
     /// Execute text measurement.
     fn execute_text_measure(&self, task_id: u64, _run_id: usize) -> LayoutResult {
         let dimensions = BoxDimensions {
@@ -499,10 +499,10 @@ impl ParallelScheduler {
             },
             ..Default::default()
         };
-        
+
         LayoutResult::success(task_id, dimensions)
     }
-    
+
     /// Execute image size computation.
     fn execute_image_size(&self, task_id: u64, _image_id: usize) -> LayoutResult {
         let dimensions = BoxDimensions {
@@ -514,10 +514,10 @@ impl ParallelScheduler {
             },
             ..Default::default()
         };
-        
+
         LayoutResult::success(task_id, dimensions)
     }
-    
+
     /// Merge child results.
     fn execute_merge_results(
         &self,
@@ -527,12 +527,12 @@ impl ParallelScheduler {
     ) -> LayoutResult {
         LayoutResult::success(task_id, BoxDimensions::default())
     }
-    
+
     /// Get scheduler statistics.
     pub fn stats(&self) -> &SchedulerStats {
         &self.stats
     }
-    
+
     /// Get worker count.
     pub fn worker_count(&self) -> usize {
         self.worker_count.load(Ordering::Relaxed)
@@ -560,28 +560,31 @@ impl ParallelLayoutContext {
             pending_deps: Mutex::new(Vec::new()),
         }
     }
-    
+
     /// Start parallel layout.
     pub fn layout(&self, containing_block: Rect) {
         self.scheduler.start();
-        
+
         // Create root task
         let root_task = LayoutTask::new(
             self.scheduler.next_task_id(),
-            LayoutTaskType::Block { box_id: 0, child_count: 0 },
+            LayoutTaskType::Block {
+                box_id: 0,
+                child_count: 0,
+            },
             containing_block,
             100, // Highest priority
         );
-        
+
         self.scheduler.schedule(root_task, Some(0));
     }
-    
+
     /// Process layout on a worker thread.
     pub fn process(&self, worker_id: usize) {
         let results = self.scheduler.process_worker(worker_id);
         self.results.lock().extend(results);
     }
-    
+
     /// Wait for layout to complete.
     pub fn wait(&self) -> Vec<LayoutResult> {
         // In a real implementation, this would wait for all tasks
@@ -589,7 +592,7 @@ impl ParallelLayoutContext {
         let mut results = self.results.lock();
         core::mem::take(&mut *results)
     }
-    
+
     /// Get scheduler reference.
     pub fn scheduler(&self) -> &ParallelScheduler {
         &self.scheduler
@@ -607,22 +610,25 @@ pub struct SubtreePartitioner {
 impl SubtreePartitioner {
     /// Create a new partitioner.
     pub fn new(min_size: usize, max_depth: usize) -> Self {
-        Self { min_size, max_depth }
+        Self {
+            min_size,
+            max_depth,
+        }
     }
-    
+
     /// Check if subtree should be parallelized.
     pub fn should_parallelize(&self, subtree_size: usize, depth: usize) -> bool {
         subtree_size >= self.min_size && depth < self.max_depth
     }
-    
+
     /// Partition a subtree into parallel tasks.
     pub fn partition(&self, _root: &LayoutBox, depth: usize) -> Vec<LayoutTaskType> {
         let mut tasks = Vec::new();
-        
+
         if depth >= self.max_depth {
             return tasks;
         }
-        
+
         // In a real implementation, this would analyze the subtree
         // and create appropriate tasks for parallel execution
         tasks
@@ -651,11 +657,11 @@ impl DependencyTracker {
             completed: Mutex::new(Vec::new()),
         }
     }
-    
+
     /// Add a dependency.
     pub fn add_dependency(&self, task_id: u64, depends_on: u64) {
         let mut deps = self.dependencies.lock();
-        
+
         // Find or create entry for task
         if let Some(entry) = deps.iter_mut().find(|(id, _)| *id == task_id) {
             entry.1.push(depends_on);
@@ -663,29 +669,32 @@ impl DependencyTracker {
             deps.push((task_id, alloc::vec![depends_on]));
         }
     }
-    
+
     /// Mark task as completed.
     pub fn complete(&self, task_id: u64) {
         self.completed.lock().push(task_id);
     }
-    
+
     /// Check if task is ready to execute.
     pub fn is_ready(&self, task_id: u64) -> bool {
         let deps = self.dependencies.lock();
         let completed = self.completed.lock();
-        
-        if let Some((_, required)) = deps.iter().find(|(id, _): &&(u64, Vec<u64>)| *id == task_id) {
+
+        if let Some((_, required)) = deps
+            .iter()
+            .find(|(id, _): &&(u64, Vec<u64>)| *id == task_id)
+        {
             required.iter().all(|dep: &u64| completed.contains(dep))
         } else {
             true // No dependencies
         }
     }
-    
+
     /// Get ready tasks.
     pub fn get_ready_tasks(&self) -> Vec<u64> {
         let deps = self.dependencies.lock();
         let completed = self.completed.lock();
-        
+
         deps.iter()
             .filter(|(_, required): &&(u64, Vec<u64>)| {
                 required.iter().all(|dep: &u64| completed.contains(dep))
@@ -704,56 +713,62 @@ impl Default for DependencyTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_work_queue() {
         let queue = WorkQueue::new();
-        
+
         let task = LayoutTask::new(
             1,
-            LayoutTaskType::Block { box_id: 0, child_count: 0 },
+            LayoutTaskType::Block {
+                box_id: 0,
+                child_count: 0,
+            },
             Rect::default(),
             10,
         );
-        
+
         queue.push_local(task);
         assert!(!queue.is_empty());
         assert_eq!(queue.pending_count(), 1);
-        
+
         let popped = queue.pop_local();
         assert!(popped.is_some());
         assert!(queue.is_empty());
     }
-    
+
     #[test]
     fn test_scheduler() {
         let scheduler = ParallelScheduler::new(4);
-        
+
         let task = LayoutTask::new(
             scheduler.next_task_id(),
-            LayoutTaskType::Block { box_id: 0, child_count: 0 },
+            LayoutTaskType::Block {
+                box_id: 0,
+                child_count: 0,
+            },
             Rect::default(),
             10,
         );
-        
+
         scheduler.schedule(task, None);
         assert_eq!(scheduler.stats.tasks_scheduled.load(Ordering::Relaxed), 1);
     }
-    
+
     #[test]
     fn test_dependency_tracker() {
         let tracker = DependencyTracker::new();
-        
+
         tracker.add_dependency(2, 1);
         tracker.add_dependency(3, 2);
-        
+
         assert!(!tracker.is_ready(2));
         assert!(tracker.is_ready(1));
-        
+
         tracker.complete(1);
         assert!(tracker.is_ready(2));
         assert!(!tracker.is_ready(3));
-        
+
         tracker.complete(2);
         assert!(tracker.is_ready(3));
     }

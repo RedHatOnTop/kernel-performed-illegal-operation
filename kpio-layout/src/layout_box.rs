@@ -14,7 +14,7 @@ use kpio_css::computed::ComputedStyle;
 use kpio_css::values::{Display, Position};
 use kpio_dom::NodeId;
 
-use crate::box_model::{BoxDimensions, Rect, EdgeSizes, ResolvedLength};
+use crate::box_model::{BoxDimensions, EdgeSizes, Rect, ResolvedLength};
 
 /// Type of formatting context for a box
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +38,7 @@ impl BoxType {
             Display::Block => BoxType::Block,
             Display::Inline => BoxType::Inline,
             Display::InlineBlock => BoxType::Inline, // Treated as inline for flow
-            Display::Flex => BoxType::Block, // Flex containers are block-level
+            Display::Flex => BoxType::Block,         // Flex containers are block-level
             Display::InlineFlex => BoxType::Inline,
             Display::None => BoxType::None,
             Display::Grid => BoxType::Block,
@@ -57,11 +57,11 @@ impl BoxType {
             Display::FlowRoot => BoxType::Block,
         }
     }
-    
+
     pub fn is_block(&self) -> bool {
         matches!(self, BoxType::Block | BoxType::AnonymousBlock)
     }
-    
+
     pub fn is_inline(&self) -> bool {
         matches!(self, BoxType::Inline | BoxType::AnonymousInline)
     }
@@ -92,7 +92,7 @@ impl Positioning {
             Position::Sticky => Positioning::Sticky,
         }
     }
-    
+
     /// Check if this positioning takes the element out of normal flow
     pub fn is_out_of_flow(&self) -> bool {
         matches!(self, Positioning::Absolute | Positioning::Fixed)
@@ -104,38 +104,38 @@ impl Positioning {
 pub struct LayoutStyle {
     /// Display type
     pub display: Display,
-    
+
     /// Positioning scheme
     pub position: Position,
-    
+
     /// Width
     pub width: ResolvedLength,
     pub min_width: ResolvedLength,
     pub max_width: ResolvedLength,
-    
+
     /// Height
     pub height: ResolvedLength,
     pub min_height: ResolvedLength,
     pub max_height: ResolvedLength,
-    
+
     /// Margins
     pub margin_top: ResolvedLength,
     pub margin_right: ResolvedLength,
     pub margin_bottom: ResolvedLength,
     pub margin_left: ResolvedLength,
-    
+
     /// Padding
     pub padding_top: f32,
     pub padding_right: f32,
     pub padding_bottom: f32,
     pub padding_left: f32,
-    
+
     /// Border widths
     pub border_top_width: f32,
     pub border_right_width: f32,
     pub border_bottom_width: f32,
     pub border_left_width: f32,
-    
+
     /// Position offsets (for positioned elements)
     pub top: ResolvedLength,
     pub right: ResolvedLength,
@@ -174,7 +174,7 @@ impl LayoutStyle {
             left: resolve_optional_length(&computed.left, &ctx),
         }
     }
-    
+
     /// Get padding as EdgeSizes
     pub fn padding(&self) -> EdgeSizes {
         EdgeSizes::new(
@@ -184,7 +184,7 @@ impl LayoutStyle {
             self.padding_left,
         )
     }
-    
+
     /// Get border as EdgeSizes
     pub fn border(&self) -> EdgeSizes {
         EdgeSizes::new(
@@ -222,22 +222,22 @@ fn resolve_length(
 pub struct LayoutBox {
     /// The type of this box
     pub box_type: BoxType,
-    
+
     /// Computed dimensions after layout
     pub dimensions: BoxDimensions,
-    
+
     /// Style values needed for layout
     pub style: LayoutStyle,
-    
+
     /// Reference to the original DOM node (if any)
     pub node_id: Option<NodeId>,
-    
+
     /// Text content (for text nodes)
     pub text: Option<String>,
-    
+
     /// Child layout boxes
     pub children: Vec<LayoutBox>,
-    
+
     /// Whether this box establishes a new stacking context
     pub creates_stacking_context: bool,
 }
@@ -255,29 +255,29 @@ impl LayoutBox {
             creates_stacking_context: false,
         }
     }
-    
+
     /// Create a block box
     pub fn block() -> Self {
         Self::new(BoxType::Block)
     }
-    
+
     /// Create an inline box
     pub fn inline() -> Self {
         Self::new(BoxType::Inline)
     }
-    
+
     /// Create an anonymous block box
     pub fn anonymous_block() -> Self {
         Self::new(BoxType::AnonymousBlock)
     }
-    
+
     /// Create an anonymous inline box for text
     pub fn anonymous_inline(text: String) -> Self {
         let mut layout_box = Self::new(BoxType::AnonymousInline);
         layout_box.text = Some(text);
         layout_box
     }
-    
+
     /// Create from a styled node
     pub fn from_style(style: &ComputedStyle, node_id: NodeId) -> Self {
         let box_type = BoxType::from_display(style.display);
@@ -286,12 +286,12 @@ impl LayoutBox {
         layout_box.node_id = Some(node_id);
         layout_box
     }
-    
+
     /// Add a child box
     pub fn add_child(&mut self, child: LayoutBox) {
         self.children.push(child);
     }
-    
+
     /// Get or create an anonymous block box for inline children
     /// (Used when mixing block and inline children)
     pub fn get_inline_container(&mut self) -> &mut LayoutBox {
@@ -301,32 +301,32 @@ impl LayoutBox {
                 return self.children.last_mut().unwrap();
             }
         }
-        
+
         // Otherwise, create a new anonymous block
         self.children.push(LayoutBox::anonymous_block());
         self.children.last_mut().unwrap()
     }
-    
+
     /// Check if this box has block children
     pub fn has_block_children(&self) -> bool {
         self.children.iter().any(|c| c.box_type.is_block())
     }
-    
+
     /// Check if this box has inline children
     pub fn has_inline_children(&self) -> bool {
         self.children.iter().any(|c| c.box_type.is_inline())
     }
-    
+
     /// Get the content rect
     pub fn content_rect(&self) -> Rect {
         self.dimensions.content
     }
-    
+
     /// Get the border box rect
     pub fn border_box(&self) -> Rect {
         self.dimensions.border_box()
     }
-    
+
     /// Get the margin box rect
     pub fn margin_box(&self) -> Rect {
         self.dimensions.margin_box()
@@ -374,9 +374,14 @@ pub struct ContainingBlock {
 
 impl ContainingBlock {
     pub fn new(width: f32, height: f32) -> Self {
-        Self { width, height, x: 0.0, y: 0.0 }
+        Self {
+            width,
+            height,
+            x: 0.0,
+            y: 0.0,
+        }
     }
-    
+
     pub fn from_rect(rect: Rect) -> Self {
         Self {
             width: rect.width,

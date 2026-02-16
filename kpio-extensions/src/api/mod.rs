@@ -6,16 +6,16 @@
 
 extern crate alloc;
 
-pub mod tabs;
 pub mod runtime;
 pub mod storage;
+pub mod tabs;
 pub mod web_request;
 
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 
-use crate::{ExtensionId, ExtensionError};
+use crate::{ExtensionError, ExtensionId};
 
 /// API call result.
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -34,22 +34,22 @@ impl ApiError {
             message: message.to_string(),
         }
     }
-    
+
     /// Permission denied error.
     pub fn permission_denied(resource: &str) -> Self {
         Self::new(&alloc::format!("Permission denied: {}", resource))
     }
-    
+
     /// Invalid argument error.
     pub fn invalid_argument(arg: &str) -> Self {
         Self::new(&alloc::format!("Invalid argument: {}", arg))
     }
-    
+
     /// Not found error.
     pub fn not_found(resource: &str) -> Self {
         Self::new(&alloc::format!("{} not found", resource))
     }
-    
+
     /// Quota exceeded error.
     pub fn quota_exceeded(reason: &str) -> Self {
         Self::new(&alloc::format!("Quota exceeded: {}", reason))
@@ -89,14 +89,14 @@ impl ApiContext {
             url: None,
         }
     }
-    
+
     /// With tab context.
     pub fn with_tab(mut self, tab_id: u32, frame_id: u32) -> Self {
         self.tab_id = Some(tab_id);
         self.frame_id = Some(frame_id);
         self
     }
-    
+
     /// With URL.
     pub fn with_url(mut self, url: &str) -> Self {
         self.url = Some(url.to_string());
@@ -123,7 +123,7 @@ impl<T> AsyncCall<T> {
             callback: None,
         }
     }
-    
+
     /// Set callback.
     pub fn then(mut self, callback: ApiCallback<T>) -> Self {
         if let Some(result) = self.result.take() {
@@ -133,7 +133,7 @@ impl<T> AsyncCall<T> {
         }
         self
     }
-    
+
     /// Resolve with result.
     pub fn resolve(mut self, result: ApiResult<T>) {
         if let Some(callback) = self.callback.take() {
@@ -165,24 +165,24 @@ impl<T> EventEmitter<T> {
             listeners: Vec::new(),
         }
     }
-    
+
     /// Add a listener.
     pub fn add_listener(&mut self, listener: EventListener<T>) {
         self.listeners.push(listener);
     }
-    
+
     /// Remove all listeners.
     pub fn remove_all_listeners(&mut self) {
         self.listeners.clear();
     }
-    
+
     /// Emit an event.
     pub fn emit(&self, event: &T) {
         for listener in &self.listeners {
             listener(event);
         }
     }
-    
+
     /// Check if there are listeners.
     pub fn has_listeners(&self) -> bool {
         !self.listeners.is_empty()

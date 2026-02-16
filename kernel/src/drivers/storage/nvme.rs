@@ -4,13 +4,13 @@
 
 #![allow(clippy::while_immutable_condition)]
 
-use alloc::string::String;
-use alloc::vec::Vec;
+use super::{BlockDevice, StorageError, StorageInfo, StorageInterface, StorageManager};
 use alloc::boxed::Box;
 use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::ptr;
 use spin::Mutex;
-use super::{BlockDevice, StorageError, StorageInfo, StorageInterface, StorageManager};
 
 /// NVMe Controller Registers (BAR0 memory-mapped)
 #[repr(C)]
@@ -363,7 +363,12 @@ impl BlockDevice for NvmeNamespace {
         self.block_size
     }
 
-    fn read_blocks(&self, start_block: u64, count: u32, buffer: &mut [u8]) -> Result<(), StorageError> {
+    fn read_blocks(
+        &self,
+        start_block: u64,
+        count: u32,
+        buffer: &mut [u8],
+    ) -> Result<(), StorageError> {
         let expected_size = count as usize * self.block_size as usize;
         if buffer.len() < expected_size {
             return Err(StorageError::BufferTooSmall);
@@ -378,7 +383,12 @@ impl BlockDevice for NvmeNamespace {
         Err(StorageError::NotSupported)
     }
 
-    fn write_blocks(&self, start_block: u64, count: u32, buffer: &[u8]) -> Result<(), StorageError> {
+    fn write_blocks(
+        &self,
+        start_block: u64,
+        count: u32,
+        buffer: &[u8],
+    ) -> Result<(), StorageError> {
         let expected_size = count as usize * self.block_size as usize;
         if buffer.len() < expected_size {
             return Err(StorageError::BufferTooSmall);
@@ -414,7 +424,7 @@ impl BlockDevice for NvmeNamespace {
 pub fn probe(manager: &mut StorageManager) {
     // Find NVMe controllers via PCI enumeration
     // Class 0x01 (Storage), Subclass 0x08 (NVMe), ProgIF 0x02 (NVM Express)
-    
+
     // In real implementation:
     // 1. Enumerate PCI for NVMe controllers
     // 2. Map BAR0 to get controller registers
@@ -427,30 +437,30 @@ pub fn probe(manager: &mut StorageManager) {
 /// Initialize an NVMe controller at the given MMIO base
 pub unsafe fn init_controller(mmio_base: u64) -> Result<NvmeController, &'static str> {
     let regs = mmio_base as *mut NvmeRegisters;
-    
+
     // Read capabilities
     let cap = unsafe { (*regs).cap };
-    let mqes = (cap & 0xFFFF) as u16;          // Maximum Queue Entries Supported
-    let cqr = ((cap >> 16) & 1) != 0;          // Contiguous Queues Required
-    let _ams = ((cap >> 17) & 3) as u8;        // Arbitration Mechanism Supported
-    let _to = ((cap >> 24) & 0xFF) as u8;      // Timeout (500ms units)
-    let dstrd = ((cap >> 32) & 0xF) as u32;    // Doorbell Stride
-    let mpsmin = ((cap >> 48) & 0xF) as u8;    // Memory Page Size Minimum
-    let mpsmax = ((cap >> 52) & 0xF) as u8;    // Memory Page Size Maximum
-    
+    let mqes = (cap & 0xFFFF) as u16; // Maximum Queue Entries Supported
+    let cqr = ((cap >> 16) & 1) != 0; // Contiguous Queues Required
+    let _ams = ((cap >> 17) & 3) as u8; // Arbitration Mechanism Supported
+    let _to = ((cap >> 24) & 0xFF) as u8; // Timeout (500ms units)
+    let dstrd = ((cap >> 32) & 0xF) as u32; // Doorbell Stride
+    let mpsmin = ((cap >> 48) & 0xF) as u8; // Memory Page Size Minimum
+    let mpsmax = ((cap >> 52) & 0xF) as u8; // Memory Page Size Maximum
+
     // Check controller version
     let vs = unsafe { (*regs).vs };
     let major = (vs >> 16) & 0xFFFF;
     let minor = (vs >> 8) & 0xFF;
     let _tertiary = vs & 0xFF;
-    
+
     if major < 1 {
         return Err("Unsupported NVMe version");
     }
 
     // Disable controller
     unsafe { (*regs).cc = 0 };
-    
+
     // Wait for controller to be ready (with timeout)
     let mut timeout = 10_000_000u32; // Arbitrary timeout count
     while unsafe { (*regs).csts } & 1 != 0 {

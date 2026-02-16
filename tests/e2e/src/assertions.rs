@@ -2,10 +2,10 @@
 //!
 //! Provides assertion utilities for E2E tests.
 
-use alloc::string::String;
+use crate::browser::{BrowserHandle, ElementHandle, JsValue};
+use crate::screenshot::{ComparisonResult, Screenshot};
 use alloc::format;
-use crate::browser::{ElementHandle, BrowserHandle, JsValue};
-use crate::screenshot::{Screenshot, ComparisonResult};
+use alloc::string::String;
 
 /// Assertion result
 pub type AssertResult = Result<(), String>;
@@ -118,7 +118,10 @@ pub fn assert_matches(string: &str, pattern: &str) -> AssertResult {
             if let Some(pos) = remaining.find(part) {
                 remaining = &remaining[pos + part.len()..];
             } else {
-                return Err(format!("Expected '{}' to match pattern '{}'", string, pattern));
+                return Err(format!(
+                    "Expected '{}' to match pattern '{}'",
+                    string, pattern
+                ));
             }
         }
         Ok(())
@@ -168,7 +171,10 @@ pub fn assert_in_range<T: PartialOrd + core::fmt::Debug>(value: T, min: T, max: 
     if value >= min && value <= max {
         Ok(())
     } else {
-        Err(format!("Expected {:?} to be in range [{:?}, {:?}]", value, min, max))
+        Err(format!(
+            "Expected {:?} to be in range [{:?}, {:?}]",
+            value, min, max
+        ))
     }
 }
 
@@ -224,7 +230,10 @@ pub fn assert_element_text(element: &ElementHandle, expected: &str) -> AssertRes
     if actual == expected {
         Ok(())
     } else {
-        Err(format!("Expected element text '{}', got '{}'", expected, actual))
+        Err(format!(
+            "Expected element text '{}', got '{}'",
+            expected, actual
+        ))
     }
 }
 
@@ -234,7 +243,10 @@ pub fn assert_element_text_contains(element: &ElementHandle, substring: &str) ->
     if actual.contains(substring) {
         Ok(())
     } else {
-        Err(format!("Expected element text to contain '{}', got '{}'", substring, actual))
+        Err(format!(
+            "Expected element text to contain '{}', got '{}'",
+            substring, actual
+        ))
     }
 }
 
@@ -248,7 +260,11 @@ pub fn assert_element_has_attribute(element: &ElementHandle, name: &str) -> Asse
 }
 
 /// Assert element attribute value
-pub fn assert_element_attribute(element: &ElementHandle, name: &str, expected: &str) -> AssertResult {
+pub fn assert_element_attribute(
+    element: &ElementHandle,
+    name: &str,
+    expected: &str,
+) -> AssertResult {
     match element.attribute(name) {
         Some(actual) if actual == expected => Ok(()),
         Some(actual) => Err(format!(
@@ -295,7 +311,10 @@ pub fn assert_url_contains(browser: &BrowserHandle, substring: &str) -> AssertRe
     if actual.contains(substring) {
         Ok(())
     } else {
-        Err(format!("Expected URL to contain '{}', got '{}'", substring, actual))
+        Err(format!(
+            "Expected URL to contain '{}', got '{}'",
+            substring, actual
+        ))
     }
 }
 
@@ -315,7 +334,10 @@ pub fn assert_title_contains(browser: &BrowserHandle, substring: &str) -> Assert
     if actual.contains(substring) {
         Ok(())
     } else {
-        Err(format!("Expected title to contain '{}', got '{}'", substring, actual))
+        Err(format!(
+            "Expected title to contain '{}', got '{}'",
+            substring, actual
+        ))
     }
 }
 
@@ -334,7 +356,10 @@ pub fn assert_screenshot_matches(result: &ComparisonResult) -> AssertResult {
 }
 
 /// Assert screenshot matches with custom threshold
-pub fn assert_screenshot_matches_threshold(result: &ComparisonResult, threshold: f32) -> AssertResult {
+pub fn assert_screenshot_matches_threshold(
+    result: &ComparisonResult,
+    threshold: f32,
+) -> AssertResult {
     if result.diff_percentage <= threshold {
         Ok(())
     } else {
@@ -353,12 +378,8 @@ pub fn assert_js_truthy(value: &JsValue) -> AssertResult {
         JsValue::Undefined | JsValue::Null => {
             Err(String::from("Expected truthy value, got undefined/null"))
         }
-        JsValue::Boolean(false) => {
-            Err(String::from("Expected truthy value, got false"))
-        }
-        JsValue::Number(n) if *n == 0.0 => {
-            Err(String::from("Expected truthy value, got 0"))
-        }
+        JsValue::Boolean(false) => Err(String::from("Expected truthy value, got false")),
+        JsValue::Number(n) if *n == 0.0 => Err(String::from("Expected truthy value, got 0")),
         JsValue::String(s) if s.is_empty() => {
             Err(String::from("Expected truthy value, got empty string"))
         }
@@ -449,7 +470,10 @@ impl<T: PartialEq + core::fmt::Debug> Expect<T> {
             Ok(())
         } else {
             let desc = self.description.unwrap_or_else(|| String::from("Value"));
-            Err(format!("{}: expected {:?}, got {:?}", desc, expected, self.value))
+            Err(format!(
+                "{}: expected {:?}, got {:?}",
+                desc, expected, self.value
+            ))
         }
     }
 
@@ -470,7 +494,9 @@ impl Expect<bool> {
         if self.value {
             Ok(())
         } else {
-            let desc = self.description.unwrap_or_else(|| String::from("Condition"));
+            let desc = self
+                .description
+                .unwrap_or_else(|| String::from("Condition"));
             Err(format!("{}: expected true, got false", desc))
         }
     }
@@ -480,7 +506,9 @@ impl Expect<bool> {
         if !self.value {
             Ok(())
         } else {
-            let desc = self.description.unwrap_or_else(|| String::from("Condition"));
+            let desc = self
+                .description
+                .unwrap_or_else(|| String::from("Condition"));
             Err(format!("{}: expected false, got true", desc))
         }
     }
@@ -493,7 +521,10 @@ impl Expect<&str> {
             Ok(())
         } else {
             let desc = self.description.unwrap_or_else(|| String::from("String"));
-            Err(format!("{}: '{}' does not contain '{}'", desc, self.value, substring))
+            Err(format!(
+                "{}: '{}' does not contain '{}'",
+                desc, self.value, substring
+            ))
         }
     }
 }
@@ -505,7 +536,10 @@ impl<T: PartialOrd + core::fmt::Debug> Expect<T> {
             Ok(())
         } else {
             let desc = self.description.unwrap_or_else(|| String::from("Value"));
-            Err(format!("{}: {:?} is not greater than {:?}", desc, self.value, other))
+            Err(format!(
+                "{}: {:?} is not greater than {:?}",
+                desc, self.value, other
+            ))
         }
     }
 
@@ -515,7 +549,10 @@ impl<T: PartialOrd + core::fmt::Debug> Expect<T> {
             Ok(())
         } else {
             let desc = self.description.unwrap_or_else(|| String::from("Value"));
-            Err(format!("{}: {:?} is not less than {:?}", desc, self.value, other))
+            Err(format!(
+                "{}: {:?} is not less than {:?}",
+                desc, self.value, other
+            ))
         }
     }
 }

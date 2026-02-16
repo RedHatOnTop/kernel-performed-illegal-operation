@@ -11,17 +11,17 @@
 //! use userlib::std::net::TcpStream;
 //! ```
 
-pub mod net;
+pub mod env;
 pub mod fs;
 pub mod io;
-pub mod time;
+pub mod net;
 pub mod sync;
 pub mod thread;
-pub mod env;
+pub mod time;
 
 /// Prelude for std compatibility
 pub mod prelude {
-    pub use super::io::{Read, Write, BufRead};
     pub use super::fs::File;
+    pub use super::io::{BufRead, Read, Write};
     pub use super::net::TcpStream;
 }

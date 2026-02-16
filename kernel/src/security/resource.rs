@@ -8,8 +8,8 @@ use alloc::string::String;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, RwLock};
 
-use crate::process::ProcessId;
 use crate::browser::coordinator::TabId;
+use crate::process::ProcessId;
 
 /// Resource group identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -37,7 +37,7 @@ impl Default for CpuLimits {
     fn default() -> Self {
         CpuLimits {
             quota_us: 0,
-            period_us: 100_000,  // 100ms
+            period_us: 100_000, // 100ms
             shares: 1024,
             max_cores: 0,
         }
@@ -48,7 +48,7 @@ impl CpuLimits {
     /// Create restrictive CPU limits.
     pub fn restrictive() -> Self {
         CpuLimits {
-            quota_us: 90_000,   // 90ms per 100ms = 90%
+            quota_us: 90_000, // 90ms per 100ms = 90%
             period_us: 100_000,
             shares: 512,
             max_cores: 2,
@@ -90,10 +90,10 @@ impl MemoryLimits {
     /// Create typical browser tab limits.
     pub fn browser_tab() -> Self {
         MemoryLimits {
-            max_bytes: 512 * 1024 * 1024,    // 512MB hard limit
-            high_bytes: 256 * 1024 * 1024,   // 256MB soft limit
-            low_bytes: 32 * 1024 * 1024,     // 32MB protected
-            min_bytes: 16 * 1024 * 1024,     // 16MB guaranteed
+            max_bytes: 512 * 1024 * 1024,  // 512MB hard limit
+            high_bytes: 256 * 1024 * 1024, // 256MB soft limit
+            low_bytes: 32 * 1024 * 1024,   // 32MB protected
+            min_bytes: 16 * 1024 * 1024,   // 16MB guaranteed
             include_kernel: true,
             oom_kill: true,
         }
@@ -278,30 +278,35 @@ impl ResourceUsage {
             self.memory.peak_bytes.load(Ordering::Relaxed),
         )
     }
-    
+
     /// Add CPU time.
     pub fn add_cpu_time(&self, user_ns: u64, system_ns: u64) {
         self.cpu.user_ns.fetch_add(user_ns, Ordering::Relaxed);
         self.cpu.system_ns.fetch_add(system_ns, Ordering::Relaxed);
-        self.cpu.total_ns.fetch_add(user_ns + system_ns, Ordering::Relaxed);
+        self.cpu
+            .total_ns
+            .fetch_add(user_ns + system_ns, Ordering::Relaxed);
     }
-    
+
     /// Update memory usage.
     pub fn update_memory(&self, current: u64) {
         self.memory.current_bytes.store(current, Ordering::Relaxed);
-        
+
         // Update peak if needed
         let mut peak = self.memory.peak_bytes.load(Ordering::Relaxed);
         while current > peak {
             match self.memory.peak_bytes.compare_exchange_weak(
-                peak, current, Ordering::Relaxed, Ordering::Relaxed
+                peak,
+                current,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
             ) {
                 Ok(_) => break,
                 Err(p) => peak = p,
             }
         }
     }
-    
+
     /// Add I/O.
     pub fn add_io(&self, read_bytes: u64, write_bytes: u64) {
         if read_bytes > 0 {
@@ -309,7 +314,9 @@ impl ResourceUsage {
             self.io.read_ops.fetch_add(1, Ordering::Relaxed);
         }
         if write_bytes > 0 {
-            self.io.write_bytes.fetch_add(write_bytes, Ordering::Relaxed);
+            self.io
+                .write_bytes
+                .fetch_add(write_bytes, Ordering::Relaxed);
             self.io.write_ops.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -349,52 +356,53 @@ impl ResourceGroup {
             frozen: false,
         }
     }
-    
+
     /// Add a process.
     pub fn add_process(&mut self, pid: ProcessId) -> Result<(), ResourceError> {
-        if self.limits.max_processes > 0 
-           && self.processes.len() >= self.limits.max_processes as usize {
+        if self.limits.max_processes > 0
+            && self.processes.len() >= self.limits.max_processes as usize
+        {
             return Err(ResourceError::ProcessLimit);
         }
         self.processes.insert(pid, ());
         Ok(())
     }
-    
+
     /// Remove a process.
     pub fn remove_process(&mut self, pid: ProcessId) {
         self.processes.remove(&pid);
     }
-    
+
     /// Check memory limit.
     pub fn check_memory(&self, additional: u64) -> Result<(), ResourceError> {
         if self.limits.memory.max_bytes == 0 {
             return Ok(());
         }
-        
+
         let current = self.usage.memory.current_bytes.load(Ordering::Relaxed);
         if current + additional > self.limits.memory.max_bytes {
             return Err(ResourceError::MemoryLimit);
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if throttled.
     pub fn is_cpu_throttled(&self) -> bool {
         if self.limits.cpu.quota_us == 0 {
             return false;
         }
-        
+
         // Simplified check - in reality would track time windows
         let used = self.usage.cpu.total_ns.load(Ordering::Relaxed) / 1000;
         used >= self.limits.cpu.quota_us
     }
-    
+
     /// Freeze the group.
     pub fn freeze(&mut self) {
         self.frozen = true;
     }
-    
+
     /// Thaw the group.
     pub fn thaw(&mut self) {
         self.frozen = false;
@@ -439,18 +447,14 @@ impl ResourceManager {
             tab_group: BTreeMap::new(),
             next_id: 1,
         };
-        
+
         // Create root group
-        let root = ResourceGroup::new(
-            ResourceGroupId::ROOT,
-            "root",
-            ResourceLimits::default(),
-        );
+        let root = ResourceGroup::new(ResourceGroupId::ROOT, "root", ResourceLimits::default());
         mgr.groups.insert(ResourceGroupId::ROOT, Mutex::new(root));
-        
+
         mgr
     }
-    
+
     /// Create a resource group.
     pub fn create_group(
         &mut self,
@@ -460,73 +464,88 @@ impl ResourceManager {
     ) -> ResourceGroupId {
         let id = ResourceGroupId(self.next_id);
         self.next_id += 1;
-        
+
         let mut group = ResourceGroup::new(id, name, limits);
         group.parent = parent;
-        
+
         // Add to parent's children
         if let Some(parent_id) = parent {
             if let Some(parent_group) = self.groups.get(&parent_id) {
                 parent_group.lock().children.push(id);
             }
         }
-        
+
         crate::serial_println!("[Resource] Created group {} ({})", id.0, name);
-        
+
         self.groups.insert(id, Mutex::new(group));
-        
+
         id
     }
-    
+
     /// Create group for browser tab.
     pub fn create_tab_group(&mut self, tab: TabId) -> ResourceGroupId {
         let name = alloc::format!("tab_{}", tab.0);
-        let id = self.create_group(&name, ResourceLimits::browser_tab(), Some(ResourceGroupId::ROOT));
+        let id = self.create_group(
+            &name,
+            ResourceLimits::browser_tab(),
+            Some(ResourceGroupId::ROOT),
+        );
         self.tab_group.insert(tab, id);
         id
     }
-    
+
     /// Add process to group.
-    pub fn add_process(&mut self, group_id: ResourceGroupId, pid: ProcessId) -> Result<(), ResourceError> {
+    pub fn add_process(
+        &mut self,
+        group_id: ResourceGroupId,
+        pid: ProcessId,
+    ) -> Result<(), ResourceError> {
         let group = self.groups.get(&group_id).ok_or(ResourceError::NotFound)?;
         group.lock().add_process(pid)?;
         self.process_group.insert(pid, group_id);
         Ok(())
     }
-    
+
     /// Get group for process.
     pub fn process_group(&self, pid: ProcessId) -> Option<ResourceGroupId> {
         self.process_group.get(&pid).copied()
     }
-    
+
     /// Check memory allocation.
     pub fn check_memory_alloc(&self, pid: ProcessId, size: u64) -> Result<(), ResourceError> {
-        let group_id = self.process_group.get(&pid).copied()
+        let group_id = self
+            .process_group
+            .get(&pid)
+            .copied()
             .unwrap_or(ResourceGroupId::ROOT);
-        
+
         if let Some(group) = self.groups.get(&group_id) {
             group.lock().check_memory(size)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Report memory usage.
     pub fn report_memory(&self, pid: ProcessId, current: u64) {
-        let group_id = self.process_group.get(&pid).copied()
+        let group_id = self
+            .process_group
+            .get(&pid)
+            .copied()
             .unwrap_or(ResourceGroupId::ROOT);
-        
+
         if let Some(group) = self.groups.get(&group_id) {
             group.lock().usage.update_memory(current);
         }
     }
-    
+
     /// Get group usage.
     pub fn get_usage(&self, group_id: ResourceGroupId) -> Option<(u64, u64)> {
-        self.groups.get(&group_id)
+        self.groups
+            .get(&group_id)
             .map(|g| g.lock().usage.memory_snapshot())
     }
-    
+
     /// Clean up for tab.
     pub fn cleanup_tab(&mut self, tab: TabId) {
         if let Some(group_id) = self.tab_group.remove(&tab) {
@@ -558,7 +577,8 @@ pub fn create_tab_group(tab: TabId) -> Option<ResourceGroupId> {
 
 /// Add process to group.
 pub fn add_process(group_id: ResourceGroupId, pid: ProcessId) -> Result<(), ResourceError> {
-    RESOURCE_MANAGER.write()
+    RESOURCE_MANAGER
+        .write()
         .as_mut()
         .ok_or(ResourceError::InvalidOperation)?
         .add_process(group_id, pid)
@@ -566,7 +586,8 @@ pub fn add_process(group_id: ResourceGroupId, pid: ProcessId) -> Result<(), Reso
 
 /// Check memory allocation.
 pub fn check_memory(pid: ProcessId, size: u64) -> Result<(), ResourceError> {
-    RESOURCE_MANAGER.read()
+    RESOURCE_MANAGER
+        .read()
         .as_ref()
         .ok_or(ResourceError::InvalidOperation)?
         .check_memory_alloc(pid, size)

@@ -5,10 +5,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::{ServiceWorkerId, Scope, ScriptUrl, UpdateState};
+use super::{Scope, ScriptUrl, ServiceWorkerId, UpdateState};
 
 /// A service worker registration
-/// 
+///
 /// Represents a registration between a service worker and its scope.
 #[derive(Debug)]
 pub struct ServiceWorkerRegistration {
@@ -239,5 +239,121 @@ pub enum WorkerType {
 impl Default for WorkerType {
     fn default() -> Self {
         Self::Classic
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service_worker::{Scope, ScriptUrl, ServiceWorkerId, UpdateState};
+
+    fn make_registration() -> ServiceWorkerRegistration {
+        let id = ServiceWorkerId::new();
+        let scope = Scope::new("/app");
+        let url = ScriptUrl::new("/sw.js");
+        ServiceWorkerRegistration::new(id, scope, url)
+    }
+
+    #[test]
+    fn test_registration_creation() {
+        let reg = make_registration();
+        assert_eq!(reg.scope().path(), "/app/");
+        assert_eq!(reg.script_url().url(), "/sw.js");
+        assert_eq!(reg.update_state(), UpdateState::None);
+        assert!(reg.installing().is_none());
+        assert!(reg.waiting().is_none());
+        assert!(reg.active().is_none());
+    }
+
+    #[test]
+    fn test_set_installing_waiting_active() {
+        let mut reg = make_registration();
+        let id = ServiceWorkerId::new();
+        reg.set_installing(Some(id));
+        assert_eq!(reg.installing(), Some(id));
+        reg.set_waiting(Some(id));
+        assert_eq!(reg.waiting(), Some(id));
+        reg.set_active(Some(id));
+        assert_eq!(reg.active(), Some(id));
+    }
+
+    #[test]
+    fn test_unregister_clears_workers() {
+        let mut reg = make_registration();
+        let id = ServiceWorkerId::new();
+        reg.set_installing(Some(id));
+        reg.set_waiting(Some(id));
+        reg.set_active(Some(id));
+        reg.unregister();
+        assert!(reg.installing().is_none());
+        assert!(reg.waiting().is_none());
+        assert!(reg.active().is_none());
+    }
+
+    #[test]
+    fn test_update_sets_checking() {
+        let mut reg = make_registration();
+        reg.update();
+        assert_eq!(reg.update_state(), UpdateState::Checking);
+    }
+
+    #[test]
+    fn test_navigation_preload_default() {
+        let state = NavigationPreloadState::new();
+        assert!(!state.enabled());
+        assert_eq!(state.header_value(), Some("true"));
+    }
+
+    #[test]
+    fn test_navigation_preload_enable_disable() {
+        let mut state = NavigationPreloadState::new();
+        state.enable();
+        assert!(state.enabled());
+        state.disable();
+        assert!(!state.enabled());
+    }
+
+    #[test]
+    fn test_navigation_preload_header_value() {
+        let mut state = NavigationPreloadState::new();
+        state.set_header_value("custom-value");
+        assert_eq!(state.header_value(), Some("custom-value"));
+    }
+
+    #[test]
+    fn test_sync_tags_register_dedup() {
+        let mut reg = make_registration();
+        reg.register_sync("tag1".into());
+        reg.register_sync("tag1".into()); // duplicate
+        reg.register_sync("tag2".into());
+        assert_eq!(reg.sync_tags().len(), 2);
+    }
+
+    #[test]
+    fn test_sync_tags_unregister() {
+        let mut reg = make_registration();
+        reg.register_sync("tag1".into());
+        reg.register_sync("tag2".into());
+        reg.unregister_sync("tag1");
+        assert_eq!(reg.sync_tags().len(), 1);
+        assert_eq!(reg.sync_tags()[0], "tag2");
+    }
+
+    #[test]
+    fn test_push_endpoint() {
+        let mut reg = make_registration();
+        assert!(reg.push_endpoint().is_none());
+        reg.set_push_endpoint(Some("https://push.example.com/endpoint".into()));
+        assert_eq!(
+            reg.push_endpoint(),
+            Some("https://push.example.com/endpoint")
+        );
+    }
+
+    #[test]
+    fn test_registration_options_default() {
+        let opts = RegistrationOptions::default();
+        assert!(opts.scope.is_none());
+        assert_eq!(opts.script_type, WorkerType::Classic);
     }
 }

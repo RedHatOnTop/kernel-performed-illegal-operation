@@ -24,14 +24,14 @@
 
 extern crate alloc;
 
-pub mod syscall;
-pub mod io;
-pub mod process;
-pub mod mem;
-pub mod ipc;
-pub mod thread;
 pub mod allocator;
 pub mod app;
+pub mod io;
+pub mod ipc;
+pub mod mem;
+pub mod process;
+pub mod syscall;
+pub mod thread;
 
 /// std compatibility layer for running std-based applications
 pub mod std;
@@ -39,8 +39,8 @@ pub mod std;
 /// Re-export commonly used types.
 pub mod prelude {
     pub use crate::io::{print, println};
+    pub use crate::process::{exit, getpid};
     pub use crate::syscall::SyscallError;
-    pub use crate::process::{getpid, exit};
 }
 
 // Global allocator for userspace applications

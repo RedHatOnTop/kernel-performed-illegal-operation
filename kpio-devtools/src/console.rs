@@ -6,10 +6,10 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::fmt;
 
 /// Console message type.
@@ -198,12 +198,12 @@ impl RemoteObject {
             preview: None,
         }
     }
-    
+
     /// Create an undefined value.
     pub fn undefined() -> Self {
         Self::primitive(ObjectType::Undefined, None)
     }
-    
+
     /// Create a null value.
     pub fn null() -> Self {
         Self {
@@ -217,12 +217,12 @@ impl RemoteObject {
             preview: None,
         }
     }
-    
+
     /// Create a boolean value.
     pub fn boolean(value: bool) -> Self {
         Self::primitive(ObjectType::Boolean, Some(value.to_string()))
     }
-    
+
     /// Create a number value.
     pub fn number(value: f64) -> Self {
         if value.is_nan() {
@@ -237,7 +237,11 @@ impl RemoteObject {
                 preview: None,
             }
         } else if value.is_infinite() {
-            let desc = if value.is_sign_positive() { "Infinity" } else { "-Infinity" };
+            let desc = if value.is_sign_positive() {
+                "Infinity"
+            } else {
+                "-Infinity"
+            };
             Self {
                 object_type: ObjectType::Number,
                 subtype: None,
@@ -259,12 +263,12 @@ impl RemoteObject {
             Self::primitive(ObjectType::Number, Some(desc))
         }
     }
-    
+
     /// Create a string value.
     pub fn string(value: &str) -> Self {
         Self::primitive(ObjectType::String, Some(value.to_string()))
     }
-    
+
     /// Create a symbol value.
     pub fn symbol(description: &str) -> Self {
         Self {
@@ -278,7 +282,7 @@ impl RemoteObject {
             preview: None,
         }
     }
-    
+
     /// Create a BigInt value.
     pub fn bigint(value: &str) -> Self {
         Self {
@@ -292,7 +296,7 @@ impl RemoteObject {
             preview: None,
         }
     }
-    
+
     /// Create an object value.
     pub fn object(class_name: &str, object_id: RemoteObjectId) -> Self {
         Self {
@@ -306,7 +310,7 @@ impl RemoteObject {
             preview: None,
         }
     }
-    
+
     /// Create an array value.
     pub fn array(length: usize, object_id: RemoteObjectId) -> Self {
         Self {
@@ -320,7 +324,7 @@ impl RemoteObject {
             preview: None,
         }
     }
-    
+
     /// Create a function value.
     pub fn function(name: &str, object_id: RemoteObjectId) -> Self {
         Self {
@@ -334,7 +338,7 @@ impl RemoteObject {
             preview: None,
         }
     }
-    
+
     /// Create an error value.
     pub fn error(message: &str, object_id: RemoteObjectId) -> Self {
         Self {
@@ -490,12 +494,12 @@ impl StackTrace {
             parent_id: None,
         }
     }
-    
+
     /// Add a call frame.
     pub fn push_frame(&mut self, frame: CallFrame) {
         self.call_frames.push(frame);
     }
-    
+
     /// Format as string.
     pub fn format(&self) -> String {
         let mut result = String::new();
@@ -542,15 +546,10 @@ pub struct CallFrame {
 
 impl CallFrame {
     /// Create a new call frame.
-    pub fn new(
-        function_name: &str,
-        url: &str,
-        line_number: i32,
-        column_number: i32,
-    ) -> Self {
+    pub fn new(function_name: &str, url: &str, line_number: i32, column_number: i32) -> Self {
         static FRAME_ID: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
         let id = FRAME_ID.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-        
+
         Self {
             call_frame_id: alloc::format!("frame-{}", id),
             function_name: function_name.to_string(),
@@ -608,7 +607,7 @@ impl ConsoleMessage {
             timestamp: 0.0,
         }
     }
-    
+
     /// Set location.
     pub fn with_location(mut self, url: &str, line: i32, column: i32) -> Self {
         self.url = Some(url.to_string());
@@ -616,13 +615,13 @@ impl ConsoleMessage {
         self.column = Some(column);
         self
     }
-    
+
     /// Set stack trace.
     pub fn with_stack_trace(mut self, stack_trace: StackTrace) -> Self {
         self.stack_trace = Some(stack_trace);
         self
     }
-    
+
     /// Add argument.
     pub fn with_arg(mut self, arg: RemoteObject) -> Self {
         self.args.push(arg);
@@ -658,13 +657,13 @@ impl Console {
             group_depth: 0,
         }
     }
-    
+
     /// Set message limit.
     pub fn set_message_limit(&mut self, limit: usize) {
         self.message_limit = limit;
         self.trim_messages();
     }
-    
+
     /// Add a message.
     pub fn add_message(&mut self, message: ConsoleMessage) -> u64 {
         let id = self.next_message_id;
@@ -673,14 +672,14 @@ impl Console {
         self.trim_messages();
         id
     }
-    
+
     /// Trim old messages.
     fn trim_messages(&mut self) {
         while self.messages.len() > self.message_limit {
             self.messages.remove(0);
         }
     }
-    
+
     /// Log a message.
     pub fn log(&mut self, args: Vec<RemoteObject>) -> u64 {
         let text = self.format_args(&args);
@@ -689,7 +688,7 @@ impl Console {
         message.args = args;
         self.add_message(message)
     }
-    
+
     /// Log a debug message.
     pub fn debug(&mut self, args: Vec<RemoteObject>) -> u64 {
         let text = self.format_args(&args);
@@ -698,7 +697,7 @@ impl Console {
         message.args = args;
         self.add_message(message)
     }
-    
+
     /// Log an info message.
     pub fn info(&mut self, args: Vec<RemoteObject>) -> u64 {
         let text = self.format_args(&args);
@@ -707,7 +706,7 @@ impl Console {
         message.args = args;
         self.add_message(message)
     }
-    
+
     /// Log a warning.
     pub fn warn(&mut self, args: Vec<RemoteObject>) -> u64 {
         let text = self.format_args(&args);
@@ -716,7 +715,7 @@ impl Console {
         message.args = args;
         self.add_message(message)
     }
-    
+
     /// Log an error.
     pub fn error(&mut self, args: Vec<RemoteObject>) -> u64 {
         let text = self.format_args(&args);
@@ -725,7 +724,7 @@ impl Console {
         message.args = args;
         self.add_message(message)
     }
-    
+
     /// Log a trace.
     pub fn trace(&mut self, args: Vec<RemoteObject>, stack_trace: StackTrace) -> u64 {
         let text = self.format_args(&args);
@@ -735,12 +734,15 @@ impl Console {
         message.stack_trace = Some(stack_trace);
         self.add_message(message)
     }
-    
+
     /// Assert.
     pub fn assert(&mut self, condition: bool, args: Vec<RemoteObject>) -> Option<u64> {
         if !condition {
             let text = self.format_args(&args);
-            let mut message = ConsoleMessage::new(MessageLevel::Error, &alloc::format!("Assertion failed: {}", text));
+            let mut message = ConsoleMessage::new(
+                MessageLevel::Error,
+                &alloc::format!("Assertion failed: {}", text),
+            );
             message.message_type = MessageType::Assert;
             message.args = args;
             Some(self.add_message(message))
@@ -748,7 +750,7 @@ impl Console {
             None
         }
     }
-    
+
     /// Clear the console.
     pub fn clear(&mut self) -> u64 {
         self.messages.clear();
@@ -756,7 +758,7 @@ impl Console {
         let message = ConsoleMessage::new(MessageLevel::Info, "Console was cleared");
         self.add_message(message)
     }
-    
+
     /// Start a group.
     pub fn group(&mut self, label: Option<&str>) -> u64 {
         let text = label.unwrap_or("console.group").to_string();
@@ -765,7 +767,7 @@ impl Console {
         self.group_depth += 1;
         self.add_message(message)
     }
-    
+
     /// Start a collapsed group.
     pub fn group_collapsed(&mut self, label: Option<&str>) -> u64 {
         let text = label.unwrap_or("console.groupCollapsed").to_string();
@@ -774,7 +776,7 @@ impl Console {
         self.group_depth += 1;
         self.add_message(message)
     }
-    
+
     /// End a group.
     pub fn group_end(&mut self) -> u64 {
         if self.group_depth > 0 {
@@ -784,12 +786,12 @@ impl Console {
         message.message_type = MessageType::EndGroup;
         self.add_message(message)
     }
-    
+
     /// Start a timer.
     pub fn time(&mut self, label: &str, timestamp: f64) {
         self.timers.insert(label.to_string(), timestamp);
     }
-    
+
     /// Log timer value.
     pub fn time_log(&mut self, label: &str, timestamp: f64) -> Option<u64> {
         if let Some(&start) = self.timers.get(label) {
@@ -801,7 +803,7 @@ impl Console {
             None
         }
     }
-    
+
     /// End a timer.
     pub fn time_end(&mut self, label: &str, timestamp: f64) -> Option<u64> {
         if let Some(start) = self.timers.remove(label) {
@@ -814,7 +816,7 @@ impl Console {
             None
         }
     }
-    
+
     /// Count.
     pub fn count(&mut self, label: &str) -> u64 {
         let count = self.counters.entry(label.to_string()).or_insert(0);
@@ -824,12 +826,12 @@ impl Console {
         message.message_type = MessageType::Count;
         self.add_message(message)
     }
-    
+
     /// Reset counter.
     pub fn count_reset(&mut self, label: &str) {
         self.counters.insert(label.to_string(), 0);
     }
-    
+
     /// Dir (object inspection).
     pub fn dir(&mut self, object: RemoteObject) -> u64 {
         let text = object.description.clone().unwrap_or_default();
@@ -838,10 +840,13 @@ impl Console {
         message.args = alloc::vec![object];
         self.add_message(message)
     }
-    
+
     /// Table.
     pub fn table(&mut self, data: RemoteObject, columns: Option<Vec<String>>) -> u64 {
-        let text = data.description.clone().unwrap_or_else(|| "table".to_string());
+        let text = data
+            .description
+            .clone()
+            .unwrap_or_else(|| "table".to_string());
         let mut message = ConsoleMessage::new(MessageLevel::Info, &text);
         message.message_type = MessageType::Table;
         message.args = alloc::vec![data];
@@ -850,17 +855,17 @@ impl Console {
         }
         self.add_message(message)
     }
-    
+
     /// Get all messages.
     pub fn messages(&self) -> &[ConsoleMessage] {
         &self.messages
     }
-    
+
     /// Get message count.
     pub fn message_count(&self) -> usize {
         self.messages.len()
     }
-    
+
     /// Format arguments to string.
     fn format_args(&self, args: &[RemoteObject]) -> String {
         let mut parts = Vec::new();
@@ -913,24 +918,28 @@ impl ReplContext {
             history_position: 0,
         }
     }
-    
+
     /// Generate a new object ID.
     pub fn new_object_id(&mut self) -> RemoteObjectId {
-        let id = RemoteObjectId(alloc::format!("{{\"injectedScriptId\":{},\"id\":{}}}", 1, self.next_object_id));
+        let id = RemoteObjectId(alloc::format!(
+            "{{\"injectedScriptId\":{},\"id\":{}}}",
+            1,
+            self.next_object_id
+        ));
         self.next_object_id += 1;
         id
     }
-    
+
     /// Set a variable.
     pub fn set_variable(&mut self, name: &str, object_id: RemoteObjectId) {
         self.variables.insert(name.to_string(), object_id);
     }
-    
+
     /// Get a variable.
     pub fn get_variable(&self, name: &str) -> Option<&RemoteObjectId> {
         self.variables.get(name)
     }
-    
+
     /// Add to history.
     pub fn add_to_history(&mut self, expression: &str) {
         if !expression.is_empty() {
@@ -938,7 +947,7 @@ impl ReplContext {
             self.history_position = self.history.len();
         }
     }
-    
+
     /// Get previous history entry.
     pub fn history_previous(&mut self) -> Option<&str> {
         if self.history_position > 0 {
@@ -948,7 +957,7 @@ impl ReplContext {
             None
         }
     }
-    
+
     /// Get next history entry.
     pub fn history_next(&mut self) -> Option<&str> {
         if self.history_position < self.history.len() {
@@ -962,11 +971,11 @@ impl ReplContext {
             None
         }
     }
-    
+
     /// Evaluate an expression (simplified - would delegate to JS engine).
     pub fn evaluate(&mut self, expression: &str) -> EvaluationResult {
         self.add_to_history(expression);
-        
+
         // Very simplified evaluation for demo
         if expression == "undefined" {
             return EvaluationResult::success(RemoteObject::undefined());
@@ -984,13 +993,16 @@ impl ReplContext {
             return EvaluationResult::success(RemoteObject::number(num));
         }
         if expression.starts_with('"') && expression.ends_with('"') && expression.len() >= 2 {
-            let s = &expression[1..expression.len()-1];
+            let s = &expression[1..expression.len() - 1];
             return EvaluationResult::success(RemoteObject::string(s));
         }
-        
+
         // Unknown expression - would need real JS engine
         EvaluationResult::exception(
-            RemoteObject::error("ReferenceError: expression evaluation not implemented", self.new_object_id()),
+            RemoteObject::error(
+                "ReferenceError: expression evaluation not implemented",
+                self.new_object_id(),
+            ),
             None,
         )
     }
@@ -1019,10 +1031,13 @@ impl EvaluationResult {
             exception_details: None,
         }
     }
-    
+
     /// Create an exception result.
     pub fn exception(error: RemoteObject, stack_trace: Option<StackTrace>) -> Self {
-        let text = error.description.clone().unwrap_or_else(|| "Unknown error".to_string());
+        let text = error
+            .description
+            .clone()
+            .unwrap_or_else(|| "Unknown error".to_string());
         Self {
             result: error.clone(),
             exception_details: Some(ExceptionDetails {
@@ -1063,7 +1078,7 @@ pub struct ExceptionDetails {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_console_log() {
         let mut console = Console::new();
@@ -1071,7 +1086,7 @@ mod tests {
         assert!(id > 0);
         assert_eq!(console.message_count(), 1);
     }
-    
+
     #[test]
     fn test_console_timer() {
         let mut console = Console::new();
@@ -1079,7 +1094,7 @@ mod tests {
         let id = console.time_end("test", 100.0);
         assert!(id.is_some());
     }
-    
+
     #[test]
     fn test_console_counter() {
         let mut console = Console::new();
@@ -1088,25 +1103,25 @@ mod tests {
         console.count("test");
         assert_eq!(console.message_count(), 3);
     }
-    
+
     #[test]
     fn test_remote_object() {
         let num = RemoteObject::number(42.0);
         assert_eq!(num.object_type, ObjectType::Number);
         assert_eq!(num.value, Some("42".to_string()));
-        
+
         let nan = RemoteObject::number(f64::NAN);
         assert_eq!(nan.unserializable_value, Some("NaN".to_string()));
     }
-    
+
     #[test]
     fn test_repl_evaluate() {
         let mut repl = ReplContext::new();
-        
+
         let result = repl.evaluate("42");
         assert!(result.exception_details.is_none());
         assert_eq!(result.result.object_type, ObjectType::Number);
-        
+
         let result = repl.evaluate("\"hello\"");
         assert_eq!(result.result.object_type, ObjectType::String);
     }

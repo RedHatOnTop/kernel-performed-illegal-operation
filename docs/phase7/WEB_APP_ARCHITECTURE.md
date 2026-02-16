@@ -1,18 +1,18 @@
-# KPIO Web App Platform — 내부 아키텍처
+# KPIO Web App Platform — Internal Architecture
 
-Phase 7-1에서 구현된 웹 앱 플랫폼의 내부 아키텍처를 설명합니다.
+Describes the internal architecture of the web app platform implemented in Phase 7-1.
 
-## 전체 구조
+## Overall Structure
 
 ```
-사용자 (클릭/키보드)
+User (click/keyboard)
     │
     ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  kernel/src/gui/                                             │
 │  ┌──────────┐  ┌──────────┐  ┌─────────────┐  ┌──────────┐ │
 │  │ Desktop  │  │ Taskbar  │  │ Notification │  │  Toast   │ │
-│  │ (아이콘)  │  │ (실행 앱) │  │   Panel     │  │ (알림)   │ │
+│  │ (icons)  │  │(run apps)│  │   Panel     │  │ (alerts) │ │
 │  └────┬─────┘  └────┬─────┘  └──────┬──────┘  └────┬─────┘ │
 │       ▼              ▼               ▼               ▼       │
 │  ┌──────────────────────────────────────────────────────┐    │
@@ -20,12 +20,12 @@ Phase 7-1에서 구현된 웹 앱 플랫폼의 내부 아키텍처를 설명합�
 │  │  display_mode | theme_color | scope | splashscreen   │    │
 │  └───────────────────────┬──────────────────────────────┘    │
 └──────────────────────────┼───────────────────────────────────┘
-                           │ 시스콜 (106-111)
+                           │ Syscalls (106-111)
 ┌──────────────────────────┼───────────────────────────────────┐
 │  kernel/src/app/         ▼                                    │
 │  ┌──────────┐  ┌──────────────┐  ┌────────────────┐         │
 │  │ Registry │  │  Lifecycle   │  │  Permissions   │         │
-│  │ (등록/조회)│  │ (실행/종료)  │  │ (권한 검사)    │         │
+│  │(reg/query)│  │(launch/exit) │  │(access check)  │         │
 │  └────┬─────┘  └──────┬───────┘  └───────┬────────┘         │
 │       │               │                  │                    │
 │  ┌────┴───────────────┴──────────────────┴────────────┐      │
@@ -55,89 +55,89 @@ Phase 7-1에서 구현된 웹 앱 플랫폼의 내부 아키텍처를 설명합�
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## 컴포넌트 상세
+## Component Details
 
-### 1. 커널 앱 매니저 (`kernel/src/app/`)
+### 1. Kernel App Manager (`kernel/src/app/`)
 
-| 파일 | 역할 |
+| File | Role |
 |------|------|
-| `registry.rs` | 앱 등록/조회/삭제. `APP_REGISTRY: Mutex<AppRegistry>` 글로벌 |
-| `lifecycle.rs` | 앱 인스턴스 생성/종료/상태 관리 |
-| `permissions.rs` | 파일시스템/네트워크 접근 권한 검사 |
-| `error.rs` | `AppError` 에러 타입 |
-| `window_state.rs` | 윈도우 위치/크기 영속화 |
+| `registry.rs` | App registration/query/deletion. `APP_REGISTRY: Mutex<AppRegistry>` global |
+| `lifecycle.rs` | App instance creation/termination/state management |
+| `permissions.rs` | Filesystem/network access permission checks |
+| `error.rs` | `AppError` error type |
+| `window_state.rs` | Window position/size persistence |
 
-### 2. GUI 통합 (`kernel/src/gui/`)
+### 2. GUI Integration (`kernel/src/gui/`)
 
-| 파일 | 역할 |
+| File | Role |
 |------|------|
 | `window.rs` | `WindowContent::WebApp` variant, `PwaDisplayMode`, `new_webapp()` |
 | `desktop.rs` | `IconType::InstalledApp`, `refresh_app_icons()` |
-| `taskbar.rs` | `AppType::WebApp`, 태스크바 항목 |
-| `splash.rs` | PWA 스플래시 스크린 렌더링 |
-| `notification.rs` | `NotificationCenter` (50건 이력, FIFO) |
-| `toast.rs` | `ToastManager` (최대 3개, 5초 자동 사라짐) |
-| `notification_panel.rs` | 벨 아이콘 + 알림 패널 |
+| `taskbar.rs` | `AppType::WebApp`, taskbar entries |
+| `splash.rs` | PWA splash screen rendering |
+| `notification.rs` | `NotificationCenter` (50-item history, FIFO) |
+| `toast.rs` | `ToastManager` (max 3, 5-second auto-dismiss) |
+| `notification_panel.rs` | Bell icon + notification panel |
 
-### 3. PWA 엔진 (`kpio-browser/src/pwa/`)
+### 3. PWA Engine (`kpio-browser/src/pwa/`)
 
-| 파일 | 역할 |
+| File | Role |
 |------|------|
-| `manifest.rs` | Web App Manifest 파싱 |
-| `install.rs` | 설치/제거 매니저 |
-| `kernel_bridge.rs` | 커널 ↔ 브라우저 함수 포인터 브릿지 |
-| `sw_bridge.rs` | Service Worker 라이프사이클 관리 |
-| `cache_storage.rs` | Cache API (25MB 쿼터, LRU 축출) |
-| `fetch_interceptor.rs` | Fetch 가로채기 (CacheFirst/NetworkFirst/...) |
-| `web_storage.rs` | localStorage / sessionStorage (5MB 쿼터) |
+| `manifest.rs` | Web App Manifest parsing |
+| `install.rs` | Install/uninstall manager |
+| `kernel_bridge.rs` | Kernel ↔ Browser function pointer bridge |
+| `sw_bridge.rs` | Service Worker lifecycle management |
+| `cache_storage.rs` | Cache API (25MB quota, LRU eviction) |
+| `fetch_interceptor.rs` | Fetch interception (CacheFirst/NetworkFirst/...) |
+| `web_storage.rs` | localStorage / sessionStorage (5MB quota) |
 | `indexed_db.rs` | IndexedDB API (IDBFactory/Database/ObjectStore) |
-| `idb_engine.rs` | B-Tree KV 스토어 (50MB 쿼터) |
-| `notification_bridge.rs` | Notification API 권한 + 디스패치 |
-| `background_sync.rs` | Background Sync (재시도 백오프) |
+| `idb_engine.rs` | B-Tree KV store (50MB quota) |
+| `notification_bridge.rs` | Notification API permissions + dispatch |
+| `background_sync.rs` | Background Sync (retry backoff) |
 
-## 데이터 흐름
+## Data Flow
 
-### PWA 설치
+### PWA Installation
 
 ```
-사용자 "설치" 클릭
+User clicks "Install"
   → install.rs: InstallManager::start_install(manifest)
   → kernel_bridge.rs: pwa_install_to_kernel(name, scope, ...)
   → [function pointer callback]
   → kernel/browser/pwa_bridge.rs: bridge_install(...)
   → app/registry.rs: APP_REGISTRY.lock().register(WebApp {...})
   → gui/desktop.rs: Desktop::refresh_app_icons()
-  → 데스크톱에 아이콘 출현
+  → Icon appears on desktop
 ```
 
-### PWA 실행
+### PWA Launch
 
 ```
-데스크톱 아이콘 더블클릭
+Double-click desktop icon
   → gui/mod.rs: launch_app(AppType::WebApp { ... })
   → gui/window.rs: Window::new_webapp(...)
-  → splash.rs: render_splash() (잠시 표시)
-  → start_url 로드 → 앱 화면 표시
+  → splash.rs: render_splash() (displayed briefly)
+  → Load start_url → Display app screen
 ```
 
-### 알림
+### Notifications
 
 ```
-앱 JS: new Notification("제목", { body: "내용" })
+App JS: new Notification("Title", { body: "Content" })
   → notification_bridge.rs: show_notification(app_id, ...)
   → [kernel callback]
   → notification.rs: NOTIFICATION_CENTER.lock().show(...)
   → toast.rs: ToastManager::push(...)
-  → 화면 우상단에 토스트 렌더링
+  → Toast rendered in top-right corner
 ```
 
-### 오프라인 캐시
+### Offline Cache
 
 ```
-앱 fetch("/api/data")
+App fetch("/api/data")
   → fetch_interceptor.rs: intercept(url, scope)
-  → sw_bridge.rs: match_scope(url) → active SW 확인
-  → cache_storage.rs: match_url(url) → 캐시 히트
+  → sw_bridge.rs: match_scope(url) → Check active SW
+  → cache_storage.rs: match_url(url) → Cache hit
   → FetchResult::Response(cached_data)
 ```
 
@@ -148,53 +148,53 @@ Phase 7-1에서 구현된 웹 앱 플랫폼의 내부 아키텍처를 설명합�
 ├── apps/
 │   ├── data/
 │   │   └── {app_id}/
-│   │       ├── manifest.json      ← 저장된 매니페스트
-│   │       ├── window_state.json  ← 윈도우 위치/크기
-│   │       └── sync_tasks.json    ← Background Sync 태스크
+│   │       ├── manifest.json      ← Stored manifest
+│   │       ├── window_state.json  ← Window position/size
+│   │       └── sync_tasks.json    ← Background Sync tasks
 │   ├── cache/
 │   │   └── {app_id}/
-│   │       └── {cache_name}/      ← Cache API 데이터
+│   │       └── {cache_name}/      ← Cache API data
 │   └── storage/
 │       └── {app_id}/
 │           ├── local_storage.json ← localStorage
 │           └── idb/
-│               └── {db_name}/     ← IndexedDB 데이터
+│               └── {db_name}/     ← IndexedDB data
 ├── system/
 │   └── apps/
-│       ├── registry.json          ← 앱 레지스트리
+│       ├── registry.json          ← App registry
 │       └── permissions/
-│           └── {app_id}.json      ← 앱 권한 설정
+│           └── {app_id}.json      ← App permission settings
 ```
 
-## 시스콜 인터페이스
+## Syscall Interface
 
-| 번호 | 이름 | 인자 | 설명 |
-|------|------|------|------|
-| 106 | `AppInstall` | manifest_ptr, manifest_len | PWA 설치 |
-| 107 | `AppLaunch` | app_id | 앱 실행 |
-| 108 | `AppTerminate` | instance_id | 앱 종료 |
-| 109 | `AppGetInfo` | app_id, buf_ptr, buf_len | 앱 정보 조회 |
-| 110 | `AppList` | buf_ptr, buf_len | 앱 목록 조회 |
-| 111 | `AppUninstall` | app_id | 앱 제거 |
+| Number | Name | Arguments | Description |
+|--------|------|-----------|-------------|
+| 106 | `AppInstall` | manifest_ptr, manifest_len | Install PWA |
+| 107 | `AppLaunch` | app_id | Launch app |
+| 108 | `AppTerminate` | instance_id | Terminate app |
+| 109 | `AppGetInfo` | app_id, buf_ptr, buf_len | Query app info |
+| 110 | `AppList` | buf_ptr, buf_len | List apps |
+| 111 | `AppUninstall` | app_id | Uninstall app |
 
-## 순환 의존성 해결
+## Circular Dependency Resolution
 
-`kpio-browser` → `kpio-graphics` → `kpio-kernel` 의존 관계로 인해
-커널과 브라우저 사이 직접 크레이트 의존성이 불가합니다.
+Due to the `kpio-browser` → `kpio-graphics` → `kpio-kernel` dependency chain,
+direct crate dependency between kernel and browser is not possible.
 
-**해결**: 함수 포인터 콜백 브릿지
+**Solution**: Function pointer callback bridge
 
 ```rust
-// kpio-browser 측 (콜백 등록)
+// kpio-browser side (callback registration)
 static INSTALL_CALLBACK: RwLock<Option<fn(...)>> = RwLock::new(None);
 
 pub fn register_kernel_callbacks(install_fn: fn(...)) {
     *INSTALL_CALLBACK.write() = Some(install_fn);
 }
 
-// kernel 측 (콜백 제공)
+// kernel side (callback provider)
 fn bridge_install(...) { /* APP_REGISTRY.lock().register(...) */ }
 
-// 초기화 시
+// During initialization
 kpio_browser::pwa::kernel_bridge::register_kernel_callbacks(bridge_install);
 ```

@@ -5,11 +5,11 @@
 #![no_std]
 extern crate alloc;
 
-pub mod html;
 pub mod css;
+pub mod harness;
+pub mod html;
 pub mod js;
 pub mod network;
-pub mod harness;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -18,10 +18,10 @@ use alloc::vec::Vec;
 pub trait FuzzTarget {
     /// Name of the fuzz target
     fn name(&self) -> &str;
-    
+
     /// Run fuzzing iteration with input
     fn fuzz(&mut self, input: &[u8]) -> FuzzResult;
-    
+
     /// Reset state between iterations
     fn reset(&mut self);
 }
@@ -237,7 +237,7 @@ impl Mutator {
     /// Mutate input
     pub fn mutate(&mut self, input: &mut Vec<u8>) {
         let strategy = self.random() % 10;
-        
+
         match strategy {
             0 => self.bit_flip(input),
             1 => self.byte_flip(input),
@@ -390,7 +390,7 @@ impl Corpus {
     pub fn add(&mut self, data: Vec<u8>, coverage: u64) -> bool {
         // Check if this provides new coverage
         let dominated = self.entries.iter().any(|e| e.coverage >= coverage);
-        
+
         if !dominated {
             self.entries.push(CorpusEntry {
                 data,
@@ -398,13 +398,13 @@ impl Corpus {
                 exec_count: 1,
                 timestamp: 0,
             });
-            
+
             // Trim if too large
             if self.entries.len() > self.max_size {
                 self.entries.sort_by_key(|e| core::cmp::Reverse(e.coverage));
                 self.entries.truncate(self.max_size);
             }
-            
+
             true
         } else {
             false

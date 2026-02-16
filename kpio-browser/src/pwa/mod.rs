@@ -3,25 +3,25 @@
 //! Implements PWA features including Web App Manifest, installation flow,
 //! and standalone window mode.
 
-pub mod manifest;
-pub mod window;
-pub mod push;
-pub mod install;
-pub mod kernel_bridge;
-pub mod sw_bridge;
+pub mod background_sync;
 pub mod cache_storage;
 pub mod fetch_interceptor;
 pub mod idb_engine;
 pub mod indexed_db;
-pub mod web_storage;
+pub mod install;
+pub mod kernel_bridge;
+pub mod manifest;
 pub mod notification_bridge;
-pub mod background_sync;
+pub mod push;
+pub mod sw_bridge;
+pub mod web_storage;
+pub mod window;
 
-pub use manifest::*;
-pub use window::*;
-pub use push::*;
 pub use install::*;
 pub use kernel_bridge::KernelAppId;
+pub use manifest::*;
+pub use push::*;
+pub use window::*;
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};

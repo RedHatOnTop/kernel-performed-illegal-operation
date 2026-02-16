@@ -3,21 +3,20 @@
 //! Tree-walking interpreter for JavaScript AST.
 
 use alloc::format;
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::rc::Rc;
 use core::cell::RefCell;
 use libm::trunc;
 
 use crate::ast::*;
+use crate::builtin;
 use crate::error::{JsError, JsResult};
 use crate::object::{
-    JsObject, PropertyKey, Environment, Callable, UserFunction, 
-    NativeFunction, PropertyDescriptor,
+    Callable, Environment, JsObject, NativeFunction, PropertyDescriptor, PropertyKey, UserFunction,
 };
-use crate::value::{Value, Completion};
-use crate::builtin;
+use crate::value::{Completion, Value};
 
 /// JavaScript interpreter.
 pub struct Interpreter {
@@ -38,7 +37,7 @@ impl Interpreter {
     pub fn new() -> Self {
         let global_env = Rc::new(RefCell::new(Environment::global()));
         let global_object = Rc::new(RefCell::new(JsObject::new()));
-        
+
         let mut interp = Interpreter {
             global_env: global_env.clone(),
             current_env: global_env,
@@ -46,29 +45,35 @@ impl Interpreter {
             call_depth: 0,
             max_call_depth: 1000,
         };
-        
+
         // Initialize built-in objects
         builtin::init(&mut interp);
-        
+
         interp
     }
-    
+
     /// Get the global object.
     pub fn global_object(&self) -> Rc<RefCell<JsObject>> {
         self.global_object.clone()
     }
-    
+
     /// Get the global environment.
     pub fn global_env(&self) -> Rc<RefCell<Environment>> {
         self.global_env.clone()
     }
-    
+
     /// Define a global variable.
     pub fn define_global(&mut self, name: &str, value: Value) {
-        self.global_env.borrow_mut().initialize(name, value.clone()).ok();
-        self.global_object.borrow_mut().set(PropertyKey::string(name), value).ok();
+        self.global_env
+            .borrow_mut()
+            .initialize(name, value.clone())
+            .ok();
+        self.global_object
+            .borrow_mut()
+            .set(PropertyKey::string(name), value)
+            .ok();
     }
-    
+
     /// Define a native function.
     pub fn define_native_function(
         &mut self,
@@ -81,17 +86,17 @@ impl Interpreter {
             length,
             func,
         });
-        
+
         let obj = JsObject::function(callable);
         let value = Value::object(obj);
-        
+
         self.define_global(name, value);
     }
-    
+
     /// Execute a program.
     pub fn execute(&mut self, program: &Program) -> JsResult<Value> {
         let mut last_value = Value::undefined();
-        
+
         for statement in &program.body {
             match self.execute_statement(statement)? {
                 Completion::Normal(v) => last_value = v,
@@ -107,10 +112,10 @@ impl Interpreter {
                 }
             }
         }
-        
+
         Ok(last_value)
     }
-    
+
     /// Execute a statement.
     fn execute_statement(&mut self, stmt: &Statement) -> JsResult<Completion> {
         match stmt {
@@ -128,12 +133,12 @@ impl Interpreter {
             Statement::While(while_stmt) => self.execute_while(while_stmt),
             Statement::DoWhile(do_while) => self.execute_do_while(do_while),
             Statement::Switch(switch_stmt) => self.execute_switch(switch_stmt),
-            Statement::Break(break_stmt) => {
-                Ok(Completion::Break(break_stmt.label.as_ref().map(|l| l.name.clone())))
-            }
-            Statement::Continue(cont_stmt) => {
-                Ok(Completion::Continue(cont_stmt.label.as_ref().map(|l| l.name.clone())))
-            }
+            Statement::Break(break_stmt) => Ok(Completion::Break(
+                break_stmt.label.as_ref().map(|l| l.name.clone()),
+            )),
+            Statement::Continue(cont_stmt) => Ok(Completion::Continue(
+                cont_stmt.label.as_ref().map(|l| l.name.clone()),
+            )),
             Statement::Return(ret) => {
                 let value = if let Some(expr) = &ret.argument {
                     self.evaluate(expr)?
@@ -159,29 +164,29 @@ impl Interpreter {
             _ => Ok(Completion::empty()),
         }
     }
-    
+
     /// Execute a block.
     fn execute_block(&mut self, block: &BlockStmt) -> JsResult<Completion> {
         let outer = self.current_env.clone();
         self.current_env = Rc::new(RefCell::new(Environment::child(outer.clone())));
-        
+
         let mut result = Completion::empty();
-        
+
         for stmt in &block.body {
             result = self.execute_statement(stmt)?;
             if !result.is_normal() {
                 break;
             }
         }
-        
+
         self.current_env = outer;
         Ok(result)
     }
-    
+
     /// Execute variable declaration.
     fn execute_variable_declaration(&mut self, decl: &VariableDecl) -> JsResult<Completion> {
         let is_const = matches!(decl.kind, VariableKind::Const);
-        
+
         for declarator in &decl.declarations {
             let value = if let Some(init) = &declarator.init {
                 self.evaluate(init)?
@@ -191,18 +196,20 @@ impl Interpreter {
                 }
                 Value::undefined()
             };
-            
+
             self.bind_pattern(&declarator.id, value, !is_const)?;
         }
-        
+
         Ok(Completion::empty())
     }
-    
+
     /// Bind a pattern to a value.
     fn bind_pattern(&mut self, pattern: &Pattern, value: Value, mutable: bool) -> JsResult<()> {
         match pattern {
             Pattern::Identifier(id) => {
-                self.current_env.borrow_mut().declare(id.name.clone(), mutable)?;
+                self.current_env
+                    .borrow_mut()
+                    .declare(id.name.clone(), mutable)?;
                 self.current_env.borrow_mut().initialize(&id.name, value)?;
             }
             Pattern::Array(arr) => {
@@ -218,7 +225,9 @@ impl Interpreter {
                 let val_obj = value.to_object()?;
                 for prop in &obj.properties {
                     match prop {
-                        ObjectPatternProperty::Property { key, value: pat, .. } => {
+                        ObjectPatternProperty::Property {
+                            key, value: pat, ..
+                        } => {
                             let key = self.property_key_from_expr(key)?;
                             let v = val_obj.borrow().get(&key)?;
                             self.bind_pattern(pat, v, mutable)?;
@@ -237,14 +246,14 @@ impl Interpreter {
                 self.bind_pattern(&rest.argument, value, mutable)?;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Execute if statement.
     fn execute_if(&mut self, if_stmt: &IfStmt) -> JsResult<Completion> {
         let test = self.evaluate(&if_stmt.test)?;
-        
+
         if test.to_boolean() {
             self.execute_statement(&if_stmt.consequent)
         } else if let Some(alt) = &if_stmt.alternate {
@@ -253,12 +262,12 @@ impl Interpreter {
             Ok(Completion::empty())
         }
     }
-    
+
     /// Execute for loop.
     fn execute_for(&mut self, for_stmt: &ForStmt) -> JsResult<Completion> {
         let outer = self.current_env.clone();
         self.current_env = Rc::new(RefCell::new(Environment::child(outer.clone())));
-        
+
         // Init
         if let Some(init) = &for_stmt.init {
             match init {
@@ -270,9 +279,9 @@ impl Interpreter {
                 }
             }
         }
-        
+
         let mut result = Completion::empty();
-        
+
         loop {
             // Test
             if let Some(test) = &for_stmt.test {
@@ -281,7 +290,7 @@ impl Interpreter {
                     break;
                 }
             }
-            
+
             // Body
             result = self.execute_statement(&for_stmt.body)?;
             match &result {
@@ -295,36 +304,36 @@ impl Interpreter {
                 Completion::Return(_) | Completion::Throw(_) => break,
                 _ => {}
             }
-            
+
             // Update
             if let Some(update) = &for_stmt.update {
                 self.evaluate(update)?;
             }
         }
-        
+
         self.current_env = outer;
         Ok(result)
     }
-    
+
     /// Execute for-in loop.
     fn execute_for_in(&mut self, for_in: &ForInStmt) -> JsResult<Completion> {
         let right = self.evaluate(&for_in.right)?;
-        
+
         if right.is_nullish() {
             return Ok(Completion::empty());
         }
-        
+
         let obj = right.to_object()?;
         let keys = obj.borrow().own_enumerable_keys();
-        
+
         let outer = self.current_env.clone();
         self.current_env = Rc::new(RefCell::new(Environment::child(outer.clone())));
-        
+
         let mut result = Completion::empty();
-        
+
         for key in keys {
             let key_value = Value::string(key.to_string());
-            
+
             // Bind the variable
             match &for_in.left {
                 ForInLeft::Variable(decl) => {
@@ -336,7 +345,7 @@ impl Interpreter {
                     self.bind_pattern(pat, key_value, true)?;
                 }
             }
-            
+
             result = self.execute_statement(&for_in.body)?;
             match &result {
                 Completion::Break(_) => {
@@ -348,31 +357,31 @@ impl Interpreter {
                 _ => {}
             }
         }
-        
+
         self.current_env = outer;
         Ok(result)
     }
-    
+
     /// Execute for-of loop.
     fn execute_for_of(&mut self, for_of: &ForOfStmt) -> JsResult<Completion> {
         let right = self.evaluate(&for_of.right)?;
-        
+
         // Simplified: only handle arrays
         if !right.is_array() {
             return Err(JsError::type_error("Value is not iterable"));
         }
-        
+
         let obj = right.to_object()?;
         let len = obj.borrow().array_length();
-        
+
         let outer = self.current_env.clone();
         self.current_env = Rc::new(RefCell::new(Environment::child(outer.clone())));
-        
+
         let mut result = Completion::empty();
-        
+
         for i in 0..len {
             let value = obj.borrow().get(&PropertyKey::Index(i as u32))?;
-            
+
             // Bind the variable
             match &for_of.left {
                 ForInLeft::Variable(decl) => {
@@ -384,7 +393,7 @@ impl Interpreter {
                     self.bind_pattern(pat, value, true)?;
                 }
             }
-            
+
             result = self.execute_statement(&for_of.body)?;
             match &result {
                 Completion::Break(_) => {
@@ -396,21 +405,21 @@ impl Interpreter {
                 _ => {}
             }
         }
-        
+
         self.current_env = outer;
         Ok(result)
     }
-    
+
     /// Execute while loop.
     fn execute_while(&mut self, while_stmt: &WhileStmt) -> JsResult<Completion> {
         let mut result = Completion::empty();
-        
+
         loop {
             let test = self.evaluate(&while_stmt.test)?;
             if !test.to_boolean() {
                 break;
             }
-            
+
             result = self.execute_statement(&while_stmt.body)?;
             match &result {
                 Completion::Break(_) => {
@@ -422,14 +431,14 @@ impl Interpreter {
                 _ => {}
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Execute do-while loop.
     fn execute_do_while(&mut self, do_while: &DoWhileStmt) -> JsResult<Completion> {
         let mut result;
-        
+
         loop {
             result = self.execute_statement(&do_while.body)?;
             match &result {
@@ -441,38 +450,38 @@ impl Interpreter {
                 Completion::Return(_) | Completion::Throw(_) => break,
                 _ => {}
             }
-            
+
             let test = self.evaluate(&do_while.test)?;
             if !test.to_boolean() {
                 break;
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Execute switch statement.
     fn execute_switch(&mut self, switch_stmt: &SwitchStmt) -> JsResult<Completion> {
         let discriminant = self.evaluate(&switch_stmt.discriminant)?;
-        
+
         let mut matched = false;
         let mut default_index = None;
         let mut result = Completion::empty();
-        
+
         // Find matching case
         for (i, case) in switch_stmt.cases.iter().enumerate() {
             if case.test.is_none() {
                 default_index = Some(i);
                 continue;
             }
-            
+
             if !matched {
                 let test = self.evaluate(case.test.as_ref().unwrap())?;
                 if discriminant.strict_equals(&test) {
                     matched = true;
                 }
             }
-            
+
             if matched {
                 for stmt in &case.consequent {
                     result = self.execute_statement(stmt)?;
@@ -485,7 +494,7 @@ impl Interpreter {
                 }
             }
         }
-        
+
         // Default case
         if !matched {
             if let Some(idx) = default_index {
@@ -500,33 +509,33 @@ impl Interpreter {
                 }
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Execute try statement.
     fn execute_try(&mut self, try_stmt: &TryStmt) -> JsResult<Completion> {
         let result = self.execute_block(&try_stmt.block);
-        
+
         match &result {
             Ok(Completion::Throw(ref value)) => {
                 // Execute catch
                 if let Some(handler) = &try_stmt.handler {
                     let outer = self.current_env.clone();
                     self.current_env = Rc::new(RefCell::new(Environment::child(outer.clone())));
-                    
+
                     if let Some(param) = &handler.param {
                         let error_value = value.clone();
                         self.bind_pattern(param, error_value, true)?;
                     }
-                    
+
                     let catch_result = self.execute_block(&handler.body);
                     self.current_env = outer;
-                    
+
                     if let Some(finalizer) = &try_stmt.finalizer {
                         self.execute_block(finalizer)?;
                     }
-                    
+
                     catch_result
                 } else if let Some(finalizer) = &try_stmt.finalizer {
                     self.execute_block(finalizer)?;
@@ -540,19 +549,19 @@ impl Interpreter {
                 if let Some(handler) = &try_stmt.handler {
                     let outer = self.current_env.clone();
                     self.current_env = Rc::new(RefCell::new(Environment::child(outer.clone())));
-                    
+
                     if let Some(param) = &handler.param {
                         let error_value = Value::string(e.message());
                         self.bind_pattern(param, error_value, true)?;
                     }
-                    
+
                     let catch_result = self.execute_block(&handler.body);
                     self.current_env = outer;
-                    
+
                     if let Some(finalizer) = &try_stmt.finalizer {
                         self.execute_block(finalizer)?;
                     }
-                    
+
                     catch_result
                 } else if let Some(finalizer) = &try_stmt.finalizer {
                     self.execute_block(finalizer)?;
@@ -569,13 +578,15 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Execute function declaration.
     fn execute_function_declaration(&mut self, func: &FunctionDecl) -> JsResult<()> {
         if let Some(id) = &func.id {
             let callable = Callable::UserDefined(UserFunction {
                 name: Some(id.name.clone()),
-                params: func.params.iter()
+                params: func
+                    .params
+                    .iter()
                     .filter_map(|p| match p {
                         Pattern::Identifier(id) => Some(id.name.clone()),
                         _ => None,
@@ -586,40 +597,49 @@ impl Interpreter {
                 is_async: func.is_async,
                 is_generator: func.is_generator,
             });
-            
+
             let obj = JsObject::function(callable);
             let value = Value::object(obj);
-            
-            self.current_env.borrow_mut().declare(id.name.clone(), true)?;
+
+            self.current_env
+                .borrow_mut()
+                .declare(id.name.clone(), true)?;
             self.current_env.borrow_mut().initialize(&id.name, value)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Execute class declaration.
     fn execute_class_declaration(&mut self, class: &ClassDecl) -> JsResult<()> {
         if let Some(id) = &class.id {
             // Create constructor function
             let constructor = self.create_class_constructor(class)?;
-            
-            self.current_env.borrow_mut().declare(id.name.clone(), false)?;
-            self.current_env.borrow_mut().initialize(&id.name, constructor)?;
+
+            self.current_env
+                .borrow_mut()
+                .declare(id.name.clone(), false)?;
+            self.current_env
+                .borrow_mut()
+                .initialize(&id.name, constructor)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Create a class constructor.
     fn create_class_constructor(&mut self, class: &ClassDecl) -> JsResult<Value> {
         // Find constructor method
         let mut constructor_body = None;
         let mut constructor_params = Vec::new();
-        
+
         for elem in &class.body.body {
             if let ClassElement::Method(method) = elem {
                 if method.kind == MethodKind::Constructor {
-                    constructor_params = method.value.params.iter()
+                    constructor_params = method
+                        .value
+                        .params
+                        .iter()
                         .filter_map(|p| match p {
                             Pattern::Identifier(id) => Some(id.name.clone()),
                             _ => None,
@@ -630,12 +650,12 @@ impl Interpreter {
                 }
             }
         }
-        
+
         let body = constructor_body.unwrap_or_else(|| BlockStmt {
             body: Vec::new(),
             span: class.span,
         });
-        
+
         let callable = Callable::UserDefined(UserFunction {
             name: class.id.as_ref().map(|id| id.name.clone()),
             params: constructor_params,
@@ -644,12 +664,12 @@ impl Interpreter {
             is_async: false,
             is_generator: false,
         });
-        
+
         let mut obj = JsObject::function(callable);
-        
+
         // Add prototype
         let proto = Rc::new(RefCell::new(JsObject::new()));
-        
+
         // Add methods to prototype
         for elem in &class.body.body {
             if let ClassElement::Method(method) = elem {
@@ -660,15 +680,15 @@ impl Interpreter {
                 }
             }
         }
-        
+
         obj.define_property(
             PropertyKey::string("prototype"),
             PropertyDescriptor::data(Value::Object(proto), false, false, false),
         );
-        
+
         Ok(Value::object(obj))
     }
-    
+
     /// Evaluate an expression.
     pub fn evaluate(&mut self, expr: &Expression) -> JsResult<Value> {
         match expr {
@@ -698,7 +718,7 @@ impl Interpreter {
             Expression::TaggedTemplate(_) => Ok(Value::undefined()),
         }
     }
-    
+
     /// Evaluate a literal.
     fn evaluate_literal(&mut self, lit: &Literal) -> JsResult<Value> {
         match lit {
@@ -717,11 +737,11 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Evaluate array expression.
     fn evaluate_array(&mut self, arr: &ArrayExpr) -> JsResult<Value> {
         let mut elements = Vec::new();
-        
+
         for elem in &arr.elements {
             if let Some(e) = elem {
                 if let Expression::Spread(spread) = e {
@@ -740,17 +760,23 @@ impl Interpreter {
                 elements.push(None);
             }
         }
-        
+
         Ok(Value::object(JsObject::array(elements)))
     }
-    
+
     /// Evaluate object expression.
     fn evaluate_object(&mut self, obj_expr: &ObjectExpr) -> JsResult<Value> {
         let mut obj = JsObject::new();
-        
+
         for prop in &obj_expr.properties {
             match prop {
-                ObjectProperty::Property { key, value, shorthand, method, .. } => {
+                ObjectProperty::Property {
+                    key,
+                    value,
+                    shorthand,
+                    method,
+                    ..
+                } => {
                     let key = if *shorthand || *method {
                         if let Expression::Identifier(id) = key {
                             PropertyKey::string(id.name.clone())
@@ -760,7 +786,7 @@ impl Interpreter {
                     } else {
                         self.property_key_from_expr(key)?
                     };
-                    
+
                     let val = self.evaluate(value)?;
                     obj.set(key, val)?;
                 }
@@ -775,15 +801,17 @@ impl Interpreter {
                 }
             }
         }
-        
+
         Ok(Value::object(obj))
     }
-    
+
     /// Create a function from expression.
     fn create_function_from_expr(&mut self, func: &FunctionExpr) -> JsResult<Value> {
         let callable = Callable::UserDefined(UserFunction {
             name: func.id.as_ref().map(|id| id.name.clone()),
-            params: func.params.iter()
+            params: func
+                .params
+                .iter()
                 .filter_map(|p| match p {
                     Pattern::Identifier(id) => Some(id.name.clone()),
                     _ => None,
@@ -794,28 +822,28 @@ impl Interpreter {
             is_async: func.is_async,
             is_generator: func.is_generator,
         });
-        
+
         Ok(Value::object(JsObject::function(callable)))
     }
-    
+
     /// Evaluate arrow function.
     fn evaluate_arrow(&mut self, arrow: &ArrowFunctionExpr) -> JsResult<Value> {
         let body = match &arrow.body {
-            ArrowFunctionBody::Expression(expr) => {
-                BlockStmt {
-                    body: vec![Statement::Return(ReturnStmt {
-                        argument: Some(expr.as_ref().clone()),
-                        span: arrow.span,
-                    })],
+            ArrowFunctionBody::Expression(expr) => BlockStmt {
+                body: vec![Statement::Return(ReturnStmt {
+                    argument: Some(expr.as_ref().clone()),
                     span: arrow.span,
-                }
-            }
+                })],
+                span: arrow.span,
+            },
             ArrowFunctionBody::Block(block) => block.clone(),
         };
-        
+
         let callable = Callable::UserDefined(UserFunction {
             name: None,
-            params: arrow.params.iter()
+            params: arrow
+                .params
+                .iter()
                 .filter_map(|p| match p {
                     Pattern::Identifier(id) => Some(id.name.clone()),
                     _ => None,
@@ -826,10 +854,10 @@ impl Interpreter {
             is_async: arrow.is_async,
             is_generator: false,
         });
-        
+
         Ok(Value::object(JsObject::function(callable)))
     }
-    
+
     /// Evaluate class expression.
     fn evaluate_class_expr(&mut self, class: &ClassExpr) -> JsResult<Value> {
         let decl = ClassDecl {
@@ -838,18 +866,18 @@ impl Interpreter {
             body: class.body.clone(),
             span: class.span,
         };
-        
+
         self.create_class_constructor(&decl)
     }
-    
+
     /// Evaluate member expression.
     fn evaluate_member(&mut self, member: &MemberExpr) -> JsResult<Value> {
         let object = self.evaluate(&member.object)?;
-        
+
         if member.optional && object.is_nullish() {
             return Ok(Value::undefined());
         }
-        
+
         let key = if member.computed {
             let prop = self.evaluate(&member.property)?;
             self.value_to_property_key(&prop)?
@@ -858,17 +886,17 @@ impl Interpreter {
         } else {
             return Err(JsError::syntax("Invalid member expression"));
         };
-        
+
         object.get(&key)
     }
-    
+
     /// Evaluate call expression.
     fn evaluate_call(&mut self, call: &CallExpr) -> JsResult<Value> {
         // Check call depth
         if self.call_depth >= self.max_call_depth {
             return Err(JsError::range("Maximum call stack size exceeded"));
         }
-        
+
         // Get the function and this value
         let (func, this_value) = if let Expression::Member(member) = call.callee.as_ref() {
             let obj = self.evaluate(&member.object)?;
@@ -880,28 +908,35 @@ impl Interpreter {
             } else {
                 return Err(JsError::syntax("Invalid member expression"));
             };
-            
+
             let func = obj.get(&key)?;
             (func, obj)
         } else {
             let func = self.evaluate(&call.callee)?;
             (func, Value::undefined())
         };
-        
+
         if call.optional && func.is_nullish() {
             return Ok(Value::undefined());
         }
-        
+
         // Evaluate arguments
-        let args: Vec<Value> = call.arguments.iter()
+        let args: Vec<Value> = call
+            .arguments
+            .iter()
             .map(|arg| self.evaluate(arg))
             .collect::<JsResult<Vec<_>>>()?;
-        
+
         self.call_function(&func, &this_value, &args)
     }
-    
+
     /// Call a function.
-    pub fn call_function(&mut self, func: &Value, this_value: &Value, args: &[Value]) -> JsResult<Value> {
+    pub fn call_function(
+        &mut self,
+        func: &Value,
+        this_value: &Value,
+        args: &[Value],
+    ) -> JsResult<Value> {
         if let Value::Object(obj) = func {
             if let Some(callable) = obj.borrow().callable() {
                 self.call_depth += 1;
@@ -910,16 +945,19 @@ impl Interpreter {
                 return result;
             }
         }
-        
+
         Err(JsError::type_error("Value is not a function"))
     }
-    
+
     /// Call a callable.
-    fn call_callable(&mut self, callable: Callable, this_value: &Value, args: &[Value]) -> JsResult<Value> {
+    fn call_callable(
+        &mut self,
+        callable: Callable,
+        this_value: &Value,
+        args: &[Value],
+    ) -> JsResult<Value> {
         match callable {
-            Callable::Native(native) => {
-                (native.func)(this_value, args)
-            }
+            Callable::Native(native) => (native.func)(this_value, args),
             Callable::UserDefined(user_func) => {
                 self.call_user_function(&user_func, this_value, args)
             }
@@ -930,42 +968,52 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Call a user-defined function.
-    fn call_user_function(&mut self, func: &UserFunction, this_value: &Value, args: &[Value]) -> JsResult<Value> {
+    fn call_user_function(
+        &mut self,
+        func: &UserFunction,
+        this_value: &Value,
+        args: &[Value],
+    ) -> JsResult<Value> {
         let outer = self.current_env.clone();
-        self.current_env = Rc::new(RefCell::new(
-            Environment::function(func.environment.clone(), this_value.clone())
-        ));
-        
+        self.current_env = Rc::new(RefCell::new(Environment::function(
+            func.environment.clone(),
+            this_value.clone(),
+        )));
+
         // Bind parameters
         for (i, param) in func.params.iter().enumerate() {
             let value = args.get(i).cloned().unwrap_or(Value::undefined());
             self.current_env.borrow_mut().declare(param.clone(), true)?;
             self.current_env.borrow_mut().initialize(param, value)?;
         }
-        
+
         // Create arguments object
         let args_array = JsObject::array(args.iter().cloned().map(Some).collect());
-        self.current_env.borrow_mut().declare("arguments".into(), true)?;
-        self.current_env.borrow_mut().initialize("arguments", Value::object(args_array))?;
-        
+        self.current_env
+            .borrow_mut()
+            .declare("arguments".into(), true)?;
+        self.current_env
+            .borrow_mut()
+            .initialize("arguments", Value::object(args_array))?;
+
         // Execute body
         let result = self.execute_block(&func.body);
-        
+
         self.current_env = outer;
-        
+
         match result? {
             Completion::Return(v) => Ok(v),
             Completion::Throw(v) => Err(self.value_to_error(v)),
             _ => Ok(Value::undefined()),
         }
     }
-    
+
     /// Evaluate new expression.
     fn evaluate_new(&mut self, new: &NewExpr) -> JsResult<Value> {
         let constructor = self.evaluate(&new.callee)?;
-        
+
         if let Value::Object(obj) = &constructor {
             if !obj.borrow().is_constructable() {
                 return Err(JsError::type_error("Value is not a constructor"));
@@ -973,10 +1021,10 @@ impl Interpreter {
         } else {
             return Err(JsError::type_error("Value is not a constructor"));
         }
-        
+
         // Create new object
         let new_obj = Rc::new(RefCell::new(JsObject::new()));
-        
+
         // Set prototype
         if let Value::Object(func_obj) = &constructor {
             let proto = func_obj.borrow().get(&PropertyKey::string("prototype"))?;
@@ -984,15 +1032,17 @@ impl Interpreter {
                 new_obj.borrow_mut().set_prototype(Some(proto_obj));
             }
         }
-        
+
         // Call constructor
-        let args: Vec<Value> = new.arguments.iter()
+        let args: Vec<Value> = new
+            .arguments
+            .iter()
             .map(|arg| self.evaluate(arg))
             .collect::<JsResult<Vec<_>>>()?;
-        
+
         let this = Value::Object(new_obj.clone());
         let result = self.call_function(&constructor, &this, &args)?;
-        
+
         // Return the result if it's an object, otherwise return the new object
         if result.is_object() {
             Ok(result)
@@ -1000,26 +1050,26 @@ impl Interpreter {
             Ok(this)
         }
     }
-    
+
     /// Evaluate update expression.
     fn evaluate_update(&mut self, update: &UpdateExpr) -> JsResult<Value> {
         let current = self.evaluate(&update.argument)?;
         let num = current.to_number()?;
-        
+
         let new_value = match update.operator {
             UpdateOp::Increment => Value::number(num + 1.0),
             UpdateOp::Decrement => Value::number(num - 1.0),
         };
-        
+
         self.assign_to_expr(&update.argument, new_value.clone())?;
-        
+
         if update.prefix {
             Ok(new_value)
         } else {
             Ok(Value::number(num))
         }
     }
-    
+
     /// Evaluate unary expression.
     fn evaluate_unary(&mut self, unary: &UnaryExpr) -> JsResult<Value> {
         match unary.operator {
@@ -1054,12 +1104,12 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Evaluate binary expression.
     fn evaluate_binary(&mut self, binary: &BinaryExpr) -> JsResult<Value> {
         let left = self.evaluate(&binary.left)?;
         let right = self.evaluate(&binary.right)?;
-        
+
         match binary.operator {
             BinaryOp::Add => {
                 // String concatenation or numeric addition
@@ -1157,7 +1207,9 @@ impl Interpreter {
                     let key = self.value_to_property_key(&left)?;
                     Ok(Value::boolean(obj.borrow().has(&key)))
                 } else {
-                    Err(JsError::type_error("Cannot use 'in' operator with non-object"))
+                    Err(JsError::type_error(
+                        "Cannot use 'in' operator with non-object",
+                    ))
                 }
             }
             BinaryOp::Instanceof => {
@@ -1166,11 +1218,11 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Evaluate logical expression.
     fn evaluate_logical(&mut self, logical: &LogicalExpr) -> JsResult<Value> {
         let left = self.evaluate(&logical.left)?;
-        
+
         match logical.operator {
             LogicalOp::And => {
                 if !left.to_boolean() {
@@ -1195,18 +1247,18 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Evaluate conditional expression.
     fn evaluate_conditional(&mut self, cond: &ConditionalExpr) -> JsResult<Value> {
         let test = self.evaluate(&cond.test)?;
-        
+
         if test.to_boolean() {
             self.evaluate(&cond.consequent)
         } else {
             self.evaluate(&cond.alternate)
         }
     }
-    
+
     /// Evaluate assignment expression.
     fn evaluate_assignment(&mut self, assign: &AssignmentExpr) -> JsResult<Value> {
         let target_expr = match &assign.left {
@@ -1217,13 +1269,13 @@ impl Interpreter {
                 return Ok(value);
             }
         };
-        
+
         let value = match assign.operator {
             AssignmentOp::Assign => self.evaluate(&assign.right)?,
             _ => {
                 let current = self.evaluate(&target_expr)?;
                 let right = self.evaluate(&assign.right)?;
-                
+
                 match assign.operator {
                     AssignmentOp::AddAssign => {
                         if current.is_string() || right.is_string() {
@@ -1234,19 +1286,27 @@ impl Interpreter {
                             Value::number(current.to_number()? + right.to_number()?)
                         }
                     }
-                    AssignmentOp::SubAssign => Value::number(current.to_number()? - right.to_number()?),
-                    AssignmentOp::MulAssign => Value::number(current.to_number()? * right.to_number()?),
-                    AssignmentOp::DivAssign => Value::number(current.to_number()? / right.to_number()?),
-                    AssignmentOp::ModAssign => Value::number(current.to_number()? % right.to_number()?),
+                    AssignmentOp::SubAssign => {
+                        Value::number(current.to_number()? - right.to_number()?)
+                    }
+                    AssignmentOp::MulAssign => {
+                        Value::number(current.to_number()? * right.to_number()?)
+                    }
+                    AssignmentOp::DivAssign => {
+                        Value::number(current.to_number()? / right.to_number()?)
+                    }
+                    AssignmentOp::ModAssign => {
+                        Value::number(current.to_number()? % right.to_number()?)
+                    }
                     _ => self.evaluate(&assign.right)?,
                 }
             }
         };
-        
+
         self.assign_to_expr(&target_expr, value.clone())?;
         Ok(value)
     }
-    
+
     /// Assign a value to an expression.
     fn assign_to_expr(&mut self, expr: &Expression, value: Value) -> JsResult<()> {
         match expr {
@@ -1263,46 +1323,46 @@ impl Interpreter {
                 } else {
                     return Err(JsError::syntax("Invalid assignment target"));
                 };
-                
+
                 object.set(key, value)?;
             }
             _ => return Err(JsError::syntax("Invalid assignment target")),
         }
-        
+
         Ok(())
     }
-    
+
     /// Evaluate sequence expression.
     fn evaluate_sequence(&mut self, seq: &SequenceExpr) -> JsResult<Value> {
         let mut result = Value::undefined();
-        
+
         for expr in &seq.expressions {
             result = self.evaluate(expr)?;
         }
-        
+
         Ok(result)
     }
-    
+
     /// Evaluate template literal.
     fn evaluate_template(&mut self, template: &TemplateLiteral) -> JsResult<Value> {
         let mut result = String::new();
-        
+
         for (i, quasi) in template.quasis.iter().enumerate() {
             if let Some(cooked) = &quasi.cooked {
                 result.push_str(cooked);
             }
-            
+
             if i < template.expressions.len() {
                 let value = self.evaluate(&template.expressions[i])?;
                 result.push_str(&value.to_string()?);
             }
         }
-        
+
         Ok(Value::string(result))
     }
-    
+
     // Helper methods
-    
+
     /// Convert an expression to a property key.
     fn property_key_from_expr(&mut self, expr: &Expression) -> JsResult<PropertyKey> {
         match expr {
@@ -1321,7 +1381,7 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Convert a value to a property key.
     fn value_to_property_key(&self, value: &Value) -> JsResult<PropertyKey> {
         match value {
@@ -1340,7 +1400,7 @@ impl Interpreter {
             }
         }
     }
-    
+
     /// Convert a value to an error.
     fn value_to_error(&self, value: Value) -> JsError {
         if let Value::Object(obj) = &value {
@@ -1348,7 +1408,7 @@ impl Interpreter {
                 return JsError::error(name.clone(), message.clone());
             }
         }
-        
+
         let message = value.to_string().unwrap_or_else(|_| "Unknown error".into());
         JsError::error("Error", message)
     }
@@ -1371,12 +1431,12 @@ impl Engine {
         let program = crate::parser::parse(source)?;
         self.execute(&program)
     }
-    
+
     /// Set a global variable.
     pub fn set_global(&mut self, name: String, value: Value) {
         self.define_global(&name, value);
     }
-    
+
     /// Get a global variable.
     pub fn get_global(&self, name: &str) -> JsResult<Value> {
         self.global_env.borrow().get(name)

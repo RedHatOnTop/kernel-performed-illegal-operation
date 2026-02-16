@@ -2,14 +2,13 @@
 //!
 //! Provides the test runner and reporting infrastructure.
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 use spin::Mutex;
 
 use crate::{
-    TestCase, TestContext, TestResult, TestStatus, TestSuite, SuiteReport,
-    browser, performance,
+    browser, performance, SuiteReport, TestCase, TestContext, TestResult, TestStatus, TestSuite,
 };
 
 /// Test runner for executing test suites
@@ -62,13 +61,13 @@ impl Default for TestConfig {
 pub trait TestListener {
     /// Called when a suite starts
     fn on_suite_start(&mut self, suite_name: &str);
-    
+
     /// Called when a suite ends
     fn on_suite_end(&mut self, report: &SuiteReport);
-    
+
     /// Called when a test starts
     fn on_test_start(&mut self, test_name: &str);
-    
+
     /// Called when a test ends
     fn on_test_end(&mut self, test_name: &str, result: &TestResult);
 }
@@ -150,7 +149,8 @@ impl JUnitReporter {
                         if let Some(ref error) = result.error {
                             xml.push_str(&alloc::format!(
                                 "      <failure message=\"{}\">{}</failure>\n",
-                                error, error
+                                error,
+                                error
                             ));
                         }
                         xml.push_str("    </testcase>\n");
@@ -160,7 +160,8 @@ impl JUnitReporter {
                         if let Some(ref error) = result.error {
                             xml.push_str(&alloc::format!(
                                 "      <error message=\"{}\">{}</error>\n",
-                                error, error
+                                error,
+                                error
                             ));
                         }
                         xml.push_str("    </testcase>\n");
@@ -226,11 +227,11 @@ impl TestRunner {
         let suite_count = self.suites.len();
         for suite_idx in 0..suite_count {
             let report = self.run_suite_by_index(suite_idx);
-            
+
             for listener in &mut self.listeners {
                 listener.on_suite_end(&report);
             }
-            
+
             let fail_fast = self.config.fail_fast && !report.all_passed();
             reports.push(report);
 
@@ -245,7 +246,7 @@ impl TestRunner {
     /// Run a single suite by index
     fn run_suite_by_index(&mut self, suite_idx: usize) -> SuiteReport {
         let suite_name = self.suites[suite_idx].name.clone();
-        
+
         for listener in &mut self.listeners {
             listener.on_suite_start(&suite_name);
         }
@@ -253,7 +254,7 @@ impl TestRunner {
         let mut report = SuiteReport::new(suite_name);
 
         let test_count = self.suites[suite_idx].tests.len();
-        
+
         for test_idx in 0..test_count {
             // Get test info without holding borrow
             let (test_name, test_tags, should_skip) = {
@@ -264,12 +265,9 @@ impl TestRunner {
                     !self.should_run_test_info(&test.name, &test.tags),
                 )
             };
-            
+
             if should_skip {
-                report.add_result(
-                    test_name,
-                    TestResult::skipped(String::from("Filtered out")),
-                );
+                report.add_result(test_name, TestResult::skipped(String::from("Filtered out")));
                 continue;
             }
 
@@ -319,7 +317,7 @@ impl TestRunner {
 
         while attempts < max_attempts {
             attempts += 1;
-            
+
             let test_name = self.suites[suite_idx].tests[test_idx].name.clone();
             let mut context = TestContext::new(test_name);
 
@@ -470,11 +468,11 @@ pub fn registered_suites() -> Vec<TestSuite> {
 pub fn run_all() -> Vec<SuiteReport> {
     let mut runner = TestRunner::new();
     runner.add_listener(ConsoleReporter::new(true));
-    
+
     for suite in registered_suites() {
         runner.add_suite(suite);
     }
-    
+
     runner.run()
 }
 
@@ -482,10 +480,10 @@ pub fn run_all() -> Vec<SuiteReport> {
 pub fn run_with_config(config: TestConfig) -> Vec<SuiteReport> {
     let mut runner = TestRunner::with_config(config);
     runner.add_listener(ConsoleReporter::new(true));
-    
+
     for suite in registered_suites() {
         runner.add_suite(suite);
     }
-    
+
     runner.run()
 }

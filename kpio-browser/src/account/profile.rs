@@ -5,28 +5,28 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::{LocalProfile, ProfileColor, ProfilePreferences, AccountError};
+use super::{AccountError, LocalProfile, ProfileColor, ProfilePreferences};
 
 /// Profile storage interface
 pub trait ProfileStorage {
     /// Load all profiles
     fn load_all(&self) -> Result<Vec<LocalProfile>, AccountError>;
-    
+
     /// Save profile
     fn save(&self, profile: &LocalProfile) -> Result<(), AccountError>;
-    
+
     /// Delete profile data
     fn delete(&self, id: u32) -> Result<(), AccountError>;
-    
+
     /// Load profile preferences
     fn load_preferences(&self, id: u32) -> Result<ProfilePreferences, AccountError>;
-    
+
     /// Save profile preferences
     fn save_preferences(&self, id: u32, prefs: &ProfilePreferences) -> Result<(), AccountError>;
 }
 
 /// Profile data directory structure
-/// 
+///
 /// /profiles/
 ///   ├── profiles.dat        - Profile list metadata
 ///   ├── 0/                   - Default profile
@@ -77,34 +77,34 @@ impl ProfileSerializer {
     /// Serialize profile to bytes
     pub fn serialize(profile: &LocalProfile) -> Vec<u8> {
         let mut data = Vec::new();
-        
+
         // Magic header
         data.extend_from_slice(b"KPRF");
-        
+
         // Version
         data.push(1);
-        
+
         // Profile ID (4 bytes)
         data.extend_from_slice(&profile.id.to_le_bytes());
-        
+
         // Name length + name
         let name_bytes = profile.name.as_bytes();
         data.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
         data.extend_from_slice(name_bytes);
-        
+
         // Avatar ID
         data.push(profile.avatar_id);
-        
+
         // Color
         data.push(Self::color_to_u8(&profile.color));
-        
+
         // Timestamps
         data.extend_from_slice(&profile.created_at.to_le_bytes());
         data.extend_from_slice(&profile.last_used.unwrap_or(0).to_le_bytes());
-        
+
         // Is default
         data.push(if profile.is_default { 1 } else { 0 });
-        
+
         data
     }
 
@@ -143,15 +143,31 @@ impl ProfileSerializer {
 
         // Timestamps
         let created_at = u64::from_le_bytes([
-            data[offset + 2], data[offset + 3], data[offset + 4], data[offset + 5],
-            data[offset + 6], data[offset + 7], data[offset + 8], data[offset + 9],
+            data[offset + 2],
+            data[offset + 3],
+            data[offset + 4],
+            data[offset + 5],
+            data[offset + 6],
+            data[offset + 7],
+            data[offset + 8],
+            data[offset + 9],
         ]);
 
         let last_used_raw = u64::from_le_bytes([
-            data[offset + 10], data[offset + 11], data[offset + 12], data[offset + 13],
-            data[offset + 14], data[offset + 15], data[offset + 16], data[offset + 17],
+            data[offset + 10],
+            data[offset + 11],
+            data[offset + 12],
+            data[offset + 13],
+            data[offset + 14],
+            data[offset + 15],
+            data[offset + 16],
+            data[offset + 17],
         ]);
-        let last_used = if last_used_raw == 0 { None } else { Some(last_used_raw) };
+        let last_used = if last_used_raw == 0 {
+            None
+        } else {
+            Some(last_used_raw)
+        };
 
         let is_default = data[offset + 18] != 0;
 

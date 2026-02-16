@@ -2,9 +2,9 @@
 //!
 //! Wraps the parsed HTML and provides DOM-like access.
 
+use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::rc::Rc;
 use core::cell::RefCell;
 
 use kpio_css::Stylesheet;
@@ -108,11 +108,11 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
-    
+
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
-    
+
     pub const BLACK: Self = Self::rgb(0, 0, 0);
     pub const WHITE: Self = Self::rgb(255, 255, 255);
     pub const TRANSPARENT: Self = Self::rgba(0, 0, 0, 0);
@@ -129,28 +129,28 @@ impl Document {
             html_content: String::new(),
         }
     }
-    
+
     /// Parse HTML and create document.
     pub fn from_html(html: &str, url: &str) -> Self {
         let mut doc = Self::new(url);
         doc.parse_html(html);
         doc
     }
-    
+
     /// Parse HTML into this document.
     pub fn parse_html(&mut self, html: &str) {
         self.html_content = html.into();
-        
+
         // Simple HTML parsing - just extract basic structure
         let root = self.simple_parse(html);
         self.root = Some(root);
-        
+
         // Extract title
         if let Some(root) = &self.root {
             self.title = Self::find_title(&root.borrow());
         }
     }
-    
+
     /// Simple HTML parser for basic structure.
     fn simple_parse(&self, html: &str) -> Rc<RefCell<DocumentNode>> {
         let root = Rc::new(RefCell::new(DocumentNode {
@@ -158,12 +158,12 @@ impl Document {
             tag_name: None,
             ..Default::default()
         }));
-        
+
         // Very basic parser - find tags and text
         let mut current = root.clone();
         let mut chars = html.chars().peekable();
         let mut text_buffer = String::new();
-        
+
         while let Some(c) = chars.next() {
             if c == '<' {
                 // Flush text buffer
@@ -177,17 +177,17 @@ impl Document {
                     current.borrow_mut().children.push(text_node);
                 }
                 text_buffer.clear();
-                
+
                 // Parse tag
                 let mut tag = String::new();
                 let mut is_closing = false;
                 let mut is_self_closing = false;
-                
+
                 if chars.peek() == Some(&'/') {
                     chars.next();
                     is_closing = true;
                 }
-                
+
                 if chars.peek() == Some(&'!') {
                     // Comment or doctype - skip
                     while let Some(tc) = chars.next() {
@@ -197,7 +197,7 @@ impl Document {
                     }
                     continue;
                 }
-                
+
                 // Read tag name
                 while let Some(&tc) = chars.peek() {
                     if tc == '>' || tc == ' ' || tc == '/' {
@@ -205,7 +205,7 @@ impl Document {
                     }
                     tag.push(chars.next().unwrap());
                 }
-                
+
                 // Skip attributes and find end
                 while let Some(tc) = chars.next() {
                     if tc == '/' {
@@ -215,9 +215,9 @@ impl Document {
                         break;
                     }
                 }
-                
+
                 let tag_lower = tag.to_lowercase();
-                
+
                 if is_closing {
                     // Move up
                     let parent = current.borrow().parent.clone();
@@ -248,16 +248,31 @@ impl Document {
                 text_buffer.push(c);
             }
         }
-        
+
         root
     }
-    
+
     /// Check if element is void (self-closing).
     fn is_void_element(tag: &str) -> bool {
-        matches!(tag, "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | 
-                 "input" | "link" | "meta" | "param" | "source" | "track" | "wbr")
+        matches!(
+            tag,
+            "area"
+                | "base"
+                | "br"
+                | "col"
+                | "embed"
+                | "hr"
+                | "img"
+                | "input"
+                | "link"
+                | "meta"
+                | "param"
+                | "source"
+                | "track"
+                | "wbr"
+        )
     }
-    
+
     /// Find document title.
     fn find_title(node: &DocumentNode) -> String {
         if node.tag_name.as_deref() == Some("title") {
@@ -271,7 +286,7 @@ impl Document {
                 }
             }
         }
-        
+
         // Recurse
         for child in &node.children {
             let title = Self::find_title(&child.borrow());
@@ -279,36 +294,36 @@ impl Document {
                 return title;
             }
         }
-        
+
         String::new()
     }
-    
+
     /// Apply styles to nodes.
     pub fn compute_styles(&mut self) {
         if let Some(root) = self.root.clone() {
             self.compute_styles_recursive(&root);
         }
     }
-    
+
     fn compute_styles_recursive(&self, node: &Rc<RefCell<DocumentNode>>) {
         {
             let mut node_ref = node.borrow_mut();
-            
+
             // Apply default styles based on tag
             self.apply_default_styles(&mut node_ref);
         }
-        
+
         // Recurse
         let children = node.borrow().children.clone();
         for child in children {
             self.compute_styles_recursive(&child);
         }
     }
-    
+
     fn apply_default_styles(&self, node: &mut DocumentNode) {
         match node.tag_name.as_deref() {
-            Some("div") | Some("p") | Some("header") | Some("footer") |
-            Some("main") | Some("section") | Some("article") | Some("nav") => {
+            Some("div") | Some("p") | Some("header") | Some("footer") | Some("main")
+            | Some("section") | Some("article") | Some("nav") => {
                 node.computed_styles.display = DisplayValue::Block;
             }
             Some("h1") => {
@@ -337,27 +352,29 @@ impl Document {
             _ => {}
         }
     }
-    
+
     /// Get document title.
     pub fn title(&self) -> &str {
         &self.title
     }
-    
+
     /// Get document URL.
     pub fn url(&self) -> &str {
         &self.url
     }
-    
+
     /// Get root node.
     pub fn root(&self) -> Option<&Rc<RefCell<DocumentNode>>> {
         self.root.as_ref()
     }
-    
+
     /// Get element by ID.
     pub fn get_element_by_id(&self, id: &str) -> Option<Rc<RefCell<DocumentNode>>> {
-        self.root.as_ref().and_then(|root| Self::find_by_id_recursive(&root.borrow(), id))
+        self.root
+            .as_ref()
+            .and_then(|root| Self::find_by_id_recursive(&root.borrow(), id))
     }
-    
+
     fn find_by_id_recursive(node: &DocumentNode, id: &str) -> Option<Rc<RefCell<DocumentNode>>> {
         for child in &node.children {
             if child.borrow().id.as_deref() == Some(id) {
@@ -369,13 +386,13 @@ impl Document {
         }
         None
     }
-    
+
     /// Query selector.
     pub fn query_selector(&self, _selector: &str) -> Option<Rc<RefCell<DocumentNode>>> {
         // Simplified - would need CSS selector parsing
         None
     }
-    
+
     /// Query selector all.
     pub fn query_selector_all(&self, _selector: &str) -> Vec<Rc<RefCell<DocumentNode>>> {
         // Simplified - would need CSS selector parsing

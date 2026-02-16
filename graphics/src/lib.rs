@@ -22,17 +22,17 @@
 
 extern crate alloc;
 
-pub mod vulkan;
-pub mod compositor;
-pub mod surface;
+pub mod animation;
+pub mod browser;
 pub mod buffer;
 pub mod command;
-pub mod render;
-pub mod browser;
+pub mod compositor;
 pub mod font;
-pub mod animation;
-pub mod webrender;
 pub mod optimization;
+pub mod render;
+pub mod surface;
+pub mod vulkan;
+pub mod webrender;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -94,9 +94,11 @@ impl PixelFormat {
     /// Get bytes per pixel.
     pub fn bytes_per_pixel(&self) -> u32 {
         match self {
-            PixelFormat::Rgba8Unorm | PixelFormat::Rgba8Srgb |
-            PixelFormat::Bgra8Unorm | PixelFormat::Bgra8Srgb |
-            PixelFormat::Rgb10a2Unorm => 4,
+            PixelFormat::Rgba8Unorm
+            | PixelFormat::Rgba8Srgb
+            | PixelFormat::Bgra8Unorm
+            | PixelFormat::Bgra8Srgb
+            | PixelFormat::Rgb10a2Unorm => 4,
             PixelFormat::Rgba16Float => 8,
         }
     }

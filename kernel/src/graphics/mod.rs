@@ -18,18 +18,18 @@
 //! - SIMD-optimized blitting: Fast memory copies using x86 intrinsics
 //! - Async composition: Composition happens in parallel with frame display
 
-pub mod compositor;
-pub mod surface;
-pub mod damage;
-pub mod blitter;
 pub mod animation;
-pub mod pipeline;
+pub mod blitter;
+pub mod compositor;
+pub mod damage;
 pub mod memcpy;
+pub mod pipeline;
+pub mod surface;
 
+pub use animation::{Animation, AnimationEngine, Easing};
+pub use blitter::{BlitOp, Blitter};
 pub use compositor::{Compositor, CompositorConfig};
-pub use surface::{Surface, SurfaceId, SurfaceFlags};
-pub use damage::{DamageTracker, DamageRect};
-pub use blitter::{Blitter, BlitOp};
-pub use pipeline::{RenderPipeline, FrameTiming, VSyncMode, FrameRateLimit, RenderStats};
-pub use animation::{AnimationEngine, Animation, Easing};
-pub use memcpy::{fast_copy, fast_set, fast_set32, copy_rect, fill_rect_fast};
+pub use damage::{DamageRect, DamageTracker};
+pub use memcpy::{copy_rect, fast_copy, fast_set, fast_set32, fill_rect_fast};
+pub use pipeline::{FrameRateLimit, FrameTiming, RenderPipeline, RenderStats, VSyncMode};
+pub use surface::{Surface, SurfaceFlags, SurfaceId};

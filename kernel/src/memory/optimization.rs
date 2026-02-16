@@ -2,8 +2,8 @@
 //!
 //! Provides memory compression, page reclamation, and efficient memory management.
 
-use alloc::vec::Vec;
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// Compressed page data
@@ -47,17 +47,18 @@ impl MemoryCompressor {
         // Simple run-length encoding for demonstration
         let mut compressed = Vec::new();
         let mut i = 0;
-        
+
         while i < page_data.len() {
             let byte = page_data[i];
             let mut run_length = 1u8;
-            
-            while i + (run_length as usize) < page_data.len() 
-                  && page_data[i + run_length as usize] == byte 
-                  && run_length < 255 {
+
+            while i + (run_length as usize) < page_data.len()
+                && page_data[i + run_length as usize] == byte
+                && run_length < 255
+            {
                 run_length += 1;
             }
-            
+
             if run_length >= 4 {
                 // Encode run: 0xFF, byte, length
                 compressed.push(0xFF);
@@ -75,9 +76,9 @@ impl MemoryCompressor {
                 i += 1;
             }
         }
-        
+
         let ratio = compressed.len() as f32 / page_data.len() as f32;
-        
+
         CompressedPage {
             compressed_data: compressed,
             original_size: page_data.len(),
@@ -91,7 +92,7 @@ impl MemoryCompressor {
         let mut decompressed = Vec::with_capacity(compressed.original_size);
         let data = &compressed.compressed_data;
         let mut i = 0;
-        
+
         while i < data.len() {
             if data[i] == 0xFF && i + 2 < data.len() {
                 let byte = data[i + 1];
@@ -105,13 +106,15 @@ impl MemoryCompressor {
                 i += 1;
             }
         }
-        
+
         decompressed
     }
 
     /// Store a compressed page
     pub fn store_compressed(&mut self, page: CompressedPage) {
-        let saved = page.original_size.saturating_sub(page.compressed_data.len());
+        let saved = page
+            .original_size
+            .saturating_sub(page.compressed_data.len());
         self.bytes_saved.fetch_add(saved, Ordering::Relaxed);
         self.pages_compressed.fetch_add(1, Ordering::Relaxed);
         self.compressed_pool.push(page);
@@ -198,7 +201,7 @@ impl PageReclaimer {
     /// Reclaim inactive pages to reach target
     pub fn reclaim(&mut self, target_pages: usize) -> usize {
         let mut reclaimed = 0;
-        
+
         while reclaimed < target_pages && !self.lru_list.is_empty() {
             // Second chance algorithm
             if let Some(mut entry) = self.lru_list.pop_front() {
@@ -213,7 +216,7 @@ impl PageReclaimer {
                 }
             }
         }
-        
+
         reclaimed
     }
 
@@ -296,13 +299,13 @@ mod tests {
     #[test]
     fn test_compression() {
         let compressor = MemoryCompressor::new();
-        
+
         // Test with repeating data (compressible)
         let data = [0u8; 4096];
         let compressed = compressor.compress(&data);
-        
+
         assert!(compressed.compression_ratio < 1.0);
-        
+
         // Test decompression
         let decompressed = compressor.decompress(&compressed);
         assert_eq!(decompressed.len(), data.len());
@@ -311,12 +314,12 @@ mod tests {
     #[test]
     fn test_page_reclaimer() {
         let mut reclaimer = PageReclaimer::new(100, 200);
-        
+
         // Add some pages
         for i in 0..10 {
             reclaimer.access_page(i);
         }
-        
+
         assert_eq!(reclaimer.lru_list.len(), 10);
     }
 }

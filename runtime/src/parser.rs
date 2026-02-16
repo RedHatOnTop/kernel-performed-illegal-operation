@@ -9,8 +9,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::module::{
-    DataSegment, Element, Export, ExportKind, FunctionBody, FunctionType, Global,
-    GlobalType, Import, ImportKind, MemoryType, Module, TableType, ValueType,
+    DataSegment, Element, Export, ExportKind, FunctionBody, FunctionType, Global, GlobalType,
+    Import, ImportKind, MemoryType, Module, TableType, ValueType,
 };
 use crate::opcodes::Instruction;
 
@@ -78,7 +78,11 @@ impl ParseError {
 
 impl core::fmt::Display for ParseError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Parse error at offset {:#x}: {}", self.offset, self.message)
+        write!(
+            f,
+            "Parse error at offset {:#x}: {}",
+            self.offset, self.message
+        )
     }
 }
 
@@ -252,8 +256,7 @@ impl<'a> BinaryReader<'a> {
     pub fn read_f64(&mut self) -> Result<f64, ParseError> {
         let bytes = self.read_bytes(8)?;
         Ok(f64::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         ]))
     }
 
@@ -311,7 +314,8 @@ impl WasmParser {
             match section_id {
                 Some(SectionId::Custom) => {
                     // Try to parse name section
-                    let custom_name = Self::try_parse_custom_name(bytes, section_start, section_size);
+                    let custom_name =
+                        Self::try_parse_custom_name(bytes, section_start, section_size);
                     if let Some(n) = custom_name {
                         name = Some(n);
                     }
@@ -428,7 +432,10 @@ impl WasmParser {
         for _ in 0..count {
             let form = reader.read_byte()?;
             if form != 0x60 {
-                return Err(ParseError::new("Expected functype marker 0x60", reader.position() - 1));
+                return Err(ParseError::new(
+                    "Expected functype marker 0x60",
+                    reader.position() - 1,
+                ));
             }
 
             // Parameter types
@@ -482,7 +489,10 @@ impl WasmParser {
                     ImportKind::Global(global)
                 }
                 _ => {
-                    return Err(ParseError::new("Invalid import kind", reader.position() - 1));
+                    return Err(ParseError::new(
+                        "Invalid import kind",
+                        reader.position() - 1,
+                    ));
                 }
             };
 
@@ -559,7 +569,10 @@ impl WasmParser {
                 0x02 => ExportKind::Memory,
                 0x03 => ExportKind::Global,
                 _ => {
-                    return Err(ParseError::new("Invalid export kind", reader.position() - 1));
+                    return Err(ParseError::new(
+                        "Invalid export kind",
+                        reader.position() - 1,
+                    ));
                 }
             };
             let index = reader.read_leb128_u32()?;
@@ -747,10 +760,7 @@ impl WasmParser {
             0x7B => Ok(ValueType::V128),
             0x70 => Ok(ValueType::FuncRef),
             0x6F => Ok(ValueType::ExternRef),
-            _ => Err(ParseError::new(
-                "Invalid value type",
-                reader.position() - 1,
-            )),
+            _ => Err(ParseError::new("Invalid value type", reader.position() - 1)),
         }
     }
 
@@ -1314,10 +1324,7 @@ impl WasmParser {
             }
 
             _ => {
-                return Err(ParseError::new(
-                    "Unknown opcode",
-                    reader.position() - 1,
-                ));
+                return Err(ParseError::new("Unknown opcode", reader.position() - 1));
             }
         };
 
@@ -1340,7 +1347,10 @@ impl WasmParser {
                 // Type index (signed LEB128 i33, but we treat as i64 for simplicity)
                 let idx = reader.read_leb128_i32()?;
                 if idx < 0 {
-                    return Err(ParseError::new("Invalid block type index", reader.position()));
+                    return Err(ParseError::new(
+                        "Invalid block type index",
+                        reader.position(),
+                    ));
                 }
                 Ok(BlockType::TypeIndex(idx as u32))
             }
@@ -1452,19 +1462,13 @@ impl ModuleValidator {
         let total_mems = module.memories.len() + import_mems;
 
         if total_mems > 1 {
-            return Err(ParseError::new(
-                "Multiple memories not supported in MVP",
-                0,
-            ));
+            return Err(ParseError::new("Multiple memories not supported in MVP", 0));
         }
 
         for mem in &module.memories {
             if let Some(max) = mem.max {
                 if mem.min > max {
-                    return Err(ParseError::new(
-                        "Memory min exceeds max",
-                        0,
-                    ));
+                    return Err(ParseError::new("Memory min exceeds max", 0));
                 }
             }
             // 65536 pages = 4GB limit
@@ -1486,10 +1490,7 @@ impl ModuleValidator {
         let total_tables = module.tables.len() + import_tables;
 
         if total_tables > 1 {
-            return Err(ParseError::new(
-                "Multiple tables not supported in MVP",
-                0,
-            ));
+            return Err(ParseError::new("Multiple tables not supported in MVP", 0));
         }
 
         for table in &module.tables {
@@ -1509,10 +1510,7 @@ impl ModuleValidator {
             for j in (i + 1)..module.exports.len() {
                 if module.exports[i].name == module.exports[j].name {
                     return Err(ParseError::new(
-                        &alloc::format!(
-                            "Duplicate export name: {}",
-                            module.exports[i].name
-                        ),
+                        &alloc::format!("Duplicate export name: {}", module.exports[i].name),
                         0,
                     ));
                 }

@@ -17,12 +17,12 @@
 //! ```
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
-use kpio_layout::{DisplayList, DisplayCommand, Rect, BoxDimensions, EdgeSizes};
-use kpio_layout::paint::{BorderWidths, BorderStyle, TextStyle};
 use kpio_layout::paint::Color as LayoutColor;
+use kpio_layout::paint::{BorderStyle, BorderWidths, TextStyle};
+use kpio_layout::{BoxDimensions, DisplayCommand, DisplayList, EdgeSizes, Rect};
 use libm::ceilf;
 
 /// A color in RGBA format (pipeline-local type).
@@ -38,28 +38,33 @@ impl PipelineColor {
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
-    
+
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
-    
+
     pub const fn transparent() -> Self {
-        Self { r: 0, g: 0, b: 0, a: 0 }
+        Self {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }
     }
-    
+
     pub const fn black() -> Self {
         Self::rgb(0, 0, 0)
     }
-    
+
     pub const fn white() -> Self {
         Self::rgb(255, 255, 255)
     }
-    
+
     /// Convert to u32 (ARGB format).
     pub fn to_u32(&self) -> u32 {
         ((self.a as u32) << 24) | ((self.r as u32) << 16) | ((self.g as u32) << 8) | (self.b as u32)
     }
-    
+
     /// Convert to kpio_layout Color.
     pub fn to_layout_color(&self) -> LayoutColor {
         LayoutColor::new(self.r, self.g, self.b, self.a)
@@ -88,41 +93,41 @@ impl RenderPipeline {
             background_color: PipelineColor::white(),
         }
     }
-    
+
     /// Set viewport size.
     pub fn set_viewport(&mut self, width: f32, height: f32) {
         self.viewport_width = width;
         self.viewport_height = height;
     }
-    
+
     /// Get viewport width.
     pub fn viewport_width(&self) -> f32 {
         self.viewport_width
     }
-    
+
     /// Get viewport height.
     pub fn viewport_height(&self) -> f32 {
         self.viewport_height
     }
-    
+
     /// Set background color.
     pub fn set_background(&mut self, color: PipelineColor) {
         self.background_color = color;
     }
-    
+
     /// Process HTML and return a display list.
     ///
     /// This is the main entry point for the rendering pipeline.
     pub fn render(&self, html: &str) -> Result<DisplayList, PipelineError> {
         // Step 1: Parse HTML into layout tree
         let layout_tree = self.parse_and_layout(html)?;
-        
+
         // Step 2: Generate display list
         let display_list = self.paint(&layout_tree);
-        
+
         Ok(display_list)
     }
-    
+
     /// Render to a framebuffer.
     pub fn render_to_framebuffer(
         &self,
@@ -132,35 +137,35 @@ impl RenderPipeline {
         height: u32,
     ) -> Result<(), PipelineError> {
         let display_list = self.render(html)?;
-        
+
         // Clear framebuffer with background color
         let bg = self.background_color.to_u32();
         for pixel in framebuffer.iter_mut() {
             *pixel = bg;
         }
-        
+
         // Execute display commands
         for command in display_list.commands() {
             self.execute_command(command, framebuffer, width, height);
         }
-        
+
         Ok(())
     }
-    
+
     /// Parse HTML and build layout tree.
     fn parse_and_layout(&self, html: &str) -> Result<LayoutTree, PipelineError> {
         let mut tree = LayoutTree::new();
         let mut parser = SimpleHtmlParser::new(html);
-        
+
         // Parse and build tree
         self.parse_node(&mut parser, &mut tree, None);
-        
+
         // Perform layout
         self.layout(&mut tree);
-        
+
         Ok(tree)
     }
-    
+
     /// Parse a node recursively.
     fn parse_node(
         &self,
@@ -170,10 +175,14 @@ impl RenderPipeline {
     ) {
         while let Some(token) = parser.next_token() {
             match token {
-                HtmlToken::OpenTag { name, attrs, self_closing } => {
+                HtmlToken::OpenTag {
+                    name,
+                    attrs,
+                    self_closing,
+                } => {
                     // Determine box type from tag
                     let (box_type, style) = self.style_for_tag(&name, &attrs);
-                    
+
                     // Skip display:none elements
                     if matches!(box_type, LayoutBoxType::None) {
                         if !self_closing {
@@ -182,7 +191,7 @@ impl RenderPipeline {
                         }
                         continue;
                     }
-                    
+
                     let node = LayoutNode {
                         box_type,
                         style,
@@ -190,9 +199,9 @@ impl RenderPipeline {
                         text: None,
                         children: Vec::new(),
                     };
-                    
+
                     let node_id = tree.add(node, parent_id);
-                    
+
                     if !self_closing {
                         // Parse children
                         self.parse_node(parser, tree, Some(node_id));
@@ -219,20 +228,18 @@ impl RenderPipeline {
             }
         }
     }
-    
+
     /// Get style for an HTML tag.
     fn style_for_tag(&self, tag: &str, attrs: &[(String, String)]) -> (LayoutBoxType, NodeStyle) {
         let tag_lower = tag.to_ascii_lowercase();
         let mut style = NodeStyle::default();
-        
+
         // Determine box type
         let box_type = match tag_lower.as_str() {
             // Block elements
-            "html" | "body" | "div" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" |
-            "ul" | "ol" | "li" | "article" | "section" | "header" | "footer" | "main" |
-            "nav" | "aside" | "pre" | "blockquote" | "form" | "table" | "hr" => {
-                LayoutBoxType::Block
-            }
+            "html" | "body" | "div" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul"
+            | "ol" | "li" | "article" | "section" | "header" | "footer" | "main" | "nav"
+            | "aside" | "pre" | "blockquote" | "form" | "table" | "hr" => LayoutBoxType::Block,
             // Inline elements
             "span" | "a" | "strong" | "em" | "b" | "i" | "u" | "code" | "small" | "br" => {
                 LayoutBoxType::Inline
@@ -244,7 +251,7 @@ impl RenderPipeline {
             // Default to inline
             _ => LayoutBoxType::Inline,
         };
-        
+
         // Apply default styles
         match tag_lower.as_str() {
             "body" => {
@@ -288,17 +295,17 @@ impl RenderPipeline {
             }
             _ => {}
         }
-        
+
         // Parse inline style attribute
         for (name, value) in attrs {
             if name == "style" {
                 self.parse_inline_style(value, &mut style);
             }
         }
-        
+
         (box_type, style)
     }
-    
+
     /// Parse inline style attribute.
     fn parse_inline_style(&self, style_str: &str, style: &mut NodeStyle) {
         for decl in style_str.split(';') {
@@ -306,11 +313,11 @@ impl RenderPipeline {
             if decl.is_empty() {
                 continue;
             }
-            
+
             if let Some((prop, val)) = decl.split_once(':') {
                 let prop = prop.trim().to_ascii_lowercase();
                 let val = val.trim();
-                
+
                 match prop.as_str() {
                     "color" => {
                         if let Some(c) = parse_color(val) {
@@ -360,7 +367,7 @@ impl RenderPipeline {
             }
         }
     }
-    
+
     /// Perform layout on the tree.
     fn layout(&self, tree: &mut LayoutTree) {
         let containing_block = Rect {
@@ -369,12 +376,12 @@ impl RenderPipeline {
             width: self.viewport_width,
             height: self.viewport_height,
         };
-        
+
         if let Some(root_id) = tree.root_id() {
             self.layout_node(tree, root_id, &containing_block, 0.0);
         }
     }
-    
+
     /// Layout a single node.
     fn layout_node(
         &self,
@@ -385,9 +392,14 @@ impl RenderPipeline {
     ) -> f32 {
         let (box_type, style, text, children) = {
             let node = tree.get(node_id).unwrap();
-            (node.box_type, node.style.clone(), node.text.clone(), node.children.clone())
+            (
+                node.box_type,
+                node.style.clone(),
+                node.text.clone(),
+                node.children.clone(),
+            )
         };
-        
+
         match box_type {
             LayoutBoxType::Block => {
                 self.layout_block(tree, node_id, containing_block, y_offset, &style, &children)
@@ -398,7 +410,7 @@ impl RenderPipeline {
             LayoutBoxType::None => y_offset,
         }
     }
-    
+
     /// Layout a block element.
     fn layout_block(
         &self,
@@ -410,27 +422,33 @@ impl RenderPipeline {
         children: &[usize],
     ) -> f32 {
         let node = tree.get_mut(node_id).unwrap();
-        
+
         // Calculate width
         let width = style.width.unwrap_or(
-            containing_block.width - style.margin.left - style.margin.right
-                - style.padding.left - style.padding.right
-                - style.border.left - style.border.right
+            containing_block.width
+                - style.margin.left
+                - style.margin.right
+                - style.padding.left
+                - style.padding.right
+                - style.border.left
+                - style.border.right,
         );
-        
+
         // Set position
-        node.dimensions.content.x = containing_block.x + style.margin.left + style.border.left + style.padding.left;
-        node.dimensions.content.y = y_offset + style.margin.top + style.border.top + style.padding.top;
+        node.dimensions.content.x =
+            containing_block.x + style.margin.left + style.border.left + style.padding.left;
+        node.dimensions.content.y =
+            y_offset + style.margin.top + style.border.top + style.padding.top;
         node.dimensions.content.width = width;
-        
+
         node.dimensions.margin = style.margin;
         node.dimensions.padding = style.padding;
         node.dimensions.border = style.border;
-        
+
         // Layout children
         let content_x = node.dimensions.content.x;
         let mut child_y = node.dimensions.content.y;
-        
+
         for &child_id in children {
             let child_block = Rect {
                 x: content_x,
@@ -440,7 +458,7 @@ impl RenderPipeline {
             };
             child_y = self.layout_node(tree, child_id, &child_block, child_y);
         }
-        
+
         // Calculate height
         let node = tree.get_mut(node_id).unwrap();
         let content_height = style.height.unwrap_or_else(|| {
@@ -451,11 +469,11 @@ impl RenderPipeline {
             }
         });
         node.dimensions.content.height = content_height;
-        
+
         // Return the bottom of this box
         node.dimensions.margin_box().y + node.dimensions.margin_box().height
     }
-    
+
     /// Layout an inline element.
     fn layout_inline(
         &self,
@@ -467,33 +485,33 @@ impl RenderPipeline {
         text: &Option<String>,
     ) -> f32 {
         let node = tree.get_mut(node_id).unwrap();
-        
+
         // Calculate text dimensions
         let (width, height) = if let Some(ref t) = text {
             let char_width = style.font_size * 0.6;
             let text_width = (t.len() as f32) * char_width;
             let available_width = containing_block.width;
-            
+
             let lines = ceilf(text_width / available_width).max(1.0);
             let line_height = style.font_size * 1.4;
-            
+
             (text_width.min(available_width), lines * line_height)
         } else {
             (0.0, style.font_size * 1.4)
         };
-        
+
         node.dimensions.content.x = containing_block.x;
         node.dimensions.content.y = y_offset;
         node.dimensions.content.width = width;
         node.dimensions.content.height = height;
-        
+
         y_offset + height
     }
-    
+
     /// Generate display list from layout tree.
     fn paint(&self, tree: &LayoutTree) -> DisplayList {
         let mut list = DisplayList::new();
-        
+
         // Paint background
         list.push(DisplayCommand::SolidRect {
             color: self.background_color.to_layout_color(),
@@ -504,34 +522,41 @@ impl RenderPipeline {
                 height: self.viewport_height,
             },
         });
-        
+
         // Paint nodes
         if let Some(root_id) = tree.root_id() {
             self.paint_node(tree, root_id, &mut list);
         }
-        
+
         list
     }
-    
+
     /// Paint a single node.
     fn paint_node(&self, tree: &LayoutTree, node_id: usize, list: &mut DisplayList) {
         let node = match tree.get(node_id) {
             Some(n) => n,
             None => return,
         };
-        
+
         let rect = node.dimensions.border_box();
-        
+
         // Paint background
         if let Some(bg) = node.style.background_color {
-            list.push(DisplayCommand::SolidRect { color: bg.to_layout_color(), rect });
+            list.push(DisplayCommand::SolidRect {
+                color: bg.to_layout_color(),
+                rect,
+            });
         }
-        
+
         // Paint border
         let border = &node.dimensions.border;
         if border.top > 0.0 || border.right > 0.0 || border.bottom > 0.0 || border.left > 0.0 {
             list.push(DisplayCommand::Border {
-                color: node.style.border_color.unwrap_or(PipelineColor::black()).to_layout_color(),
+                color: node
+                    .style
+                    .border_color
+                    .unwrap_or(PipelineColor::black())
+                    .to_layout_color(),
                 rect,
                 widths: BorderWidths {
                     top: border.top,
@@ -542,7 +567,7 @@ impl RenderPipeline {
                 style: BorderStyle::Solid,
             });
         }
-        
+
         // Paint text
         if let Some(ref text) = node.text {
             list.push(DisplayCommand::Text {
@@ -558,13 +583,13 @@ impl RenderPipeline {
                 },
             });
         }
-        
+
         // Paint children
         for &child_id in &node.children {
             self.paint_node(tree, child_id, list);
         }
     }
-    
+
     /// Execute a display command.
     fn execute_command(
         &self,
@@ -577,7 +602,12 @@ impl RenderPipeline {
             DisplayCommand::SolidRect { color, rect } => {
                 self.fill_rect(framebuffer, width, height, rect, *color);
             }
-            DisplayCommand::Border { color, rect, widths, .. } => {
+            DisplayCommand::Border {
+                color,
+                rect,
+                widths,
+                ..
+            } => {
                 // Top border
                 if widths.top > 0.0 {
                     let top_rect = Rect {
@@ -627,7 +657,7 @@ impl RenderPipeline {
             _ => {}
         }
     }
-    
+
     /// Fill a rectangle in the framebuffer.
     fn fill_rect(
         &self,
@@ -641,9 +671,9 @@ impl RenderPipeline {
         let y0 = (rect.y as i32).max(0) as u32;
         let x1 = ((rect.x + rect.width) as u32).min(fb_width);
         let y1 = ((rect.y + rect.height) as u32).min(fb_height);
-        
+
         let pixel = color_to_u32(&color);
-        
+
         for y in y0..y1 {
             for x in x0..x1 {
                 let idx = (y * fb_width + x) as usize;
@@ -658,7 +688,7 @@ impl RenderPipeline {
             }
         }
     }
-    
+
     /// Draw text (simplified).
     fn draw_text(
         &self,
@@ -675,13 +705,13 @@ impl RenderPipeline {
         let char_height = style.font_size * 0.8;
         let mut x = rect.x;
         let y = rect.y + (rect.height - char_height) / 2.0;
-        
+
         for ch in text.chars() {
             if ch.is_whitespace() {
                 x += char_width;
                 continue;
             }
-            
+
             // Draw a simple rectangle for each character
             let char_rect = Rect {
                 x,
@@ -690,13 +720,13 @@ impl RenderPipeline {
                 height: char_height,
             };
             self.fill_rect(framebuffer, fb_width, fb_height, &char_rect, style.color);
-            
+
             x += char_width;
             if x > rect.x + rect.width {
                 break;
             }
         }
-        
+
         // Draw underline
         if style.underline {
             let underline_rect = Rect {
@@ -705,7 +735,13 @@ impl RenderPipeline {
                 width: (text.len() as f32) * char_width,
                 height: 1.0,
             };
-            self.fill_rect(framebuffer, fb_width, fb_height, &underline_rect, style.color);
+            self.fill_rect(
+                framebuffer,
+                fb_width,
+                fb_height,
+                &underline_rect,
+                style.color,
+            );
         }
     }
 }
@@ -719,26 +755,26 @@ fn color_to_u32(color: &LayoutColor) -> u32 {
 fn blend_pixel(dst: u32, src: u32, alpha: u8) -> u32 {
     let a = alpha as u32;
     let inv_a = 255 - a;
-    
+
     let dst_r = (dst >> 16) & 0xFF;
     let dst_g = (dst >> 8) & 0xFF;
     let dst_b = dst & 0xFF;
-    
+
     let src_r = (src >> 16) & 0xFF;
     let src_g = (src >> 8) & 0xFF;
     let src_b = src & 0xFF;
-    
+
     let r = (src_r * a + dst_r * inv_a) / 255;
     let g = (src_g * a + dst_g * inv_a) / 255;
     let b = (src_b * a + dst_b * inv_a) / 255;
-    
+
     0xFF000000 | (r << 16) | (g << 8) | b
 }
 
 /// Parse a CSS color value.
 fn parse_color(s: &str) -> Option<PipelineColor> {
     let s = s.trim().to_ascii_lowercase();
-    
+
     // Named colors
     match s.as_str() {
         "black" => return Some(PipelineColor::rgb(0, 0, 0)),
@@ -755,7 +791,7 @@ fn parse_color(s: &str) -> Option<PipelineColor> {
         "transparent" => return Some(PipelineColor::transparent()),
         _ => {}
     }
-    
+
     // Hex colors
     if s.starts_with('#') {
         let hex = &s[1..];
@@ -771,14 +807,14 @@ fn parse_color(s: &str) -> Option<PipelineColor> {
             return Some(PipelineColor::rgb(r, g, b));
         }
     }
-    
+
     // rgb() / rgba()
     if s.starts_with("rgb") {
         // Parse rgb(r, g, b) or rgba(r, g, b, a)
         let start = s.find('(')?;
         let end = s.find(')')?;
-        let values: Vec<&str> = s[start+1..end].split(',').collect();
-        
+        let values: Vec<&str> = s[start + 1..end].split(',').collect();
+
         if values.len() >= 3 {
             let r: u8 = values[0].trim().parse().ok()?;
             let g: u8 = values[1].trim().parse().ok()?;
@@ -792,21 +828,29 @@ fn parse_color(s: &str) -> Option<PipelineColor> {
             return Some(PipelineColor::new(r, g, b, a));
         }
     }
-    
+
     None
 }
 
 /// Parse a CSS length value.
 fn parse_length(s: &str) -> Option<f32> {
     let s = s.trim().to_ascii_lowercase();
-    
+
     if s.ends_with("px") {
-        s[..s.len()-2].trim().parse().ok()
+        s[..s.len() - 2].trim().parse().ok()
     } else if s.ends_with("em") {
         // Convert em to px (assuming 16px base)
-        s[..s.len()-2].trim().parse::<f32>().ok().map(|v| v * 16.0)
+        s[..s.len() - 2]
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|v| v * 16.0)
     } else if s.ends_with("rem") {
-        s[..s.len()-3].trim().parse::<f32>().ok().map(|v| v * 16.0)
+        s[..s.len() - 3]
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|v| v * 16.0)
     } else if s.ends_with('%') {
         // Percentage - can't resolve without context
         None
@@ -914,34 +958,37 @@ pub struct LayoutTree {
 
 impl LayoutTree {
     pub fn new() -> Self {
-        Self { nodes: Vec::new(), root: None }
+        Self {
+            nodes: Vec::new(),
+            root: None,
+        }
     }
-    
+
     pub fn add(&mut self, mut node: LayoutNode, parent: Option<usize>) -> usize {
         let id = self.nodes.len();
         self.nodes.push(node);
-        
+
         if self.root.is_none() {
             self.root = Some(id);
         }
-        
+
         if let Some(pid) = parent {
             if let Some(p) = self.nodes.get_mut(pid) {
                 p.children.push(id);
             }
         }
-        
+
         id
     }
-    
+
     pub fn root_id(&self) -> Option<usize> {
         self.root
     }
-    
+
     pub fn get(&self, id: usize) -> Option<&LayoutNode> {
         self.nodes.get(id)
     }
-    
+
     pub fn get_mut(&mut self, id: usize) -> Option<&mut LayoutNode> {
         self.nodes.get_mut(id)
     }
@@ -954,8 +1001,14 @@ impl LayoutTree {
 /// HTML token.
 #[derive(Debug)]
 enum HtmlToken {
-    OpenTag { name: String, attrs: Vec<(String, String)>, self_closing: bool },
-    CloseTag { name: String },
+    OpenTag {
+        name: String,
+        attrs: Vec<(String, String)>,
+        self_closing: bool,
+    },
+    CloseTag {
+        name: String,
+    },
     Text(String),
     Eof,
 }
@@ -970,14 +1023,14 @@ impl<'a> SimpleHtmlParser<'a> {
     fn new(input: &'a str) -> Self {
         Self { input, pos: 0 }
     }
-    
+
     fn next_token(&mut self) -> Option<HtmlToken> {
         self.skip_whitespace();
-        
+
         if self.pos >= self.input.len() {
             return Some(HtmlToken::Eof);
         }
-        
+
         if self.starts_with("<!--") {
             // Skip comment
             if let Some(end) = self.input[self.pos..].find("-->") {
@@ -985,7 +1038,7 @@ impl<'a> SimpleHtmlParser<'a> {
                 return self.next_token();
             }
         }
-        
+
         if self.starts_with("<!") {
             // Skip doctype
             if let Some(end) = self.input[self.pos..].find('>') {
@@ -993,7 +1046,7 @@ impl<'a> SimpleHtmlParser<'a> {
                 return self.next_token();
             }
         }
-        
+
         if self.starts_with("</") {
             // Close tag
             self.pos += 2;
@@ -1002,7 +1055,7 @@ impl<'a> SimpleHtmlParser<'a> {
             self.pos += 1;
             return Some(HtmlToken::CloseTag { name });
         }
-        
+
         if self.starts_with("<") {
             // Open tag
             self.pos += 1;
@@ -1011,20 +1064,27 @@ impl<'a> SimpleHtmlParser<'a> {
             let self_closing = self.consume_if("/");
             self.skip_until('>');
             self.pos += 1;
-            
+
             // Void elements
-            let void_elements = ["br", "hr", "img", "input", "meta", "link", "area", "base", "col", "embed", "param", "source", "track", "wbr"];
+            let void_elements = [
+                "br", "hr", "img", "input", "meta", "link", "area", "base", "col", "embed",
+                "param", "source", "track", "wbr",
+            ];
             let is_void = void_elements.contains(&name.to_ascii_lowercase().as_str());
-            
-            return Some(HtmlToken::OpenTag { name, attrs, self_closing: self_closing || is_void });
+
+            return Some(HtmlToken::OpenTag {
+                name,
+                attrs,
+                self_closing: self_closing || is_void,
+            });
         }
-        
+
         // Text content
         let start = self.pos;
         while self.pos < self.input.len() && !self.starts_with("<") {
             self.pos += 1;
         }
-        
+
         if self.pos > start {
             let text = self.input[start..self.pos].to_string();
             Some(HtmlToken::Text(text))
@@ -1032,11 +1092,14 @@ impl<'a> SimpleHtmlParser<'a> {
             Some(HtmlToken::Eof)
         }
     }
-    
+
     fn skip_until_close(&mut self, tag: &str) {
         let close_tag = alloc::format!("</{}", tag.to_ascii_lowercase());
         while self.pos < self.input.len() {
-            if self.input[self.pos..].to_ascii_lowercase().starts_with(&close_tag) {
+            if self.input[self.pos..]
+                .to_ascii_lowercase()
+                .starts_with(&close_tag)
+            {
                 // Consume the closing tag
                 self.pos += close_tag.len();
                 self.skip_until('>');
@@ -1046,11 +1109,11 @@ impl<'a> SimpleHtmlParser<'a> {
             self.pos += 1;
         }
     }
-    
+
     fn starts_with(&self, s: &str) -> bool {
         self.input[self.pos..].starts_with(s)
     }
-    
+
     fn consume_if(&mut self, s: &str) -> bool {
         if self.starts_with(s) {
             self.pos += s.len();
@@ -1059,7 +1122,7 @@ impl<'a> SimpleHtmlParser<'a> {
             false
         }
     }
-    
+
     fn skip_whitespace(&mut self) {
         while self.pos < self.input.len() {
             let ch = self.input[self.pos..].chars().next().unwrap();
@@ -1070,7 +1133,7 @@ impl<'a> SimpleHtmlParser<'a> {
             }
         }
     }
-    
+
     fn skip_until(&mut self, ch: char) {
         while self.pos < self.input.len() {
             if self.input[self.pos..].starts_with(ch) {
@@ -1079,7 +1142,7 @@ impl<'a> SimpleHtmlParser<'a> {
             self.pos += 1;
         }
     }
-    
+
     fn read_tag_name(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
@@ -1092,25 +1155,25 @@ impl<'a> SimpleHtmlParser<'a> {
         }
         self.input[start..self.pos].to_string()
     }
-    
+
     fn read_attributes(&mut self) -> Vec<(String, String)> {
         let mut attrs = Vec::new();
-        
+
         loop {
             self.skip_whitespace();
-            
+
             if self.pos >= self.input.len() || self.starts_with(">") || self.starts_with("/>") {
                 break;
             }
-            
+
             // Read attribute name
             let name = self.read_attr_name();
             if name.is_empty() {
                 break;
             }
-            
+
             self.skip_whitespace();
-            
+
             // Check for =
             if self.consume_if("=") {
                 self.skip_whitespace();
@@ -1121,10 +1184,10 @@ impl<'a> SimpleHtmlParser<'a> {
                 attrs.push((name, String::new()));
             }
         }
-        
+
         attrs
     }
-    
+
     fn read_attr_name(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
@@ -1137,7 +1200,7 @@ impl<'a> SimpleHtmlParser<'a> {
         }
         self.input[start..self.pos].to_string()
     }
-    
+
     fn read_attr_value(&mut self) -> String {
         if self.starts_with("\"") {
             self.pos += 1;

@@ -2,13 +2,13 @@
 //!
 //! This module generates native x86-64 machine code from the IR representation.
 
-use alloc::vec::Vec;
-use alloc::string::String;
 use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::ptr::NonNull;
 
-use super::ir::{IrFunction, IrInstruction, IrOpcode, IrType};
 use super::compiler::CompilationError;
+use super::ir::{IrFunction, IrInstruction, IrOpcode, IrType};
 
 /// Generated native code.
 #[derive(Debug)]
@@ -33,22 +33,22 @@ impl NativeCode {
             relocations: Vec::new(),
         }
     }
-    
+
     /// Get code size in bytes.
     pub fn size(&self) -> usize {
         self.code.len()
     }
-    
+
     /// Get the code bytes.
     pub fn code(&self) -> &[u8] {
         &self.code
     }
-    
+
     /// Get entry point offset.
     pub fn entry_offset(&self) -> usize {
         self.entry_offset
     }
-    
+
     /// Get stack frame size.
     pub fn frame_size(&self) -> usize {
         self.frame_size
@@ -114,7 +114,7 @@ impl Reg {
     fn needs_rex(&self) -> bool {
         (*self as u8) >= 8
     }
-    
+
     fn encoding(&self) -> u8 {
         (*self as u8) & 0x7
     }
@@ -164,7 +164,7 @@ impl CodeGenerator {
             pending_labels: Vec::new(),
         }
     }
-    
+
     /// Reset the generator for a new function.
     fn reset(&mut self) {
         self.code.clear();
@@ -172,52 +172,56 @@ impl CodeGenerator {
         self.labels.clear();
         self.pending_labels.clear();
     }
-    
+
     /// Generate baseline code (minimal optimization).
     pub fn generate_baseline(&self, ir: &IrFunction) -> Result<NativeCode, CompilationError> {
         let mut gen = Self::new();
         gen.compile_function(ir, false)
     }
-    
+
     /// Generate optimized code.
     pub fn generate_optimized(&self, ir: &IrFunction) -> Result<NativeCode, CompilationError> {
         let mut gen = Self::new();
         gen.compile_function(ir, true)
     }
-    
+
     /// Compile a function.
-    fn compile_function(&mut self, ir: &IrFunction, _optimize: bool) -> Result<NativeCode, CompilationError> {
+    fn compile_function(
+        &mut self,
+        ir: &IrFunction,
+        _optimize: bool,
+    ) -> Result<NativeCode, CompilationError> {
         self.reset();
-        
+
         // Calculate frame size
         let locals_size = ir.total_locals() * 8;
         let frame_size = ((locals_size + 15) / 16) * 16; // 16-byte aligned
-        
+
         // Function prologue
         self.emit_prologue(frame_size as i32);
-        
+
         // Compile each IR instruction
         for inst in &ir.body {
             self.compile_instruction(inst, ir)?;
         }
-        
+
         // Function epilogue (implicit return)
         self.emit_epilogue(frame_size as i32);
-        
+
         // Resolve pending labels
         self.resolve_labels();
-        
+
         Ok(NativeCode::new(self.code.clone(), 0, frame_size))
     }
-    
+
     /// Emit function prologue.
     fn emit_prologue(&mut self, frame_size: i32) {
         // push rbp
         self.emit_byte(0x55);
-        
+
         // mov rbp, rsp
         self.emit_bytes(&[0x48, 0x89, 0xE5]);
-        
+
         if frame_size > 0 {
             // sub rsp, frame_size
             if frame_size <= 127 {
@@ -228,7 +232,7 @@ impl CodeGenerator {
             }
         }
     }
-    
+
     /// Emit function epilogue.
     fn emit_epilogue(&mut self, frame_size: i32) {
         if frame_size > 0 {
@@ -240,16 +244,20 @@ impl CodeGenerator {
                 self.emit_i32(frame_size);
             }
         }
-        
+
         // pop rbp
         self.emit_byte(0x5D);
-        
+
         // ret
         self.emit_byte(0xC3);
     }
-    
+
     /// Compile a single IR instruction.
-    fn compile_instruction(&mut self, inst: &IrInstruction, ir: &IrFunction) -> Result<(), CompilationError> {
+    fn compile_instruction(
+        &mut self,
+        inst: &IrInstruction,
+        ir: &IrFunction,
+    ) -> Result<(), CompilationError> {
         match inst.opcode {
             // Constants
             IrOpcode::Const32(val) => {
@@ -267,7 +275,7 @@ impl CodeGenerator {
                 // push rax
                 self.emit_byte(0x50);
             }
-            
+
             // Local variables
             IrOpcode::LocalGet(idx) => {
                 let offset = self.local_offset(idx, ir);
@@ -291,7 +299,7 @@ impl CodeGenerator {
                 // mov [rbp + offset], rax
                 self.emit_store_local(offset);
             }
-            
+
             // Arithmetic (i32)
             IrOpcode::I32Add => {
                 // pop rax, pop rcx, add, push
@@ -315,7 +323,7 @@ impl CodeGenerator {
             IrOpcode::I32DivS => {
                 self.emit_byte(0x59); // pop rcx (divisor)
                 self.emit_byte(0x58); // pop rax (dividend)
-                // cdq: sign-extend eax into edx:eax
+                                      // cdq: sign-extend eax into edx:eax
                 self.emit_byte(0x99);
                 // idiv ecx
                 self.emit_bytes(&[0xF7, 0xF9]);
@@ -324,7 +332,7 @@ impl CodeGenerator {
             IrOpcode::I32DivU => {
                 self.emit_byte(0x59); // pop rcx (divisor)
                 self.emit_byte(0x58); // pop rax (dividend)
-                // xor edx, edx
+                                      // xor edx, edx
                 self.emit_bytes(&[0x31, 0xD2]);
                 // div ecx
                 self.emit_bytes(&[0xF7, 0xF1]);
@@ -380,7 +388,7 @@ impl CodeGenerator {
                 self.emit_bytes(&[0xD3, 0xF8]); // sar eax, cl
                 self.emit_byte(0x50); // push rax
             }
-            
+
             // Arithmetic (i64)
             IrOpcode::I64Add => {
                 self.emit_byte(0x58); // pop rax
@@ -400,7 +408,7 @@ impl CodeGenerator {
                 self.emit_bytes(&[0x48, 0x0F, 0xAF, 0xC1]); // imul rax, rcx
                 self.emit_byte(0x50); // push rax
             }
-            
+
             // Comparisons (i32)
             IrOpcode::I32Eq => {
                 self.emit_comparison(0x94); // sete
@@ -439,7 +447,7 @@ impl CodeGenerator {
                 self.emit_bytes(&[0x0F, 0xB6, 0xC0]); // movzx eax, al
                 self.emit_byte(0x50); // push rax
             }
-            
+
             // Memory operations
             IrOpcode::Load32(offset) => {
                 self.emit_byte(0x58); // pop rax (address)
@@ -483,7 +491,7 @@ impl CodeGenerator {
                 // mov [rcx], rax
                 self.emit_bytes(&[0x48, 0x89, 0x01]);
             }
-            
+
             // Control flow
             IrOpcode::Return => {
                 // Pop return value if any
@@ -505,7 +513,7 @@ impl CodeGenerator {
                 self.emit_byte(0x5A); // pop rdx (val2 / false)
                 self.emit_byte(0x59); // pop rcx (val1 / true)
                 self.emit_bytes(&[0x85, 0xC0]); // test eax, eax
-                // cmovz rcx, rdx  (if zero, pick val2)
+                                                // cmovz rcx, rdx  (if zero, pick val2)
                 self.emit_bytes(&[0x48, 0x0F, 0x44, 0xCA]); // cmovz rcx, rdx
                 self.emit_byte(0x51); // push rcx
             }
@@ -523,7 +531,7 @@ impl CodeGenerator {
                 // Conditional branch
                 self.emit_byte(0x58); // pop rax
                 self.emit_bytes(&[0x85, 0xC0]); // test eax, eax
-                // jz rel32 (placeholder)
+                                                // jz rel32 (placeholder)
                 self.emit_bytes(&[0x0F, 0x84]);
                 let label = self.labels.len();
                 self.labels.push(None);
@@ -545,7 +553,7 @@ impl CodeGenerator {
                 // ud2 - undefined instruction trap
                 self.emit_bytes(&[0x0F, 0x0B]);
             }
-            
+
             // Conversions
             IrOpcode::I32WrapI64 => {
                 // Just keep lower 32 bits (already in place)
@@ -563,24 +571,24 @@ impl CodeGenerator {
                 self.emit_bytes(&[0x89, 0xC0]); // mov eax, eax (zero-extend)
                 self.emit_byte(0x50); // push rax
             }
-            
+
             // Default: unimplemented opcodes
             _ => {
                 // For unimplemented opcodes, emit a trap
                 self.emit_bytes(&[0x0F, 0x0B]); // ud2
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Calculate local variable offset from rbp.
     fn local_offset(&self, idx: u32, ir: &IrFunction) -> i32 {
         // Locals are stored at [rbp - 8], [rbp - 16], etc.
         let offset = (idx as i32 + 1) * -8;
         offset
     }
-    
+
     /// Emit load from local variable.
     fn emit_load_local(&mut self, offset: i32) {
         if offset >= -128 && offset <= 127 {
@@ -592,7 +600,7 @@ impl CodeGenerator {
             self.emit_i32(offset);
         }
     }
-    
+
     /// Emit store to local variable.
     fn emit_store_local(&mut self, offset: i32) {
         if offset >= -128 && offset <= 127 {
@@ -604,7 +612,7 @@ impl CodeGenerator {
             self.emit_i32(offset);
         }
     }
-    
+
     /// Emit comparison with setcc.
     fn emit_comparison(&mut self, setcc: u8) {
         self.emit_byte(0x58); // pop rax (right)
@@ -614,7 +622,7 @@ impl CodeGenerator {
         self.emit_bytes(&[0x0F, 0xB6, 0xC0]); // movzx eax, al
         self.emit_byte(0x50); // push rax
     }
-    
+
     /// Resolve pending label references.
     fn resolve_labels(&mut self) {
         for (offset, label_idx, addend) in &self.pending_labels {
@@ -624,19 +632,19 @@ impl CodeGenerator {
             }
         }
     }
-    
+
     fn emit_byte(&mut self, b: u8) {
         self.code.push(b);
     }
-    
+
     fn emit_bytes(&mut self, bytes: &[u8]) {
         self.code.extend_from_slice(bytes);
     }
-    
+
     fn emit_i32(&mut self, val: i32) {
         self.code.extend_from_slice(&val.to_le_bytes());
     }
-    
+
     fn emit_i64(&mut self, val: i64) {
         self.code.extend_from_slice(&val.to_le_bytes());
     }

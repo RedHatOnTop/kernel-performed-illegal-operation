@@ -64,26 +64,26 @@ impl Origin {
             port,
         }
     }
-    
+
     /// Parse an origin from a URL string.
     pub fn parse(url: &str) -> Option<Self> {
         // Simple URL parsing (scheme://host:port/path)
         let (scheme, rest) = url.split_once("://")?;
         let host_port = rest.split('/').next()?;
-        
+
         let (host, port) = if let Some((h, p)) = host_port.split_once(':') {
             (h.to_string(), p.parse().ok())
         } else {
             (host_port.to_string(), Self::default_port(scheme))
         };
-        
+
         Some(Self {
             scheme: scheme.to_string(),
             host,
             port,
         })
     }
-    
+
     /// Get default port for scheme.
     fn default_port(scheme: &str) -> Option<u16> {
         match scheme {
@@ -93,12 +93,12 @@ impl Origin {
             _ => None,
         }
     }
-    
+
     /// Check if origin is opaque (cannot be compared).
     pub fn is_opaque(&self) -> bool {
         matches!(self.scheme.as_str(), "data" | "javascript" | "blob")
     }
-    
+
     /// Get origin as a string for serialization.
     pub fn serialize(&self) -> String {
         match self.port {
@@ -108,34 +108,32 @@ impl Origin {
             _ => alloc::format!("{}://{}", self.scheme, self.host),
         }
     }
-    
+
     /// Check if this origin is same-site with another.
     pub fn is_same_site(&self, other: &Origin) -> bool {
         // Same-site includes same host and subdomains
         if self.scheme != other.scheme {
             return false;
         }
-        
+
         // Check if same host or subdomain
         if self.host == other.host {
             return true;
         }
-        
+
         // Check if one is subdomain of the other
         let (shorter, longer) = if self.host.len() < other.host.len() {
             (&self.host, &other.host)
         } else {
             (&other.host, &self.host)
         };
-        
+
         longer.ends_with(&alloc::format!(".{}", shorter))
     }
-    
+
     /// Check if this origin can access another (same-origin policy).
     pub fn can_access(&self, other: &Origin) -> bool {
-        self.scheme == other.scheme && 
-        self.host == other.host && 
-        self.port == other.port
+        self.scheme == other.scheme && self.host == other.host && self.port == other.port
     }
 }
 
@@ -229,15 +227,14 @@ impl SiteContext {
             parent: None,
         }
     }
-    
+
     /// Check if cross-origin isolation is enabled.
     /// Requires COOP: same-origin and COEP: require-corp.
     pub fn update_cross_origin_isolation(&mut self) {
-        self.cross_origin_isolated = 
-            self.coop == CoopPolicy::SameOrigin && 
-            self.coep == CoepPolicy::RequireCorp;
+        self.cross_origin_isolated =
+            self.coop == CoopPolicy::SameOrigin && self.coep == CoepPolicy::RequireCorp;
     }
-    
+
     /// Set COOP policy from header value.
     pub fn set_coop(&mut self, value: &str) {
         self.coop = match value.trim() {
@@ -247,7 +244,7 @@ impl SiteContext {
         };
         self.update_cross_origin_isolation();
     }
-    
+
     /// Set COEP policy from header value.
     pub fn set_coep(&mut self, value: &str) {
         self.coep = match value.trim() {
@@ -284,24 +281,12 @@ impl CorbChecker {
     /// Create a new CORB checker.
     pub fn new() -> Self {
         Self {
-            html_patterns: alloc::vec![
-                b"<!DOCTYPE",
-                b"<html",
-                b"<HTML",
-                b"<script",
-                b"<SCRIPT",
-            ],
-            xml_patterns: alloc::vec![
-                b"<?xml",
-                b"<rss",
-            ],
-            json_patterns: alloc::vec![
-                b"{",
-                b"[",
-            ],
+            html_patterns: alloc::vec![b"<!DOCTYPE", b"<html", b"<HTML", b"<script", b"<SCRIPT",],
+            xml_patterns: alloc::vec![b"<?xml", b"<rss",],
+            json_patterns: alloc::vec![b"{", b"[",],
         }
     }
-    
+
     /// Check if response should be blocked.
     pub fn check(
         &self,
@@ -314,40 +299,40 @@ impl CorbChecker {
         if request_origin.can_access(response_origin) {
             return CorbResult::Allow;
         }
-        
+
         // Check content type
         if let Some(ct) = content_type {
             let ct_lower = ct.to_lowercase();
-            
+
             // Block sensitive content types
-            if ct_lower.contains("text/html") ||
-               ct_lower.contains("application/json") ||
-               ct_lower.contains("text/xml") ||
-               ct_lower.contains("application/xml") {
+            if ct_lower.contains("text/html")
+                || ct_lower.contains("application/json")
+                || ct_lower.contains("text/xml")
+                || ct_lower.contains("application/xml")
+            {
                 return CorbResult::Block;
             }
-            
+
             // Allow known safe types
-            if ct_lower.contains("image/") ||
-               ct_lower.contains("audio/") ||
-               ct_lower.contains("video/") ||
-               ct_lower.contains("text/css") ||
-               ct_lower.contains("text/javascript") ||
-               ct_lower.contains("application/javascript") {
+            if ct_lower.contains("image/")
+                || ct_lower.contains("audio/")
+                || ct_lower.contains("video/")
+                || ct_lower.contains("text/css")
+                || ct_lower.contains("text/javascript")
+                || ct_lower.contains("application/javascript")
+            {
                 return CorbResult::Allow;
             }
         }
-        
+
         // Sniff content for sensitive data
-        if self.sniff_html(content) || 
-           self.sniff_xml(content) || 
-           self.sniff_json(content) {
+        if self.sniff_html(content) || self.sniff_xml(content) || self.sniff_json(content) {
             return CorbResult::Block;
         }
-        
+
         CorbResult::Allow
     }
-    
+
     /// Sniff for HTML content.
     fn sniff_html(&self, content: &[u8]) -> bool {
         let content = self.skip_whitespace(content);
@@ -358,7 +343,7 @@ impl CorbChecker {
         }
         false
     }
-    
+
     /// Sniff for XML content.
     fn sniff_xml(&self, content: &[u8]) -> bool {
         let content = self.skip_whitespace(content);
@@ -369,7 +354,7 @@ impl CorbChecker {
         }
         false
     }
-    
+
     /// Sniff for JSON content.
     fn sniff_json(&self, content: &[u8]) -> bool {
         let content = self.skip_whitespace(content);
@@ -380,16 +365,16 @@ impl CorbChecker {
         }
         false
     }
-    
+
     /// Skip leading whitespace and BOM.
     fn skip_whitespace<'a>(&self, content: &'a [u8]) -> &'a [u8] {
         let mut start = 0;
-        
+
         // Skip UTF-8 BOM
         if content.starts_with(&[0xEF, 0xBB, 0xBF]) {
             start = 3;
         }
-        
+
         // Skip whitespace
         while start < content.len() {
             match content[start] {
@@ -397,7 +382,7 @@ impl CorbChecker {
                 _ => break,
             }
         }
-        
+
         &content[start..]
     }
 }
@@ -433,50 +418,50 @@ impl OriginIsolationManager {
             corb: CorbChecker::new(),
         }
     }
-    
+
     /// Create or get site context for origin.
     pub fn get_or_create_site(&mut self, origin: Origin, process: ProcessId) -> SiteId {
         if let Some(&id) = self.origin_map.get(&origin) {
             return id;
         }
-        
+
         let id = SiteId(self.next_id.fetch_add(1, Ordering::Relaxed));
         let context = SiteContext::new(id, origin.clone(), process);
-        
+
         self.sites.insert(id, context);
         self.origin_map.insert(origin, id);
         self.process_map.entry(process).or_default().push(id);
-        
+
         id
     }
-    
+
     /// Get site context.
     pub fn get_site(&self, id: SiteId) -> Option<&SiteContext> {
         self.sites.get(&id)
     }
-    
+
     /// Get mutable site context.
     pub fn get_site_mut(&mut self, id: SiteId) -> Option<&mut SiteContext> {
         self.sites.get_mut(&id)
     }
-    
+
     /// Get site ID for origin.
     pub fn site_for_origin(&self, origin: &Origin) -> Option<SiteId> {
         self.origin_map.get(origin).copied()
     }
-    
+
     /// Check if cross-origin navigation is allowed (COOP check).
     pub fn can_navigate(&self, from: SiteId, to_origin: &Origin) -> NavigationDecision {
         let from_site = match self.sites.get(&from) {
             Some(s) => s,
             None => return NavigationDecision::Allow,
         };
-        
+
         // Same origin - always allowed
         if from_site.origin.can_access(to_origin) {
             return NavigationDecision::Allow;
         }
-        
+
         // Check COOP policy
         match from_site.coop {
             CoopPolicy::UnsafeNone => NavigationDecision::Allow,
@@ -490,7 +475,7 @@ impl OriginIsolationManager {
             }
         }
     }
-    
+
     /// Check if resource can be embedded (COEP/CORP check).
     pub fn can_embed(
         &self,
@@ -502,12 +487,12 @@ impl OriginIsolationManager {
             Some(s) => s,
             None => return true,
         };
-        
+
         // Same origin - always allowed
         if embedder_site.origin.can_access(resource_origin) {
             return true;
         }
-        
+
         // Check COEP policy
         match embedder_site.coep {
             CoepPolicy::UnsafeNone => true,
@@ -525,7 +510,7 @@ impl OriginIsolationManager {
             }
         }
     }
-    
+
     /// Perform CORB check.
     pub fn corb_check(
         &self,
@@ -538,10 +523,11 @@ impl OriginIsolationManager {
             Some(s) => &s.origin,
             None => return CorbResult::Allow,
         };
-        
-        self.corb.check(request_origin, response_origin, content_type, content)
+
+        self.corb
+            .check(request_origin, response_origin, content_type, content)
     }
-    
+
     /// Add child frame.
     pub fn add_child_frame(&mut self, parent: SiteId, child: SiteId) {
         if let Some(parent_site) = self.sites.get_mut(&parent) {
@@ -551,16 +537,16 @@ impl OriginIsolationManager {
             child_site.parent = Some(parent);
         }
     }
-    
+
     /// Remove site.
     pub fn remove_site(&mut self, id: SiteId) {
         if let Some(site) = self.sites.remove(&id) {
             self.origin_map.remove(&site.origin);
-            
+
             if let Some(sites) = self.process_map.get_mut(&site.process) {
                 sites.retain(|&s| s != id);
             }
-            
+
             // Remove from parent's children
             if let Some(parent_id) = site.parent {
                 if let Some(parent) = self.sites.get_mut(&parent_id) {
@@ -569,10 +555,11 @@ impl OriginIsolationManager {
             }
         }
     }
-    
+
     /// Get all sites for process.
     pub fn sites_for_process(&self, process: ProcessId) -> &[SiteId] {
-        self.process_map.get(&process)
+        self.process_map
+            .get(&process)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
@@ -607,14 +594,16 @@ pub fn init() {
 
 /// Get or create site for origin.
 pub fn get_or_create_site(origin: Origin, process: ProcessId) -> Option<SiteId> {
-    ORIGIN_MANAGER.write()
+    ORIGIN_MANAGER
+        .write()
         .as_mut()
         .map(|m| m.get_or_create_site(origin, process))
 }
 
 /// Check if navigation is allowed.
 pub fn can_navigate(from: SiteId, to_origin: &Origin) -> NavigationDecision {
-    ORIGIN_MANAGER.read()
+    ORIGIN_MANAGER
+        .read()
         .as_ref()
         .map(|m| m.can_navigate(from, to_origin))
         .unwrap_or(NavigationDecision::Allow)
@@ -627,7 +616,8 @@ pub fn corb_check(
     content_type: Option<&str>,
     content: &[u8],
 ) -> CorbResult {
-    ORIGIN_MANAGER.read()
+    ORIGIN_MANAGER
+        .read()
         .as_ref()
         .map(|m| m.corb_check(request_site, response_origin, content_type, content))
         .unwrap_or(CorbResult::Allow)

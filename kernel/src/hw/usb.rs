@@ -2,10 +2,10 @@
 //!
 //! USB device enumeration and driver support.
 
-use alloc::vec::Vec;
-use alloc::string::String;
+use super::{DeviceResource, DeviceStatus, DeviceType, HardwareDevice};
 use alloc::format;
-use super::{HardwareDevice, DeviceType, DeviceStatus, DeviceResource};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// USB speed modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,11 +353,11 @@ pub fn init() {
 pub fn enumerate(devices: &mut Vec<HardwareDevice>) {
     // In a real implementation, this would enumerate all USB devices
     // and add them to the device list
-    
+
     // For now, just scan for USB controllers in PCI
     let mut pci_devices = Vec::new();
     super::pci::enumerate(&mut pci_devices);
-    
+
     for dev in &pci_devices {
         // Class 0x0C, Subclass 0x03 = USB Controller
         if dev.device_type == DeviceType::Pci {
@@ -431,7 +431,7 @@ impl UsbSetupPacket {
     /// Create GET_DESCRIPTOR request
     pub fn get_descriptor(desc_type: u8, desc_index: u8, length: u16) -> Self {
         Self {
-            request_type: 0x80,  // Device to Host, Standard, Device
+            request_type: 0x80, // Device to Host, Standard, Device
             request: UsbRequest::GetDescriptor as u8,
             value: ((desc_type as u16) << 8) | (desc_index as u16),
             index: 0,
@@ -442,7 +442,7 @@ impl UsbSetupPacket {
     /// Create SET_ADDRESS request
     pub fn set_address(address: u8) -> Self {
         Self {
-            request_type: 0x00,  // Host to Device, Standard, Device
+            request_type: 0x00, // Host to Device, Standard, Device
             request: UsbRequest::SetAddress as u8,
             value: address as u16,
             index: 0,

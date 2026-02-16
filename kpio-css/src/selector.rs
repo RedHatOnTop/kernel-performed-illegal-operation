@@ -1,10 +1,10 @@
 //! CSS Selectors - Selector parsing and matching
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
-use core::fmt;
 use core::cmp::Ordering;
+use core::fmt;
 
 use servo_types::{LocalName, Namespace};
 
@@ -104,11 +104,12 @@ impl Selector {
         for component in &self.components {
             match component {
                 SelectorComponent::Id(_) => spec.id += 1,
-                SelectorComponent::Class(_) 
+                SelectorComponent::Class(_)
                 | SelectorComponent::Attribute { .. }
                 | SelectorComponent::PseudoClass(_) => spec.class += 1,
-                SelectorComponent::Type(_) 
-                | SelectorComponent::PseudoElement(_) => spec.element += 1,
+                SelectorComponent::Type(_) | SelectorComponent::PseudoElement(_) => {
+                    spec.element += 1
+                }
                 SelectorComponent::Universal => {}
                 SelectorComponent::Combinator(_) => {}
             }

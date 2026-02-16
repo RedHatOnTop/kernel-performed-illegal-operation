@@ -2,10 +2,10 @@
 //!
 //! Fuzzing harness for network protocol parsing.
 
+use crate::{FuzzResult, FuzzTarget};
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use crate::{FuzzTarget, FuzzResult};
 
 /// HTTP Parser fuzzer
 pub struct HttpFuzzer {
@@ -41,7 +41,8 @@ impl HttpFuzzer {
     /// Parse HTTP request
     fn parse_request(&self, input: &[u8]) -> Result<(), HttpParseError> {
         // Find end of headers
-        let header_end = self.find_header_end(input)
+        let header_end = self
+            .find_header_end(input)
             .ok_or(HttpParseError::IncompleteHeaders)?;
 
         if header_end > self.max_header_size {
@@ -49,13 +50,15 @@ impl HttpFuzzer {
         }
 
         let headers = &input[..header_end];
-        
+
         // Parse request line
-        let line_end = headers.iter().position(|&b| b == b'\n')
+        let line_end = headers
+            .iter()
+            .position(|&b| b == b'\n')
             .ok_or(HttpParseError::InvalidRequestLine)?;
-        
+
         let request_line = &headers[..line_end];
-        
+
         // Should have: METHOD SP PATH SP VERSION CRLF
         let parts: Vec<_> = request_line.split(|&b| b == b' ').collect();
         if parts.len() < 3 {
@@ -83,7 +86,8 @@ impl HttpFuzzer {
     /// Parse HTTP response
     fn parse_response(&self, input: &[u8]) -> Result<(), HttpParseError> {
         // Find end of headers
-        let header_end = self.find_header_end(input)
+        let header_end = self
+            .find_header_end(input)
             .ok_or(HttpParseError::IncompleteHeaders)?;
 
         if header_end > self.max_header_size {
@@ -91,13 +95,15 @@ impl HttpFuzzer {
         }
 
         let headers = &input[..header_end];
-        
+
         // Parse status line
-        let line_end = headers.iter().position(|&b| b == b'\n')
+        let line_end = headers
+            .iter()
+            .position(|&b| b == b'\n')
             .ok_or(HttpParseError::InvalidStatusLine)?;
-        
+
         let status_line = &headers[..line_end];
-        
+
         // Should have: VERSION SP STATUS SP REASON CRLF
         if !status_line.starts_with(b"HTTP/") {
             return Err(HttpParseError::InvalidVersion);
@@ -111,13 +117,13 @@ impl HttpFuzzer {
 
     fn find_header_end(&self, input: &[u8]) -> Option<usize> {
         for i in 0..input.len().saturating_sub(3) {
-            if &input[i..i+4] == b"\r\n\r\n" {
+            if &input[i..i + 4] == b"\r\n\r\n" {
                 return Some(i + 4);
             }
         }
         // Also check for just \n\n
         for i in 0..input.len().saturating_sub(1) {
-            if &input[i..i+2] == b"\n\n" {
+            if &input[i..i + 2] == b"\n\n" {
                 return Some(i + 2);
             }
         }
@@ -125,9 +131,18 @@ impl HttpFuzzer {
     }
 
     fn is_valid_method(&self, method: &[u8]) -> bool {
-        matches!(method, 
-            b"GET" | b"POST" | b"PUT" | b"DELETE" | b"HEAD" | 
-            b"OPTIONS" | b"PATCH" | b"CONNECT" | b"TRACE")
+        matches!(
+            method,
+            b"GET"
+                | b"POST"
+                | b"PUT"
+                | b"DELETE"
+                | b"HEAD"
+                | b"OPTIONS"
+                | b"PATCH"
+                | b"CONNECT"
+                | b"TRACE"
+        )
     }
 
     fn parse_headers(&self, _headers: &[u8]) -> Result<(), HttpParseError> {
@@ -145,9 +160,9 @@ impl FuzzTarget for HttpFuzzer {
         let result = match self.mode {
             HttpMode::Request => self.parse_request(input),
             HttpMode::Response => self.parse_response(input),
-            HttpMode::Both => {
-                self.parse_request(input).or_else(|_| self.parse_response(input))
-            }
+            HttpMode::Both => self
+                .parse_request(input)
+                .or_else(|_| self.parse_response(input)),
         };
 
         match result {
@@ -261,7 +276,10 @@ pub fn generate_http_corpus() -> Vec<Vec<u8>> {
     corpus.push(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec());
 
     // POST with body
-    corpus.push(b"POST /api HTTP/1.1\r\nHost: localhost\r\nContent-Length: 13\r\n\r\n{\"key\":\"val\"}".to_vec());
+    corpus.push(
+        b"POST /api HTTP/1.1\r\nHost: localhost\r\nContent-Length: 13\r\n\r\n{\"key\":\"val\"}"
+            .to_vec(),
+    );
 
     // Chunked encoding
     corpus.push(b"POST /api HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n".to_vec());
@@ -291,7 +309,10 @@ pub fn generate_http_corpus() -> Vec<Vec<u8>> {
     corpus.push(b"\r\n\r\n".to_vec());
 
     // Request smuggling patterns
-    corpus.push(b"POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n".to_vec());
+    corpus.push(
+        b"POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"
+            .to_vec(),
+    );
 
     // Null bytes
     corpus.push(b"GET /\x00path HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec());
@@ -316,8 +337,7 @@ impl UrlFuzzer {
             return Err(UrlParseError::TooLong);
         }
 
-        let text = core::str::from_utf8(input)
-            .map_err(|_| UrlParseError::InvalidEncoding)?;
+        let text = core::str::from_utf8(input).map_err(|_| UrlParseError::InvalidEncoding)?;
 
         // Basic URL validation
         if text.is_empty() {
@@ -327,7 +347,10 @@ impl UrlFuzzer {
         // Check for scheme
         if let Some(colon) = text.find(':') {
             let scheme = &text[..colon];
-            if !scheme.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.') {
+            if !scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+            {
                 return Err(UrlParseError::InvalidScheme);
             }
         }
@@ -445,8 +468,7 @@ impl FuzzTarget for WebSocketFuzzer {
                 return FuzzResult::ParseError(String::from("Incomplete header"));
             }
             let len = u64::from_be_bytes([
-                input[2], input[3], input[4], input[5],
-                input[6], input[7], input[8], input[9],
+                input[2], input[3], input[4], input[5], input[6], input[7], input[8], input[9],
             ]) as usize;
             (len, 10)
         } else {
@@ -578,8 +600,14 @@ trait TrimAscii {
 
 impl TrimAscii for [u8] {
     fn trim_ascii(&self) -> &[u8] {
-        let start = self.iter().position(|&b| !b.is_ascii_whitespace()).unwrap_or(self.len());
-        let end = self.iter().rposition(|&b| !b.is_ascii_whitespace()).map_or(start, |i| i + 1);
+        let start = self
+            .iter()
+            .position(|&b| !b.is_ascii_whitespace())
+            .unwrap_or(self.len());
+        let end = self
+            .iter()
+            .rposition(|&b| !b.is_ascii_whitespace())
+            .map_or(start, |i| i + 1);
         &self[start..end]
     }
 }

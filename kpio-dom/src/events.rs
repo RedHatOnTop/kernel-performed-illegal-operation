@@ -38,29 +38,29 @@ pub enum EventType {
     MouseOut,
     ContextMenu,
     Wheel,
-    
+
     // Keyboard events
     KeyDown,
     KeyUp,
     KeyPress,
-    
+
     // Focus events
     Focus,
     Blur,
     FocusIn,
     FocusOut,
-    
+
     // Form events
     Input,
     Change,
     Submit,
     Reset,
-    
+
     // Clipboard events
     Cut,
     Copy,
     Paste,
-    
+
     // Drag events
     DragStart,
     Drag,
@@ -69,13 +69,13 @@ pub enum EventType {
     DragOver,
     DragLeave,
     Drop,
-    
+
     // Touch events
     TouchStart,
     TouchMove,
     TouchEnd,
     TouchCancel,
-    
+
     // Document events
     DOMContentLoaded,
     Load,
@@ -83,13 +83,13 @@ pub enum EventType {
     BeforeUnload,
     Resize,
     Scroll,
-    
+
     // Animation events
     AnimationStart,
     AnimationEnd,
     AnimationIteration,
     TransitionEnd,
-    
+
     // Custom event
     Custom(u32),
 }
@@ -147,7 +147,7 @@ impl EventType {
             EventType::Custom(_) => "custom",
         }
     }
-    
+
     /// Parse event type from string.
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
@@ -200,22 +200,29 @@ impl EventType {
             _ => None,
         }
     }
-    
+
     /// Check if event bubbles by default.
     pub fn bubbles(&self) -> bool {
         match self {
-            EventType::Focus | EventType::Blur | EventType::Load | 
-            EventType::Unload | EventType::MouseEnter | EventType::MouseLeave |
-            EventType::Scroll => false,
+            EventType::Focus
+            | EventType::Blur
+            | EventType::Load
+            | EventType::Unload
+            | EventType::MouseEnter
+            | EventType::MouseLeave
+            | EventType::Scroll => false,
             _ => true,
         }
     }
-    
+
     /// Check if event is cancelable.
     pub fn cancelable(&self) -> bool {
         match self {
-            EventType::Load | EventType::Unload | EventType::Blur | 
-            EventType::Focus | EventType::Scroll => false,
+            EventType::Load
+            | EventType::Unload
+            | EventType::Blur
+            | EventType::Focus
+            | EventType::Scroll => false,
             _ => true,
         }
     }
@@ -287,33 +294,33 @@ impl Event {
             data: EventData::None,
         }
     }
-    
+
     /// Create mouse event.
     pub fn mouse(event_type: EventType, target: NodeId, data: MouseEventData) -> Self {
         let mut event = Self::new(event_type, target);
         event.data = EventData::Mouse(data);
         event
     }
-    
+
     /// Create keyboard event.
     pub fn keyboard(event_type: EventType, target: NodeId, data: KeyboardEventData) -> Self {
         let mut event = Self::new(event_type, target);
         event.data = EventData::Keyboard(data);
         event
     }
-    
+
     /// Prevent default action.
     pub fn prevent_default(&mut self) {
         if self.cancelable {
             self.default_prevented = true;
         }
     }
-    
+
     /// Stop propagation.
     pub fn stop_propagation(&mut self) {
         self.propagation_stopped = true;
     }
-    
+
     /// Stop immediate propagation.
     pub fn stop_immediate_propagation(&mut self) {
         self.propagation_stopped = true;
@@ -490,7 +497,7 @@ impl EventTarget {
             next_id: 1,
         }
     }
-    
+
     /// Add event listener.
     pub fn add_event_listener(
         &mut self,
@@ -500,21 +507,21 @@ impl EventTarget {
     ) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-        
+
         let listener = EventListener {
             handler,
             options,
             id,
         };
-        
+
         self.listeners
             .entry(event_type.to_string())
             .or_insert_with(Vec::new)
             .push(listener);
-        
+
         id
     }
-    
+
     /// Remove event listener by ID.
     pub fn remove_event_listener(&mut self, event_type: &str, id: u64) -> bool {
         if let Some(listeners) = self.listeners.get_mut(event_type) {
@@ -525,42 +532,45 @@ impl EventTarget {
         }
         false
     }
-    
+
     /// Dispatch event to this target's listeners.
     pub fn dispatch_to_listeners(&mut self, event: &mut Event, capture: bool) {
         let type_str = event.event_type.as_str();
-        
+
         if let Some(listeners) = self.listeners.get_mut(type_str) {
             let mut to_remove = Vec::new();
-            
+
             for listener in listeners.iter() {
                 // Skip if wrong phase
                 if listener.options.capture != capture {
                     continue;
                 }
-                
+
                 // Call handler
                 (listener.handler)(event);
-                
+
                 // Mark for removal if once
                 if listener.options.once {
                     to_remove.push(listener.id);
                 }
-                
+
                 // Stop if immediate propagation stopped
                 if event.immediate_propagation_stopped {
                     break;
                 }
             }
-            
+
             // Remove once listeners
             listeners.retain(|l| !to_remove.contains(&l.id));
         }
     }
-    
+
     /// Check if has listeners for event type.
     pub fn has_listeners(&self, event_type: &str) -> bool {
-        self.listeners.get(event_type).map(|l| !l.is_empty()).unwrap_or(false)
+        self.listeners
+            .get(event_type)
+            .map(|l| !l.is_empty())
+            .unwrap_or(false)
     }
 }
 
@@ -583,18 +593,18 @@ impl EventDispatcher {
             targets: BTreeMap::new(),
         }
     }
-    
+
     /// Get or create event target for node.
     pub fn get_target(&mut self, node_id: NodeId) -> &mut EventTarget {
         self.targets.entry(node_id).or_insert_with(EventTarget::new)
     }
-    
+
     /// Dispatch event with propagation.
     pub fn dispatch(&mut self, mut event: Event, path: &[NodeId]) {
         if path.is_empty() {
             return;
         }
-        
+
         // Capture phase (from root to target)
         event.phase = EventPhase::Capturing;
         for &node_id in path.iter().rev().skip(1) {
@@ -606,7 +616,7 @@ impl EventDispatcher {
                 target.dispatch_to_listeners(&mut event, true);
             }
         }
-        
+
         // At target phase
         if !event.propagation_stopped {
             event.phase = EventPhase::AtTarget;
@@ -616,7 +626,7 @@ impl EventDispatcher {
                 target.dispatch_to_listeners(&mut event, false);
             }
         }
-        
+
         // Bubble phase (from target to root)
         if event.bubbles && !event.propagation_stopped {
             event.phase = EventPhase::Bubbling;
@@ -630,10 +640,10 @@ impl EventDispatcher {
                 }
             }
         }
-        
+
         event.phase = EventPhase::None;
     }
-    
+
     /// Remove all listeners for a node.
     pub fn remove_node(&mut self, node_id: NodeId) {
         self.targets.remove(&node_id);

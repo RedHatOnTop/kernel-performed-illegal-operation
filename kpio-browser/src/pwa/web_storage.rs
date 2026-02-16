@@ -82,11 +82,7 @@ impl WebStorage {
         let new_entry_size = key.len() + value.len();
 
         // Calculate size delta
-        let old_entry_size = self
-            .data
-            .get(key)
-            .map(|v| key.len() + v.len())
-            .unwrap_or(0);
+        let old_entry_size = self.data.get(key).map(|v| key.len() + v.len()).unwrap_or(0);
         let delta = new_entry_size as isize - old_entry_size as isize;
         let projected = (self.current_size as isize + delta) as usize;
 
@@ -103,9 +99,7 @@ impl WebStorage {
     /// Remove an item.
     pub fn remove_item(&mut self, key: &str) {
         if let Some(value) = self.data.remove(key) {
-            self.current_size = self
-                .current_size
-                .saturating_sub(key.len() + value.len());
+            self.current_size = self.current_size.saturating_sub(key.len() + value.len());
         }
     }
 

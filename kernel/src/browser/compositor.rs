@@ -73,27 +73,34 @@ pub struct Rect {
 impl Rect {
     /// Create new rect.
     pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Rect { x, y, width, height }
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
     }
-    
+
     /// Check if empty.
     pub fn is_empty(&self) -> bool {
         self.width == 0 || self.height == 0
     }
-    
+
     /// Check if contains point.
     pub fn contains(&self, px: i32, py: i32) -> bool {
-        px >= self.x && px < self.x + self.width as i32 &&
-        py >= self.y && py < self.y + self.height as i32
+        px >= self.x
+            && px < self.x + self.width as i32
+            && py >= self.y
+            && py < self.y + self.height as i32
     }
-    
+
     /// Intersect with another rect.
     pub fn intersect(&self, other: &Rect) -> Option<Rect> {
         let x = self.x.max(other.x);
         let y = self.y.max(other.y);
         let right = (self.x + self.width as i32).min(other.x + other.width as i32);
         let bottom = (self.y + self.height as i32).min(other.y + other.height as i32);
-        
+
         if right > x && bottom > y {
             Some(Rect::new(x, y, (right - x) as u32, (bottom - y) as u32))
         } else {
@@ -116,15 +123,30 @@ impl Color {
     pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Color { r, g, b, a }
     }
-    
+
     /// Transparent.
-    pub const TRANSPARENT: Color = Color { r: 0, g: 0, b: 0, a: 0 };
-    
+    pub const TRANSPARENT: Color = Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
+
     /// White.
-    pub const WHITE: Color = Color { r: 255, g: 255, b: 255, a: 255 };
-    
+    pub const WHITE: Color = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+
     /// Black.
-    pub const BLACK: Color = Color { r: 0, g: 0, b: 0, a: 255 };
+    pub const BLACK: Color = Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
 }
 
 /// Compositor layer.
@@ -177,14 +199,14 @@ impl Layer {
             background: Color::TRANSPARENT,
         }
     }
-    
+
     /// Set buffer.
     pub fn set_buffer(&mut self, buffer: GpuBufferHandle, stride: u32) {
         self.buffer = Some(buffer);
         self.buffer_stride = stride;
         self.dirty = true;
     }
-    
+
     /// Mark dirty.
     pub fn invalidate(&mut self) {
         self.dirty = true;
@@ -225,50 +247,55 @@ impl Compositor {
             needs_composite: true,
         }
     }
-    
+
     /// Create a layer.
     pub fn create_layer(&mut self, owner: TabId, bounds: Rect) -> LayerId {
         let id = LayerId(self.next_layer_id.fetch_add(1, Ordering::Relaxed));
-        
+
         let layer = Layer::new(id, owner, bounds);
         self.layers.insert(id, Arc::new(Mutex::new(layer)));
-        
+
         self.tab_layers.entry(owner).or_default().push(id);
         self.render_order.push(id);
         self.needs_composite = true;
-        
+
         crate::serial_println!(
             "[Compositor] Created layer {:?} for tab {} at ({}, {}) {}x{}",
-            id, owner.0, bounds.x, bounds.y, bounds.width, bounds.height
+            id,
+            owner.0,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height
         );
-        
+
         id
     }
-    
+
     /// Destroy a layer.
     pub fn destroy_layer(&mut self, id: LayerId) -> bool {
         if let Some(layer) = self.layers.remove(&id) {
             let owner = layer.lock().owner;
-            
+
             if let Some(layers) = self.tab_layers.get_mut(&owner) {
                 layers.retain(|l| *l != id);
             }
-            
+
             self.render_order.retain(|l| *l != id);
             self.needs_composite = true;
-            
+
             crate::serial_println!("[Compositor] Destroyed layer {:?}", id);
             true
         } else {
             false
         }
     }
-    
+
     /// Get layer.
     pub fn get_layer(&self, id: LayerId) -> Option<Arc<Mutex<Layer>>> {
         self.layers.get(&id).cloned()
     }
-    
+
     /// Update layer.
     pub fn update_layer<F>(&self, id: LayerId, f: F) -> bool
     where
@@ -281,7 +308,7 @@ impl Compositor {
             false
         }
     }
-    
+
     /// Set layer z-index and update render order.
     pub fn set_layer_z_index(&mut self, id: LayerId, z_index: i32) {
         if let Some(layer) = self.layers.get(&id) {
@@ -289,7 +316,7 @@ impl Compositor {
             self.sort_layers();
         }
     }
-    
+
     /// Sort layers by z-index.
     fn sort_layers(&mut self) {
         self.render_order.sort_by(|a, b| {
@@ -299,7 +326,7 @@ impl Compositor {
         });
         self.needs_composite = true;
     }
-    
+
     /// Destroy all layers for a tab.
     pub fn destroy_tab_layers(&mut self, tab: TabId) {
         if let Some(layers) = self.tab_layers.remove(&tab) {
@@ -310,12 +337,14 @@ impl Compositor {
             self.needs_composite = true;
         }
     }
-    
+
     /// Get layers to render.
     pub fn render_list(&self) -> Vec<LayerId> {
-        self.render_order.iter()
+        self.render_order
+            .iter()
             .filter(|id| {
-                self.layers.get(id)
+                self.layers
+                    .get(id)
                     .map(|l| {
                         let layer = l.lock();
                         layer.visible && layer.opacity > 0.0
@@ -325,12 +354,12 @@ impl Compositor {
             .copied()
             .collect()
     }
-    
+
     /// Begin frame.
     pub fn begin_frame(&mut self) -> u64 {
         self.frame_number.fetch_add(1, Ordering::Relaxed)
     }
-    
+
     /// End frame (composite).
     pub fn end_frame(&mut self) {
         // Mark all layers as clean after composite
@@ -339,24 +368,24 @@ impl Compositor {
         }
         self.needs_composite = false;
     }
-    
+
     /// Check if composite needed.
     pub fn needs_composite(&self) -> bool {
         self.needs_composite || self.layers.values().any(|l| l.lock().dirty)
     }
-    
+
     /// Get screen size.
     pub fn screen_size(&self) -> (u32, u32) {
         (self.screen_width, self.screen_height)
     }
-    
+
     /// Resize screen.
     pub fn resize(&mut self, width: u32, height: u32) {
         self.screen_width = width;
         self.screen_height = height;
         self.needs_composite = true;
     }
-    
+
     /// Hit test at point.
     pub fn hit_test(&self, x: i32, y: i32) -> Option<(LayerId, TabId)> {
         // Check in reverse render order (front to back)
@@ -389,7 +418,11 @@ pub fn create_layer(owner: TabId, bounds: Rect) -> Option<LayerId> {
 
 /// Destroy layer.
 pub fn destroy_layer(id: LayerId) -> bool {
-    COMPOSITOR.write().as_mut().map(|c| c.destroy_layer(id)).unwrap_or(false)
+    COMPOSITOR
+        .write()
+        .as_mut()
+        .map(|c| c.destroy_layer(id))
+        .unwrap_or(false)
 }
 
 /// Get layer.
@@ -402,7 +435,11 @@ pub fn update_layer<F>(id: LayerId, f: F) -> bool
 where
     F: FnOnce(&mut Layer),
 {
-    COMPOSITOR.read().as_ref().map(|c| c.update_layer(id, f)).unwrap_or(false)
+    COMPOSITOR
+        .read()
+        .as_ref()
+        .map(|c| c.update_layer(id, f))
+        .unwrap_or(false)
 }
 
 /// Begin frame.
@@ -419,7 +456,11 @@ pub fn end_frame() {
 
 /// Get render list.
 pub fn render_list() -> Vec<LayerId> {
-    COMPOSITOR.read().as_ref().map(|c| c.render_list()).unwrap_or_default()
+    COMPOSITOR
+        .read()
+        .as_ref()
+        .map(|c| c.render_list())
+        .unwrap_or_default()
 }
 
 /// Hit test.

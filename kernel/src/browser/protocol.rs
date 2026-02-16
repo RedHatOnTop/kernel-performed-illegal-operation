@@ -28,7 +28,7 @@ pub enum MessageType {
     TabGetInfo = 4,
     /// Tab info response.
     TabInfo = 5,
-    
+
     // ==========================================
     // GPU Operations (10-29)
     // ==========================================
@@ -52,7 +52,7 @@ pub enum MessageType {
     GpuFenceWait = 18,
     /// GPU fence signaled.
     GpuFenceSignaled = 19,
-    
+
     // ==========================================
     // Network Operations (30-49)
     // ==========================================
@@ -80,7 +80,7 @@ pub enum MessageType {
     NetHttpHeaders = 40,
     /// HTTP response body chunk.
     NetHttpBody = 41,
-    
+
     // ==========================================
     // Input Events (50-69)
     // ==========================================
@@ -102,7 +102,7 @@ pub enum MessageType {
     InputTouchMove = 57,
     /// Touch end event.
     InputTouchEnd = 58,
-    
+
     // ==========================================
     // Window/Compositor (70-89)
     // ==========================================
@@ -122,7 +122,7 @@ pub enum MessageType {
     CompositorLayerDestroy = 76,
     /// Compositor commit.
     CompositorCommit = 77,
-    
+
     // ==========================================
     // System (90-99)
     // ==========================================
@@ -166,7 +166,7 @@ impl BrowserMessageHeader {
             payload_len: 0,
         }
     }
-    
+
     /// Size of the header.
     pub const fn size() -> usize {
         core::mem::size_of::<Self>()
@@ -190,7 +190,7 @@ impl BrowserMessage {
             payload: Vec::new(),
         }
     }
-    
+
     /// Create with payload.
     pub fn with_payload(msg_type: MessageType, sequence: u32, payload: Vec<u8>) -> Self {
         let mut msg = Self::new(msg_type, sequence);
@@ -198,7 +198,7 @@ impl BrowserMessage {
         msg.payload = payload;
         msg
     }
-    
+
     /// Set source and destination tabs.
     pub fn with_routing(mut self, source: u32, dest: u32) -> Self {
         self.header.source_tab = source;
@@ -310,7 +310,10 @@ pub enum BrowserRequest {
 #[derive(Debug, Clone)]
 pub enum BrowserResponse {
     /// Tab registered.
-    TabRegistered { tab_id: u32, channels: TabRegisteredResponse },
+    TabRegistered {
+        tab_id: u32,
+        channels: TabRegisteredResponse,
+    },
     /// GPU memory allocated.
     GpuAllocated { handle: u64, vaddr: u64 },
     /// GPU command completed.

@@ -6,11 +6,11 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use super::{
-    tokens::{Color, spacing, radius, shadows, z_index},
-    theme::Theme,
     components::{Button, ButtonVariant, Size},
-    layout::{Flex, JustifyContent, AlignItems, EdgeInsets},
     icons::Icon,
+    layout::{AlignItems, EdgeInsets, Flex, JustifyContent},
+    theme::Theme,
+    tokens::{radius, shadows, spacing, z_index, Color},
 };
 
 /// Dialog size
@@ -280,7 +280,9 @@ impl Toast {
 
     /// Error toast
     pub fn error(message: impl Into<String>) -> Self {
-        Self::new(message).toast_type(ToastType::Error).duration(5000)
+        Self::new(message)
+            .toast_type(ToastType::Error)
+            .duration(5000)
     }
 
     /// Warning toast
@@ -353,12 +355,12 @@ impl ToastContainer {
         let id = self.next_id;
         self.next_id += 1;
         toast.id = id;
-        
+
         // Remove oldest if at max
         while self.toasts.len() >= self.max_visible {
             self.toasts.remove(0);
         }
-        
+
         self.toasts.push(toast);
         id
     }
@@ -559,7 +561,9 @@ impl Dropdown {
     pub fn select(&mut self, value: impl Into<String>) {
         let value = value.into();
         self.selected = Some(value.clone());
-        self.label = self.items.iter()
+        self.label = self
+            .items
+            .iter()
             .find(|i| i.label == value)
             .map(|i| i.label.clone())
             .unwrap_or(value);

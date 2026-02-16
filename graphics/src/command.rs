@@ -30,63 +30,109 @@ impl CommandBuffer {
             NEXT_HANDLE += 1;
             CommandBufferHandle(h)
         };
-        
+
         Ok(CommandBuffer {
             handle,
             commands: Vec::new(),
             finished: false,
         })
     }
-    
+
     /// Get the command buffer handle.
     pub fn handle(&self) -> CommandBufferHandle {
         self.handle
     }
-    
+
     /// Begin a render pass.
     pub fn begin_render_pass(&mut self, desc: RenderPassDescriptor) -> Result<(), GraphicsError> {
         self.check_recording()?;
         self.commands.push(Command::BeginRenderPass(desc));
         Ok(())
     }
-    
+
     /// End the current render pass.
     pub fn end_render_pass(&mut self) -> Result<(), GraphicsError> {
         self.check_recording()?;
         self.commands.push(Command::EndRenderPass);
         Ok(())
     }
-    
+
     /// Set the viewport.
-    pub fn set_viewport(&mut self, x: f32, y: f32, width: f32, height: f32) -> Result<(), GraphicsError> {
+    pub fn set_viewport(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> Result<(), GraphicsError> {
         self.check_recording()?;
-        self.commands.push(Command::SetViewport { x, y, width, height });
+        self.commands.push(Command::SetViewport {
+            x,
+            y,
+            width,
+            height,
+        });
         Ok(())
     }
-    
+
     /// Set the scissor rectangle.
-    pub fn set_scissor(&mut self, x: u32, y: u32, width: u32, height: u32) -> Result<(), GraphicsError> {
+    pub fn set_scissor(
+        &mut self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GraphicsError> {
         self.check_recording()?;
-        self.commands.push(Command::SetScissor { x, y, width, height });
+        self.commands.push(Command::SetScissor {
+            x,
+            y,
+            width,
+            height,
+        });
         Ok(())
     }
-    
+
     /// Bind a vertex buffer.
-    pub fn bind_vertex_buffer(&mut self, slot: u32, buffer: BufferHandle, offset: u64) -> Result<(), GraphicsError> {
+    pub fn bind_vertex_buffer(
+        &mut self,
+        slot: u32,
+        buffer: BufferHandle,
+        offset: u64,
+    ) -> Result<(), GraphicsError> {
         self.check_recording()?;
-        self.commands.push(Command::BindVertexBuffer { slot, buffer, offset });
+        self.commands.push(Command::BindVertexBuffer {
+            slot,
+            buffer,
+            offset,
+        });
         Ok(())
     }
-    
+
     /// Bind an index buffer.
-    pub fn bind_index_buffer(&mut self, buffer: BufferHandle, offset: u64, format: IndexFormat) -> Result<(), GraphicsError> {
+    pub fn bind_index_buffer(
+        &mut self,
+        buffer: BufferHandle,
+        offset: u64,
+        format: IndexFormat,
+    ) -> Result<(), GraphicsError> {
         self.check_recording()?;
-        self.commands.push(Command::BindIndexBuffer { buffer, offset, format });
+        self.commands.push(Command::BindIndexBuffer {
+            buffer,
+            offset,
+            format,
+        });
         Ok(())
     }
-    
+
     /// Draw primitives.
-    pub fn draw(&mut self, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) -> Result<(), GraphicsError> {
+    pub fn draw(
+        &mut self,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    ) -> Result<(), GraphicsError> {
         self.check_recording()?;
         self.commands.push(Command::Draw {
             vertex_count,
@@ -96,9 +142,16 @@ impl CommandBuffer {
         });
         Ok(())
     }
-    
+
     /// Draw indexed primitives.
-    pub fn draw_indexed(&mut self, index_count: u32, instance_count: u32, first_index: u32, vertex_offset: i32, first_instance: u32) -> Result<(), GraphicsError> {
+    pub fn draw_indexed(
+        &mut self,
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+    ) -> Result<(), GraphicsError> {
         self.check_recording()?;
         self.commands.push(Command::DrawIndexed {
             index_count,
@@ -109,9 +162,16 @@ impl CommandBuffer {
         });
         Ok(())
     }
-    
+
     /// Copy buffer to buffer.
-    pub fn copy_buffer_to_buffer(&mut self, src: BufferHandle, src_offset: u64, dst: BufferHandle, dst_offset: u64, size: u64) -> Result<(), GraphicsError> {
+    pub fn copy_buffer_to_buffer(
+        &mut self,
+        src: BufferHandle,
+        src_offset: u64,
+        dst: BufferHandle,
+        dst_offset: u64,
+        size: u64,
+    ) -> Result<(), GraphicsError> {
         self.check_recording()?;
         self.commands.push(Command::CopyBufferToBuffer {
             src,
@@ -122,24 +182,24 @@ impl CommandBuffer {
         });
         Ok(())
     }
-    
+
     /// Finish recording.
     pub fn finish(&mut self) -> Result<(), GraphicsError> {
         self.check_recording()?;
         self.finished = true;
         Ok(())
     }
-    
+
     /// Check if still recording.
     fn check_recording(&self) -> Result<(), GraphicsError> {
         if self.finished {
             return Err(GraphicsError::InvalidOperation(
-                "Command buffer already finished".into()
+                "Command buffer already finished".into(),
             ));
         }
         Ok(())
     }
-    
+
     /// Get the recorded commands.
     pub fn commands(&self) -> &[Command] {
         &self.commands
@@ -160,19 +220,54 @@ pub enum Command {
     /// End the render pass.
     EndRenderPass,
     /// Set viewport.
-    SetViewport { x: f32, y: f32, width: f32, height: f32 },
+    SetViewport {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
     /// Set scissor.
-    SetScissor { x: u32, y: u32, width: u32, height: u32 },
+    SetScissor {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
     /// Bind vertex buffer.
-    BindVertexBuffer { slot: u32, buffer: BufferHandle, offset: u64 },
+    BindVertexBuffer {
+        slot: u32,
+        buffer: BufferHandle,
+        offset: u64,
+    },
     /// Bind index buffer.
-    BindIndexBuffer { buffer: BufferHandle, offset: u64, format: IndexFormat },
+    BindIndexBuffer {
+        buffer: BufferHandle,
+        offset: u64,
+        format: IndexFormat,
+    },
     /// Draw primitives.
-    Draw { vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32 },
+    Draw {
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    },
     /// Draw indexed primitives.
-    DrawIndexed { index_count: u32, instance_count: u32, first_index: u32, vertex_offset: i32, first_instance: u32 },
+    DrawIndexed {
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+    },
     /// Copy buffer to buffer.
-    CopyBufferToBuffer { src: BufferHandle, src_offset: u64, dst: BufferHandle, dst_offset: u64, size: u64 },
+    CopyBufferToBuffer {
+        src: BufferHandle,
+        src_offset: u64,
+        dst: BufferHandle,
+        dst_offset: u64,
+        size: u64,
+    },
 }
 
 /// Render pass descriptor.
@@ -250,11 +345,11 @@ pub fn submit(command_buffers: &[&CommandBuffer]) -> Result<(), GraphicsError> {
     for cmd_buffer in command_buffers {
         if !cmd_buffer.finished {
             return Err(GraphicsError::InvalidOperation(
-                "Cannot submit unfinished command buffer".into()
+                "Cannot submit unfinished command buffer".into(),
             ));
         }
     }
-    
+
     // Actual submission would go here
     Ok(())
 }

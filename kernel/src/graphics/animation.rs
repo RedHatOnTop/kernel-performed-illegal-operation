@@ -43,11 +43,11 @@ impl Easing {
 
         match self {
             Easing::Linear => t,
-            
+
             Easing::EaseIn => t * t,
-            
+
             Easing::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
-            
+
             Easing::EaseInOut => {
                 if t < 0.5 {
                     2.0 * t * t
@@ -56,7 +56,7 @@ impl Easing {
                     1.0 - (x * x) / 2.0
                 }
             }
-            
+
             Easing::Bounce => {
                 let t = 1.0 - t;
                 let result = if t < 1.0 / 2.75 {
@@ -73,7 +73,7 @@ impl Easing {
                 };
                 1.0 - result
             }
-            
+
             Easing::Elastic => {
                 if t == 0.0 || t == 1.0 {
                     t
@@ -84,29 +84,27 @@ impl Easing {
                     -(powf(2.0, 10.0 * t) * sinf((t - s) * (2.0 * PI) / p))
                 }
             }
-            
+
             Easing::BackIn => {
                 let c1 = 1.70158;
                 let c3 = c1 + 1.0;
                 c3 * t * t * t - c1 * t * t
             }
-            
+
             Easing::BackOut => {
                 let c1 = 1.70158;
                 let c3 = c1 + 1.0;
                 let x = t - 1.0;
                 1.0 + c3 * x * x * x + c1 * x * x
             }
-            
-            Easing::CircularIn => {
-                1.0 - sqrtf(1.0 - t * t)
-            }
-            
+
+            Easing::CircularIn => 1.0 - sqrtf(1.0 - t * t),
+
             Easing::CircularOut => {
                 let x = t - 1.0;
                 sqrtf(1.0 - x * x)
             }
-            
+
             Easing::ExpoIn => {
                 if t == 0.0 {
                     0.0
@@ -114,7 +112,7 @@ impl Easing {
                     powf(2.0, 10.0 * t - 10.0)
                 }
             }
-            
+
             Easing::ExpoOut => {
                 if t == 1.0 {
                     1.0
@@ -398,7 +396,8 @@ impl AnimationEngine {
             // Collect completion callbacks
             if animation.complete {
                 if let Some(callback_id) = animation.on_complete {
-                    self.callbacks.push((callback_id, animation.target_id, animation.property));
+                    self.callbacks
+                        .push((callback_id, animation.target_id, animation.property));
                 }
             }
         }
@@ -466,16 +465,26 @@ impl AnimationEngine {
     }
 
     /// Create bounce animation
-    pub fn bounce(target_id: u64, property: AnimationProperty, amount: f32, duration_ms: u32) -> Animation {
-        Animation::new(target_id, property, 0.0, amount, duration_ms)
-            .with_easing(Easing::Bounce)
+    pub fn bounce(
+        target_id: u64,
+        property: AnimationProperty,
+        amount: f32,
+        duration_ms: u32,
+    ) -> Animation {
+        Animation::new(target_id, property, 0.0, amount, duration_ms).with_easing(Easing::Bounce)
     }
 
     /// Create pulse animation (scale up and down)
     pub fn pulse(target_id: u64, intensity: f32, duration_ms: u32) -> Animation {
-        Animation::new(target_id, AnimationProperty::Scale, 1.0, 1.0 + intensity, duration_ms)
-            .with_easing(Easing::EaseInOut)
-            .with_loop(LoopMode::PingPong)
+        Animation::new(
+            target_id,
+            AnimationProperty::Scale,
+            1.0,
+            1.0 + intensity,
+            duration_ms,
+        )
+        .with_easing(Easing::EaseInOut)
+        .with_loop(LoopMode::PingPong)
     }
 }
 

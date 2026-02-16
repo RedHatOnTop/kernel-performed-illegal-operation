@@ -29,7 +29,7 @@ pub struct BufferHandle(pub u64);
 
 impl BufferHandle {
     pub const INVALID: BufferHandle = BufferHandle(0);
-    
+
     fn new() -> Self {
         BufferHandle(NEXT_HANDLE.fetch_add(1, Ordering::Relaxed))
     }
@@ -54,7 +54,7 @@ impl BufferUsage {
     pub const STORAGE: BufferUsage = BufferUsage(1 << 3);
     pub const TRANSFER_SRC: BufferUsage = BufferUsage(1 << 4);
     pub const TRANSFER_DST: BufferUsage = BufferUsage(1 << 5);
-    
+
     pub fn contains(&self, other: BufferUsage) -> bool {
         (self.0 & other.0) == other.0
     }
@@ -115,7 +115,7 @@ impl TextureDescriptor {
             sample_count: 1,
         }
     }
-    
+
     pub fn size_bytes(&self) -> usize {
         (self.width as usize) * (self.height as usize) * self.format.bytes_per_pixel()
     }
@@ -150,35 +150,38 @@ impl Device {
             next_fence: AtomicU64::new(1),
         })
     }
-    
+
     /// Create a buffer
     pub fn create_buffer(&self, size: usize, usage: BufferUsage) -> Result<BufferHandle> {
         let request = GpuRequest::CreateBuffer { size, usage };
         let response = send_gpu_request(&request)?;
-        
+
         match response {
             GpuResponse::BufferCreated { handle } => {
-                self.buffers.lock().insert(handle, BufferInfo {
-                    size,
-                    usage,
-                    mapped: false,
-                });
+                self.buffers.lock().insert(
+                    handle,
+                    BufferInfo {
+                        size,
+                        usage,
+                        mapped: false,
+                    },
+                );
                 Ok(handle)
             }
             GpuResponse::Error(e) => Err(PlatformError::Gpu(e)),
             _ => Err(PlatformError::Gpu(GpuError::Other)),
         }
     }
-    
+
     /// Destroy a buffer
     pub fn destroy_buffer(&self, handle: BufferHandle) -> Result<()> {
         self.buffers.lock().remove(&handle);
-        
+
         let request = GpuRequest::DestroyBuffer { handle };
         let _ = send_gpu_request(&request)?;
         Ok(())
     }
-    
+
     /// Write data to buffer
     pub fn write_buffer(&self, handle: BufferHandle, offset: usize, data: &[u8]) -> Result<()> {
         let request = GpuRequest::WriteBuffer {
@@ -186,21 +189,21 @@ impl Device {
             offset,
             data: data.to_vec(),
         };
-        
+
         let response = send_gpu_request(&request)?;
-        
+
         match response {
             GpuResponse::Ok => Ok(()),
             GpuResponse::Error(e) => Err(PlatformError::Gpu(e)),
             _ => Err(PlatformError::Gpu(GpuError::Other)),
         }
     }
-    
+
     /// Create a texture
     pub fn create_texture(&self, desc: TextureDescriptor) -> Result<TextureHandle> {
         let request = GpuRequest::CreateTexture { desc: desc.clone() };
         let response = send_gpu_request(&request)?;
-        
+
         match response {
             GpuResponse::TextureCreated { handle } => {
                 self.textures.lock().insert(handle, TextureInfo { desc });
@@ -210,16 +213,16 @@ impl Device {
             _ => Err(PlatformError::Gpu(GpuError::Other)),
         }
     }
-    
+
     /// Destroy a texture
     pub fn destroy_texture(&self, handle: TextureHandle) -> Result<()> {
         self.textures.lock().remove(&handle);
-        
+
         let request = GpuRequest::DestroyTexture { handle };
         let _ = send_gpu_request(&request)?;
         Ok(())
     }
-    
+
     /// Write data to texture
     pub fn write_texture(
         &self,
@@ -238,31 +241,28 @@ impl Device {
             height,
             data: data.to_vec(),
         };
-        
+
         let response = send_gpu_request(&request)?;
-        
+
         match response {
             GpuResponse::Ok => Ok(()),
             GpuResponse::Error(e) => Err(PlatformError::Gpu(e)),
             _ => Err(PlatformError::Gpu(GpuError::Other)),
         }
     }
-    
+
     /// Create a fence for synchronization
     pub fn create_fence(&self) -> Result<FenceHandle> {
         let id = self.next_fence.fetch_add(1, Ordering::Relaxed);
         Ok(FenceHandle(id))
     }
-    
+
     /// Wait for fence
     pub fn wait_fence(&self, fence: FenceHandle, timeout_ns: u64) -> Result<bool> {
-        let request = GpuRequest::WaitFence {
-            fence,
-            timeout_ns,
-        };
-        
+        let request = GpuRequest::WaitFence { fence, timeout_ns };
+
         let response = send_gpu_request(&request)?;
-        
+
         match response {
             GpuResponse::FenceSignaled => Ok(true),
             GpuResponse::Timeout => Ok(false),
@@ -270,29 +270,29 @@ impl Device {
             _ => Err(PlatformError::Gpu(GpuError::Other)),
         }
     }
-    
+
     /// Submit a command buffer
     pub fn submit(&self, commands: &[RenderCommand], fence: Option<FenceHandle>) -> Result<()> {
         let request = GpuRequest::Submit {
             commands: commands.to_vec(),
             fence,
         };
-        
+
         let response = send_gpu_request(&request)?;
-        
+
         match response {
             GpuResponse::Ok => Ok(()),
             GpuResponse::Error(e) => Err(PlatformError::Gpu(e)),
             _ => Err(PlatformError::Gpu(GpuError::Other)),
         }
     }
-    
+
     /// Present to screen
     pub fn present(&self, surface: SurfaceHandle) -> Result<()> {
         let request = GpuRequest::Present { surface };
-        
+
         let response = send_gpu_request(&request)?;
-        
+
         match response {
             GpuResponse::Ok => Ok(()),
             GpuResponse::Error(e) => Err(PlatformError::Gpu(e)),
@@ -309,9 +309,7 @@ pub struct SurfaceHandle(pub u64);
 #[derive(Debug, Clone)]
 pub enum RenderCommand {
     /// Clear render target
-    Clear {
-        color: [f32; 4],
-    },
+    Clear { color: [f32; 4] },
     /// Copy buffer to buffer
     CopyBuffer {
         src: BufferHandle,
@@ -351,15 +349,43 @@ pub enum RenderCommand {
 
 #[derive(Debug)]
 enum GpuRequest {
-    CreateBuffer { size: usize, usage: BufferUsage },
-    DestroyBuffer { handle: BufferHandle },
-    WriteBuffer { handle: BufferHandle, offset: usize, data: Vec<u8> },
-    CreateTexture { desc: TextureDescriptor },
-    DestroyTexture { handle: TextureHandle },
-    WriteTexture { handle: TextureHandle, x: u32, y: u32, width: u32, height: u32, data: Vec<u8> },
-    Submit { commands: Vec<RenderCommand>, fence: Option<FenceHandle> },
-    WaitFence { fence: FenceHandle, timeout_ns: u64 },
-    Present { surface: SurfaceHandle },
+    CreateBuffer {
+        size: usize,
+        usage: BufferUsage,
+    },
+    DestroyBuffer {
+        handle: BufferHandle,
+    },
+    WriteBuffer {
+        handle: BufferHandle,
+        offset: usize,
+        data: Vec<u8>,
+    },
+    CreateTexture {
+        desc: TextureDescriptor,
+    },
+    DestroyTexture {
+        handle: TextureHandle,
+    },
+    WriteTexture {
+        handle: TextureHandle,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        data: Vec<u8>,
+    },
+    Submit {
+        commands: Vec<RenderCommand>,
+        fence: Option<FenceHandle>,
+    },
+    WaitFence {
+        fence: FenceHandle,
+        timeout_ns: u64,
+    },
+    Present {
+        surface: SurfaceHandle,
+    },
 }
 
 #[derive(Debug)]

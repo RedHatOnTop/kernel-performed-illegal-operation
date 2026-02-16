@@ -10,10 +10,10 @@
 //! - Enables paint optimizations (culling, caching)
 //! - Supports different renderers (Vulkan, software, etc.)
 
-use alloc::string::String;
-use alloc::vec::Vec;
 use crate::box_model::Rect;
 use crate::layout_box::LayoutBox;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// A color in RGBA format
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -28,33 +28,33 @@ impl Color {
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
-    
+
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
-    
+
     pub const fn transparent() -> Self {
-        Self { r: 0, g: 0, b: 0, a: 0 }
+        Self {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }
     }
-    
+
     pub const fn black() -> Self {
         Self::rgb(0, 0, 0)
     }
-    
+
     pub const fn white() -> Self {
         Self::rgb(255, 255, 255)
     }
-    
+
     /// Convert from CSS color value
     pub fn from_css(css_color: &kpio_css::values::Color) -> Self {
-        Self::new(
-            css_color.r,
-            css_color.g,
-            css_color.b,
-            css_color.a,
-        )
+        Self::new(css_color.r, css_color.g, css_color.b, css_color.a)
     }
-    
+
     /// Convert to f32 RGBA (0.0-1.0 range)
     pub fn to_f32_array(&self) -> [f32; 4] {
         [
@@ -110,11 +110,8 @@ impl Default for TextStyle {
 #[derive(Debug, Clone)]
 pub enum DisplayCommand {
     /// Fill a rectangle with a solid color
-    SolidRect {
-        color: Color,
-        rect: Rect,
-    },
-    
+    SolidRect { color: Color, rect: Rect },
+
     /// Draw a border around a rectangle
     Border {
         color: Color,
@@ -122,21 +119,21 @@ pub enum DisplayCommand {
         widths: BorderWidths,
         style: BorderStyle,
     },
-    
+
     /// Draw text
     Text {
         text: String,
         rect: Rect,
         style: TextStyle,
     },
-    
+
     /// Draw an image
     Image {
         image_id: u64,
         source_rect: Option<Rect>,
         dest_rect: Rect,
     },
-    
+
     /// Draw a gradient
     LinearGradient {
         start_color: Color,
@@ -144,14 +141,14 @@ pub enum DisplayCommand {
         rect: Rect,
         angle: f32,
     },
-    
+
     /// Draw a rounded rectangle
     RoundedRect {
         color: Color,
         rect: Rect,
         radii: BorderRadii,
     },
-    
+
     /// Draw a box shadow
     BoxShadow {
         color: Color,
@@ -162,28 +159,24 @@ pub enum DisplayCommand {
         offset_y: f32,
         inset: bool,
     },
-    
+
     /// Push a clip rectangle (subsequent commands clipped to this rect)
-    PushClip {
-        rect: Rect,
-    },
-    
+    PushClip { rect: Rect },
+
     /// Pop the most recent clip rectangle
     PopClip,
-    
+
     /// Push a transform
     PushTransform {
         matrix: [f32; 6], // 2D affine: [a, b, c, d, e, f]
     },
-    
+
     /// Pop a transform
     PopTransform,
-    
+
     /// Set opacity for subsequent commands
-    PushOpacity {
-        opacity: f32,
-    },
-    
+    PushOpacity { opacity: f32 },
+
     /// Restore previous opacity
     PopOpacity,
 }
@@ -229,31 +222,31 @@ impl DisplayList {
             commands: Vec::new(),
         }
     }
-    
+
     pub fn push(&mut self, command: DisplayCommand) {
         self.commands.push(command);
     }
-    
+
     pub fn extend(&mut self, commands: impl IntoIterator<Item = DisplayCommand>) {
         self.commands.extend(commands);
     }
-    
+
     pub fn commands(&self) -> &[DisplayCommand] {
         &self.commands
     }
-    
+
     pub fn into_commands(self) -> Vec<DisplayCommand> {
         self.commands
     }
-    
+
     pub fn len(&self) -> usize {
         self.commands.len()
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }
-    
+
     pub fn clear(&mut self) {
         self.commands.clear();
     }
@@ -276,15 +269,15 @@ pub fn build_display_list(layout_root: &LayoutBox) -> DisplayList {
 fn paint_layout_box(display_list: &mut DisplayList, layout_box: &LayoutBox) {
     // Paint background
     paint_background(display_list, layout_box);
-    
+
     // Paint borders
     paint_borders(display_list, layout_box);
-    
+
     // Paint text content
     if let Some(ref text) = layout_box.text {
         paint_text(display_list, layout_box, text);
     }
-    
+
     // Paint children (in document order for now)
     for child in &layout_box.children {
         paint_layout_box(display_list, child);
@@ -296,7 +289,7 @@ fn paint_background(display_list: &mut DisplayList, layout_box: &LayoutBox) {
     // Get background color (default to transparent)
     // In a full implementation, this would come from computed style
     let background_color = Color::transparent();
-    
+
     // Only paint if not transparent
     if background_color.a > 0 {
         display_list.push(DisplayCommand::SolidRect {
@@ -309,15 +302,14 @@ fn paint_background(display_list: &mut DisplayList, layout_box: &LayoutBox) {
 /// Paint the borders of a box
 fn paint_borders(display_list: &mut DisplayList, layout_box: &LayoutBox) {
     let border = &layout_box.dimensions.border;
-    
+
     // Skip if no borders
-    if border.top == 0.0 && border.right == 0.0 && 
-       border.bottom == 0.0 && border.left == 0.0 {
+    if border.top == 0.0 && border.right == 0.0 && border.bottom == 0.0 && border.left == 0.0 {
         return;
     }
-    
+
     let border_box = layout_box.dimensions.border_box();
-    
+
     // Paint border (simplified: single color for all sides)
     display_list.push(DisplayCommand::Border {
         color: Color::black(), // Would come from style
@@ -337,9 +329,9 @@ fn paint_text(display_list: &mut DisplayList, layout_box: &LayoutBox, text: &str
     if text.is_empty() {
         return;
     }
-    
+
     let text_style = TextStyle::default(); // Would come from computed style
-    
+
     display_list.push(DisplayCommand::Text {
         text: text.into(),
         rect: layout_box.dimensions.content,
@@ -356,9 +348,9 @@ pub fn paint_stacking_context(
     if (opacity - 1.0).abs() > f32::EPSILON {
         display_list.push(DisplayCommand::PushOpacity { opacity });
     }
-    
+
     paint_layout_box(display_list, layout_box);
-    
+
     if (opacity - 1.0).abs() > f32::EPSILON {
         display_list.push(DisplayCommand::PopOpacity);
     }
@@ -368,7 +360,7 @@ pub fn paint_stacking_context(
 mod tests {
     use super::*;
     use crate::layout_box::BoxType;
-    
+
     #[test]
     fn test_color_conversion() {
         let color = Color::rgb(255, 128, 0);
@@ -378,12 +370,12 @@ mod tests {
         assert_eq!(arr[2], 0.0);
         assert_eq!(arr[3], 1.0);
     }
-    
+
     #[test]
     fn test_build_display_list() {
         let mut layout_box = LayoutBox::new(BoxType::Block);
         layout_box.dimensions.content = Rect::new(0.0, 0.0, 100.0, 50.0);
-        
+
         let display_list = build_display_list(&layout_box);
         // Empty box with no visible content produces minimal commands
         assert!(display_list.len() < 10);

@@ -257,7 +257,8 @@ impl Desktop {
         use crate::app::registry::{self, APP_REGISTRY};
 
         // Remove existing InstalledApp icons
-        self.icons.retain(|icon| !matches!(icon.icon_type, IconType::InstalledApp { .. }));
+        self.icons
+            .retain(|icon| !matches!(icon.icon_type, IconType::InstalledApp { .. }));
 
         let gap = Size::DESKTOP_ICON_GAP as i32;
         let system_count = self.icons.len() as i32; // normally 5

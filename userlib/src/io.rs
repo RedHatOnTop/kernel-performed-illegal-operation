@@ -60,11 +60,7 @@ pub fn eprintln(s: &str) {
 /// Debug print (always goes to serial).
 pub fn debug_print(s: &str) {
     unsafe {
-        let _ = syscall2(
-            SyscallNumber::DebugPrint,
-            s.as_ptr() as u64,
-            s.len() as u64,
-        );
+        let _ = syscall2(SyscallNumber::DebugPrint, s.as_ptr() as u64, s.len() as u64);
     }
 }
 
@@ -94,17 +90,17 @@ impl File {
     pub const fn from_raw_fd(fd: u64) -> Self {
         Self { fd }
     }
-    
+
     /// Get the raw file descriptor.
     pub const fn raw_fd(&self) -> u64 {
         self.fd
     }
-    
+
     /// Write data to the file.
     pub fn write(&self, buf: &[u8]) -> SyscallResult {
         write(self.fd, buf)
     }
-    
+
     /// Read data from the file.
     pub fn read(&self, buf: &mut [u8]) -> SyscallResult {
         read(self.fd, buf)

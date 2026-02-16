@@ -12,22 +12,22 @@
 //!   - **Sig**:    ECDSA (P-256) verification, RSA PKCS#1 v1.5 verification
 //!   - **PRNG**:   CSPRNG (RDRAND + ChaCha20)
 
-pub mod sha;
-pub mod hmac;
-pub mod hkdf;
 pub mod aes;
 pub mod aes_gcm;
 pub mod chacha20;
-pub mod x25519;
+pub mod hkdf;
+pub mod hmac;
 pub mod p256;
-pub mod rsa;
 pub mod random;
+pub mod rsa;
+pub mod sha;
+pub mod x25519;
 
 // Convenience re-exports
-pub use sha::{sha256, sha384, sha512};
+pub use aes_gcm::{aes128_gcm_open, aes128_gcm_seal, aes256_gcm_open, aes256_gcm_seal};
+pub use chacha20::{chacha20_poly1305_open, chacha20_poly1305_seal};
+pub use hkdf::{derive_secret, hkdf_expand, hkdf_expand_label, hkdf_extract};
 pub use hmac::{hmac_sha256, hmac_sha384};
-pub use hkdf::{hkdf_extract, hkdf_expand, hkdf_expand_label, derive_secret};
-pub use aes_gcm::{aes128_gcm_seal, aes128_gcm_open, aes256_gcm_seal, aes256_gcm_open};
-pub use chacha20::{chacha20_poly1305_seal, chacha20_poly1305_open};
-pub use x25519::{x25519, x25519_basepoint};
 pub use random::csprng_fill;
+pub use sha::{sha256, sha384, sha512};
+pub use x25519::{x25519, x25519_basepoint};

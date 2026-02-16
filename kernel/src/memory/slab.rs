@@ -31,8 +31,8 @@
 //! ```
 
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
-use core::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 
 /// Slab allocator statistics.
 #[derive(Debug, Default)]
@@ -65,7 +65,7 @@ impl SlabStats {
             cache_misses: AtomicU64::new(0),
         }
     }
-    
+
     pub fn record_alloc(&self, is_cache_hit: bool) {
         self.allocations.fetch_add(1, Ordering::Relaxed);
         self.current_objects.fetch_add(1, Ordering::Relaxed);
@@ -75,16 +75,16 @@ impl SlabStats {
             self.cache_misses.fetch_add(1, Ordering::Relaxed);
         }
     }
-    
+
     pub fn record_dealloc(&self) {
         self.deallocations.fetch_add(1, Ordering::Relaxed);
         self.current_objects.fetch_sub(1, Ordering::Relaxed);
     }
-    
+
     pub fn record_slab_created(&self) {
         self.slabs_created.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     pub fn record_slab_destroyed(&self) {
         self.slabs_destroyed.fetch_add(1, Ordering::Relaxed);
     }
@@ -97,25 +97,25 @@ pub static GLOBAL_STATS: SlabStats = SlabStats::new();
 pub struct SlabCache {
     /// Object size in bytes.
     object_size: usize,
-    
+
     /// Object alignment.
     alignment: usize,
-    
+
     /// Partial slabs (have free space).
     partial_slabs: Vec<Slab>,
-    
+
     /// Full slabs (no free space).
     full_slabs: Vec<Slab>,
-    
+
     /// Empty slabs (all free, kept for reuse).
     empty_slabs: Vec<Slab>,
-    
+
     /// Maximum empty slabs to keep.
     max_empty_slabs: usize,
-    
+
     /// Number of allocated objects.
     allocated: usize,
-    
+
     /// Local statistics for this cache.
     stats: SlabStats,
 }
@@ -124,16 +124,16 @@ pub struct SlabCache {
 struct Slab {
     /// Base address of the slab.
     base: *mut u8,
-    
+
     /// Bitmap of free objects (1 = free, 0 = allocated).
     free_bitmap: u64,
-    
+
     /// Number of objects in this slab.
     object_count: usize,
-    
+
     /// Number of free objects.
     free_count: usize,
-    
+
     /// Slab size in bytes.
     slab_size: usize,
 }
@@ -266,7 +266,7 @@ impl SlabCache {
             stats: SlabStats::new(),
         }
     }
-    
+
     /// Allocate an object from the cache.
     pub fn allocate(&mut self) -> Option<*mut u8> {
         // 1. Try partial slabs first (most likely to succeed)
@@ -275,7 +275,7 @@ impl SlabCache {
                 self.allocated += 1;
                 self.stats.record_alloc(true);
                 GLOBAL_STATS.record_alloc(true);
-                
+
                 // Move to full if no more space
                 if slab.is_full() {
                     let slab = self.partial_slabs.pop().unwrap();
@@ -284,7 +284,7 @@ impl SlabCache {
                 return Some(ptr);
             }
         }
-        
+
         // 2. Try to reuse an empty slab
         if let Some(mut slab) = self.empty_slabs.pop() {
             let ptr = slab.allocate(self.object_size)?;
@@ -294,26 +294,26 @@ impl SlabCache {
             self.partial_slabs.push(slab);
             return Some(ptr);
         }
-        
+
         // 3. Create a new slab
         let mut slab = Slab::new(self.object_size)?;
         GLOBAL_STATS.record_slab_created();
         self.stats.slabs_created.fetch_add(1, Ordering::Relaxed);
-        
+
         let ptr = slab.allocate(self.object_size)?;
         self.allocated += 1;
         self.stats.record_alloc(false);
         GLOBAL_STATS.record_alloc(false);
-        
+
         if slab.is_full() {
             self.full_slabs.push(slab);
         } else {
             self.partial_slabs.push(slab);
         }
-        
+
         Some(ptr)
     }
-    
+
     /// Free an object back to the cache.
     ///
     /// # Safety
@@ -328,7 +328,7 @@ impl SlabCache {
                 self.allocated -= 1;
                 self.stats.record_dealloc();
                 GLOBAL_STATS.record_dealloc();
-                
+
                 // Check if slab is now empty
                 if self.partial_slabs[i].is_empty() {
                     let slab = self.partial_slabs.remove(i);
@@ -337,7 +337,7 @@ impl SlabCache {
                 return;
             }
         }
-        
+
         // Check full slabs
         for i in 0..self.full_slabs.len() {
             if self.full_slabs[i].contains(ptr, self.object_size) {
@@ -346,7 +346,7 @@ impl SlabCache {
                 self.allocated -= 1;
                 self.stats.record_dealloc();
                 GLOBAL_STATS.record_dealloc();
-                
+
                 // Move to partial
                 let slab = self.full_slabs.remove(i);
                 if slab.is_empty() {
@@ -357,10 +357,10 @@ impl SlabCache {
                 return;
             }
         }
-        
+
         panic!("Attempted to free pointer not from this slab cache");
     }
-    
+
     /// Handle an empty slab (keep or destroy).
     fn handle_empty_slab(&mut self, slab: Slab) {
         if self.empty_slabs.len() < self.max_empty_slabs {
@@ -372,17 +372,17 @@ impl SlabCache {
             drop(slab);
         }
     }
-    
+
     /// Get the number of allocated objects.
     pub fn allocated_count(&self) -> usize {
         self.allocated
     }
-    
+
     /// Get cache statistics.
     pub fn stats(&self) -> &SlabStats {
         &self.stats
     }
-    
+
     /// Shrink the cache by releasing empty slabs.
     pub fn shrink(&mut self) {
         while let Some(slab) = self.empty_slabs.pop() {
@@ -391,7 +391,7 @@ impl SlabCache {
             drop(slab);
         }
     }
-    
+
     /// Get total memory used by this cache.
     pub fn memory_usage(&self) -> usize {
         let slab_count = self.partial_slabs.len() + self.full_slabs.len() + self.empty_slabs.len();
@@ -406,7 +406,7 @@ impl Slab {
         let base = crate::memory::allocate_frame()? as *mut u8;
         let slab_size = 4096;
         let object_count = (slab_size / object_size).min(64);
-        
+
         Some(Self {
             base,
             free_bitmap: (1u64 << object_count) - 1, // All objects free
@@ -415,21 +415,21 @@ impl Slab {
             slab_size,
         })
     }
-    
+
     /// Allocate an object from this slab.
     fn allocate(&mut self, object_size: usize) -> Option<*mut u8> {
         if self.free_bitmap == 0 {
             return None;
         }
-        
+
         // Find first free bit
         let index = self.free_bitmap.trailing_zeros() as usize;
         self.free_bitmap &= !(1u64 << index);
         self.free_count -= 1;
-        
+
         Some(unsafe { self.base.add(index * object_size) })
     }
-    
+
     /// Free an object back to this slab.
     ///
     /// # Safety
@@ -441,7 +441,7 @@ impl Slab {
         self.free_bitmap |= 1u64 << index;
         self.free_count += 1;
     }
-    
+
     /// Check if a pointer belongs to this slab.
     fn contains(&self, ptr: *mut u8, object_size: usize) -> bool {
         let base = self.base as usize;
@@ -449,12 +449,12 @@ impl Slab {
         let addr = ptr as usize;
         addr >= base && addr < end
     }
-    
+
     /// Check if the slab is full (no free objects).
     fn is_full(&self) -> bool {
         self.free_count == 0
     }
-    
+
     /// Check if the slab is empty (all objects free).
     fn is_empty(&self) -> bool {
         self.free_count == self.object_count

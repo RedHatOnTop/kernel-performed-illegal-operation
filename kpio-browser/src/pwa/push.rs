@@ -25,7 +25,11 @@ pub struct PushSubscription {
 
 impl PushSubscription {
     /// Create new subscription
-    pub fn new(endpoint: String, keys: PushSubscriptionKeys, options: PushSubscriptionOptions) -> Self {
+    pub fn new(
+        endpoint: String,
+        keys: PushSubscriptionKeys,
+        options: PushSubscriptionOptions,
+    ) -> Self {
         Self {
             endpoint,
             expiration_time: None,
@@ -65,7 +69,9 @@ impl PushSubscription {
         alloc::format!(
             r#"{{"endpoint":"{}","expirationTime":{},"keys":{{"p256dh":"{}","auth":"{}"}}}}"#,
             self.endpoint,
-            self.expiration_time.map(|t| t.to_string()).unwrap_or_else(|| "null".to_string()),
+            self.expiration_time
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "null".to_string()),
             self.keys.p256dh,
             self.keys.auth,
         )
@@ -128,7 +134,10 @@ impl PushManager {
     }
 
     /// Subscribe to push notifications
-    pub fn subscribe(&mut self, options: PushSubscriptionOptions) -> Result<&PushSubscription, PwaError> {
+    pub fn subscribe(
+        &mut self,
+        options: PushSubscriptionOptions,
+    ) -> Result<&PushSubscription, PwaError> {
         // Generate keys (simplified)
         let keys = PushSubscriptionKeys {
             p256dh: generate_key_base64(),
@@ -424,7 +433,8 @@ impl PushNotificationManager {
     /// Get push manager for scope
     pub fn get_push_manager(&mut self, scope: &str) -> &mut PushManager {
         if !self.managers.contains_key(scope) {
-            self.managers.insert(scope.to_string(), PushManager::new(scope.to_string()));
+            self.managers
+                .insert(scope.to_string(), PushManager::new(scope.to_string()));
         }
         self.managers.get_mut(scope).unwrap()
     }
@@ -474,13 +484,15 @@ impl Default for PushNotificationManager {
 }
 
 /// Global push notification manager
-pub static PUSH_MANAGER: RwLock<PushNotificationManager> = RwLock::new(PushNotificationManager::new());
+pub static PUSH_MANAGER: RwLock<PushNotificationManager> =
+    RwLock::new(PushNotificationManager::new());
 
 // Helper functions
 
 fn generate_key_base64() -> String {
     // Would generate proper ECDH key
-    "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM".to_string()
+    "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM"
+        .to_string()
 }
 
 fn generate_auth_base64() -> String {

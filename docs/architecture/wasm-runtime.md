@@ -1,8 +1,11 @@
 # WebAssembly Runtime Design Document
 
-**Document Version:** 2.0.0  
-**Last Updated:** 2026-01-23  
-**Status:** Phase 1 Implementation Complete
+**Document Version:** 2.1.0  
+**Last Updated:** 2026-02-15  
+**Status:** Historical design draft (부분 구현 반영, 상세는 최신 코드/Phase 7 문서 우선)
+
+> **정합성 노트:** 이 문서는 초기/중간 설계안을 포함하고 있어 현재 코드베이스와 1:1로 일치하지 않는 섹션이 있습니다.  
+> 현재 구현 상태는 `runtime/src/*` 및 `docs/phase7/PHASE_7-2_WASM_APP_RUNTIME.md`를 우선 기준으로 확인하세요.
 
 ---
 

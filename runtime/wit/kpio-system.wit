@@ -1,0 +1,35 @@
+// KPIO System Interface Definition
+// WIT format for the kpio:system host API
+
+package kpio:system@0.1.0;
+
+interface clock {
+    get-time: func() -> u64;
+    get-monotonic: func() -> u64;
+}
+
+interface info {
+    get-hostname: func(buf-ptr: u32, buf-len: u32) -> u32;
+    get-locale: func(buf-ptr: u32, buf-len: u32) -> u32;
+}
+
+interface clipboard {
+    read: func(buf-ptr: u32, buf-len: u32) -> u32;
+    write: func(data-ptr: u32, data-len: u32) -> u32;
+}
+
+interface notifications {
+    notify: func(title-ptr: u32, title-len: u32, body-ptr: u32, body-len: u32) -> u32;
+}
+
+interface logging {
+    log: func(level: u32, msg-ptr: u32, msg-len: u32);
+}
+
+world system-app {
+    import clock;
+    import info;
+    import clipboard;
+    import notifications;
+    import logging;
+}

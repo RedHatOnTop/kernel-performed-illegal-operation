@@ -282,25 +282,20 @@ impl GptHeader {
             header_crc32: u32::from_le_bytes([data[16], data[17], data[18], data[19]]),
             reserved: u32::from_le_bytes([data[20], data[21], data[22], data[23]]),
             current_lba: u64::from_le_bytes([
-                data[24], data[25], data[26], data[27],
-                data[28], data[29], data[30], data[31],
+                data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31],
             ]),
             backup_lba: u64::from_le_bytes([
-                data[32], data[33], data[34], data[35],
-                data[36], data[37], data[38], data[39],
+                data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
             ]),
             first_usable_lba: u64::from_le_bytes([
-                data[40], data[41], data[42], data[43],
-                data[44], data[45], data[46], data[47],
+                data[40], data[41], data[42], data[43], data[44], data[45], data[46], data[47],
             ]),
             last_usable_lba: u64::from_le_bytes([
-                data[48], data[49], data[50], data[51],
-                data[52], data[53], data[54], data[55],
+                data[48], data[49], data[50], data[51], data[52], data[53], data[54], data[55],
             ]),
             disk_guid,
             partition_entry_lba: u64::from_le_bytes([
-                data[72], data[73], data[74], data[75],
-                data[76], data[77], data[78], data[79],
+                data[72], data[73], data[74], data[75], data[76], data[77], data[78], data[79],
             ]),
             num_partition_entries: u32::from_le_bytes([data[80], data[81], data[82], data[83]]),
             partition_entry_size: u32::from_le_bytes([data[84], data[85], data[86], data[87]]),
@@ -336,26 +331,26 @@ impl GptPartitionEntry {
 
     /// EFI System Partition type GUID.
     pub const TYPE_EFI_SYSTEM: [u8; 16] = [
-        0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11,
-        0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B,
+        0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11, 0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9,
+        0x3B,
     ];
 
     /// Microsoft Basic Data type GUID.
     pub const TYPE_MICROSOFT_BASIC: [u8; 16] = [
-        0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
-        0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7,
+        0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99,
+        0xC7,
     ];
 
     /// Linux filesystem type GUID.
     pub const TYPE_LINUX_FS: [u8; 16] = [
-        0xAF, 0x3D, 0xC6, 0x0F, 0x83, 0x84, 0x72, 0x47,
-        0x8E, 0x79, 0x3D, 0x69, 0xD8, 0x47, 0x7D, 0xE4,
+        0xAF, 0x3D, 0xC6, 0x0F, 0x83, 0x84, 0x72, 0x47, 0x8E, 0x79, 0x3D, 0x69, 0xD8, 0x47, 0x7D,
+        0xE4,
     ];
 
     /// Linux swap type GUID.
     pub const TYPE_LINUX_SWAP: [u8; 16] = [
-        0x6D, 0xFD, 0x57, 0x06, 0xAB, 0xA4, 0xC4, 0x43,
-        0x84, 0xE5, 0x09, 0x33, 0xC8, 0x4B, 0x4F, 0x4F,
+        0x6D, 0xFD, 0x57, 0x06, 0xAB, 0xA4, 0xC4, 0x43, 0x84, 0xE5, 0x09, 0x33, 0xC8, 0x4B, 0x4F,
+        0x4F,
     ];
 
     /// Parse GPT partition entry from bytes.
@@ -380,16 +375,13 @@ impl GptPartitionEntry {
             type_guid,
             partition_guid,
             start_lba: u64::from_le_bytes([
-                data[32], data[33], data[34], data[35],
-                data[36], data[37], data[38], data[39],
+                data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
             ]),
             end_lba: u64::from_le_bytes([
-                data[40], data[41], data[42], data[43],
-                data[44], data[45], data[46], data[47],
+                data[40], data[41], data[42], data[43], data[44], data[45], data[46], data[47],
             ]),
             attributes: u64::from_le_bytes([
-                data[48], data[49], data[50], data[51],
-                data[52], data[53], data[54], data[55],
+                data[48], data[49], data[50], data[51], data[52], data[53], data[54], data[55],
             ]),
             name,
         })

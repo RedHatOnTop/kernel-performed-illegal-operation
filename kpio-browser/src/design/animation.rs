@@ -255,55 +255,47 @@ impl Default for Transform {
 
 /// Preset animations
 pub mod presets {
-    use super::*;
     use super::super::tokens::{duration, easing};
+    use super::*;
 
     /// Fade in
     pub fn fade_in() -> Animation {
-        Animation::new(duration::NORMAL)
-            .easing(easing::EASE_OUT)
+        Animation::new(duration::NORMAL).easing(easing::EASE_OUT)
     }
 
     /// Fade out
     pub fn fade_out() -> Animation {
-        Animation::new(duration::NORMAL)
-            .easing(easing::EASE_IN)
+        Animation::new(duration::NORMAL).easing(easing::EASE_IN)
     }
 
     /// Slide in from left
     pub fn slide_in_left() -> Animation {
-        Animation::new(duration::SLOW)
-            .easing(easing::SMOOTH)
+        Animation::new(duration::SLOW).easing(easing::SMOOTH)
     }
 
     /// Slide in from right
     pub fn slide_in_right() -> Animation {
-        Animation::new(duration::SLOW)
-            .easing(easing::SMOOTH)
+        Animation::new(duration::SLOW).easing(easing::SMOOTH)
     }
 
     /// Slide in from bottom
     pub fn slide_in_bottom() -> Animation {
-        Animation::new(duration::SLOW)
-            .easing(easing::SMOOTH)
+        Animation::new(duration::SLOW).easing(easing::SMOOTH)
     }
 
     /// Scale in (zoom)
     pub fn scale_in() -> Animation {
-        Animation::new(duration::NORMAL)
-            .easing(easing::BOUNCE_OUT)
+        Animation::new(duration::NORMAL).easing(easing::BOUNCE_OUT)
     }
 
     /// Scale out
     pub fn scale_out() -> Animation {
-        Animation::new(duration::FAST)
-            .easing(easing::EASE_IN)
+        Animation::new(duration::FAST).easing(easing::EASE_IN)
     }
 
     /// Bounce
     pub fn bounce() -> Animation {
-        Animation::new(duration::SLOW)
-            .easing(easing::BOUNCE_OUT)
+        Animation::new(duration::SLOW).easing(easing::BOUNCE_OUT)
     }
 
     /// Pulse (infinite)
@@ -316,15 +308,12 @@ pub mod presets {
 
     /// Spin (infinite)
     pub fn spin() -> Animation {
-        Animation::new(1000)
-            .easing(easing::LINEAR)
-            .infinite()
+        Animation::new(1000).easing(easing::LINEAR).infinite()
     }
 
     /// Shake (error feedback)
     pub fn shake() -> Animation {
-        Animation::new(400)
-            .easing(easing::EASE_IN_OUT)
+        Animation::new(400).easing(easing::EASE_IN_OUT)
     }
 }
 
@@ -393,7 +382,9 @@ impl KeyframeAnimation {
     pub fn keyframe(mut self, keyframe: Keyframe) -> Self {
         self.keyframes.push(keyframe);
         self.keyframes.sort_by(|a, b| {
-            a.position.partial_cmp(&b.position).unwrap_or(core::cmp::Ordering::Equal)
+            a.position
+                .partial_cmp(&b.position)
+                .unwrap_or(core::cmp::Ordering::Equal)
         });
         self
     }

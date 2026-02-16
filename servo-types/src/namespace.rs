@@ -68,7 +68,7 @@ impl From<Atom> for Namespace {
 pub const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
 
 /// The SVG namespace: `http://www.w3.org/2000/svg`
-pub const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg"  ;
+pub const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
 
 /// The MathML namespace: `http://www.w3.org/1998/Math/MathML`
 pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";

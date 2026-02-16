@@ -220,7 +220,7 @@ impl Taskbar {
     pub fn unpin(&mut self, app_id: &str) {
         if let Some(idx) = self.pinned.iter().position(|i| i.app_id == app_id) {
             let item = self.pinned.remove(idx);
-            
+
             // Move to running if has windows
             if !item.windows.is_empty() {
                 self.running.push(item);

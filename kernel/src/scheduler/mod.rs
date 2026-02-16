@@ -4,10 +4,10 @@
 //! for both kernel tasks and WASM processes.
 
 pub mod context;
-pub mod task;
+pub mod optimization;
 pub mod priority;
 pub mod round_robin;
-pub mod optimization;
+pub mod task;
 
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -16,8 +16,8 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
 
 pub use context::SwitchContext;
-pub use task::{Task, TaskId, TaskState};
 pub use priority::Priority;
+pub use task::{Task, TaskId, TaskState};
 
 /// Maximum number of priority levels.
 const MAX_PRIORITY_LEVELS: usize = 32;
@@ -41,7 +41,7 @@ static BOOT_TICKS: AtomicU64 = AtomicU64::new(0);
 pub fn init() {
     let mut scheduler = SCHEDULER.lock();
     *scheduler = Some(Scheduler::new());
-    
+
     // Create idle task
     let idle_task = Task::new_idle();
     scheduler.as_mut().unwrap().add_task(idle_task);
@@ -136,28 +136,28 @@ pub fn timer_tick() {
 pub struct Scheduler {
     /// Ready queues (one per priority level).
     ready_queues: [VecDeque<Arc<Mutex<Task>>>; MAX_PRIORITY_LEVELS],
-    
+
     /// Currently running task.
     current_task: Option<Arc<Mutex<Task>>>,
-    
+
     /// All tasks in the system.
     all_tasks: Vec<Arc<Mutex<Task>>>,
-    
+
     /// Blocked tasks waiting on events.
     blocked_tasks: Vec<Arc<Mutex<Task>>>,
-    
+
     /// Sleep queue: (wake_at_tick, task).
     sleep_queue: Vec<(u64, Arc<Mutex<Task>>)>,
-    
+
     /// Current time slice remaining.
     time_slice_remaining: u64,
-    
+
     /// Next task ID.
     next_task_id: u64,
-    
+
     /// Whether preemption is enabled.
     preemption_enabled: bool,
-    
+
     /// Flag: need reschedule on next safe point.
     need_reschedule: bool,
 }
@@ -166,7 +166,7 @@ impl Scheduler {
     /// Create a new scheduler.
     pub fn new() -> Self {
         const EMPTY_QUEUE: VecDeque<Arc<Mutex<Task>>> = VecDeque::new();
-        
+
         Scheduler {
             ready_queues: [EMPTY_QUEUE; MAX_PRIORITY_LEVELS],
             current_task: None,
@@ -179,7 +179,7 @@ impl Scheduler {
             need_reschedule: false,
         }
     }
-    
+
     /// Add a task to the scheduler.
     pub fn add_task(&mut self, task: Task) {
         let priority = task.priority().level();
@@ -187,7 +187,7 @@ impl Scheduler {
         self.all_tasks.push(task.clone());
         self.ready_queues[priority].push_back(task);
     }
-    
+
     /// Schedule the next task.
     pub fn schedule(&mut self) {
         // Save current task state
@@ -200,7 +200,7 @@ impl Scheduler {
                 self.ready_queues[priority].push_back(current.clone());
             }
         }
-        
+
         // Find next task (highest priority first)
         let mut next_task = None;
         for queue in self.ready_queues.iter_mut().rev() {
@@ -209,21 +209,21 @@ impl Scheduler {
                 break;
             }
         }
-        
+
         if let Some(task) = next_task {
             task.lock().set_state(TaskState::Running);
             let task_id = task.lock().id().0;
             self.current_task = Some(task);
             self.time_slice_remaining = DEFAULT_TIME_SLICE;
-            
+
             CURRENT_TASK_ID.store(task_id, Ordering::Relaxed);
             CONTEXT_SWITCHES.fetch_add(1, Ordering::Relaxed);
-            
+
             // Perform context switch
             self.context_switch();
         }
     }
-    
+
     /// Block a task.
     pub fn block_task(&mut self, task_id: TaskId) {
         for task in &self.all_tasks {
@@ -234,7 +234,7 @@ impl Scheduler {
             }
         }
     }
-    
+
     /// Unblock a task.
     pub fn unblock_task(&mut self, task_id: TaskId) {
         let mut found_index = None;
@@ -244,7 +244,7 @@ impl Scheduler {
                 break;
             }
         }
-        
+
         if let Some(index) = found_index {
             let task = self.blocked_tasks.remove(index);
             let priority = task.lock().priority().level();
@@ -252,7 +252,7 @@ impl Scheduler {
             self.ready_queues[priority].push_back(task);
         }
     }
-    
+
     /// Exit a task.
     pub fn exit_task(&mut self, task_id: TaskId, exit_code: i32) {
         for task in &self.all_tasks {
@@ -263,7 +263,7 @@ impl Scheduler {
             }
         }
     }
-    
+
     /// Handle timer tick.
     /// Decrements time slice, checks sleep queue for wake-ups,
     /// and sets reschedule flag when time slice expires.
@@ -271,7 +271,7 @@ impl Scheduler {
         if !self.preemption_enabled {
             return;
         }
-        
+
         // Wake sleeping tasks whose deadline has passed
         let now = BOOT_TICKS.load(Ordering::Relaxed);
         let mut i = 0;
@@ -285,16 +285,16 @@ impl Scheduler {
                 i += 1;
             }
         }
-        
+
         if self.time_slice_remaining > 0 {
             self.time_slice_remaining -= 1;
         }
-        
+
         if self.time_slice_remaining == 0 {
             self.need_reschedule = true;
         }
     }
-    
+
     /// Put a task to sleep until a given tick.
     pub fn sleep_task(&mut self, task_id: TaskId, wake_at: u64) {
         for task in &self.all_tasks {
@@ -305,7 +305,7 @@ impl Scheduler {
             }
         }
     }
-    
+
     /// Perform context switch.
     /// Saves current task context and loads next task context via
     /// the process::context::context_switch assembly routine.
@@ -321,34 +321,34 @@ impl Scheduler {
             t.stats_mut().last_scheduled = BOOT_TICKS.load(Ordering::Relaxed);
         }
     }
-    
+
     /// Check if reschedule is needed.
     pub fn needs_reschedule(&self) -> bool {
         self.need_reschedule
     }
-    
+
     /// Clear reschedule flag.
     pub fn clear_reschedule(&mut self) {
         self.need_reschedule = false;
     }
-    
+
     /// Enable or disable preemption.
     pub fn set_preemption(&mut self, enabled: bool) {
         self.preemption_enabled = enabled;
     }
-    
+
     /// Allocate a new task ID.
     pub fn alloc_task_id(&mut self) -> TaskId {
         let id = TaskId(self.next_task_id);
         self.next_task_id += 1;
         id
     }
-    
+
     /// Get number of ready tasks.
     pub fn ready_count(&self) -> usize {
         self.ready_queues.iter().map(|q| q.len()).sum()
     }
-    
+
     /// Get number of blocked tasks.
     pub fn blocked_count(&self) -> usize {
         self.blocked_tasks.len()

@@ -2,8 +2,8 @@
 //!
 //! Implements ELF64 binary loading for x86_64 userspace processes.
 
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::mem::size_of;
 
 /// ELF magic number: 0x7F 'E' 'L' 'F'
@@ -245,7 +245,7 @@ impl Elf64Loader {
 
         // Parse ELF header
         let header = Self::parse_header(binary)?;
-        
+
         // Validate header
         Self::validate_header(&header)?;
 
@@ -295,9 +295,8 @@ impl Elf64Loader {
         }
 
         // SAFETY: We've verified the size, and Elf64Header is repr(C, packed)
-        let header: Elf64Header = unsafe {
-            core::ptr::read_unaligned(binary.as_ptr() as *const Elf64Header)
-        };
+        let header: Elf64Header =
+            unsafe { core::ptr::read_unaligned(binary.as_ptr() as *const Elf64Header) };
 
         Ok(header)
     }
@@ -364,7 +363,7 @@ impl Elf64Loader {
 
         for i in 0..phnum {
             let ph_offset = phoff + i * phentsize;
-            
+
             // SAFETY: We've validated bounds above
             let ph: Elf64ProgramHeader = unsafe {
                 core::ptr::read_unaligned(
@@ -506,12 +505,12 @@ mod tests {
     // Minimal valid ELF64 header for x86_64
     fn create_minimal_elf() -> Vec<u8> {
         let mut elf = vec![0u8; 120]; // Minimum ELF + one program header
-        
+
         // ELF header
         elf[0..4].copy_from_slice(&ELF_MAGIC);
-        elf[4] = ELFCLASS64;      // 64-bit
-        elf[5] = ELFDATA2LSB;     // Little endian
-        elf[6] = 1;               // ELF version
+        elf[4] = ELFCLASS64; // 64-bit
+        elf[5] = ELFDATA2LSB; // Little endian
+        elf[6] = 1; // ELF version
         elf[16..18].copy_from_slice(&ET_EXEC.to_le_bytes()); // Type: executable
         elf[18..20].copy_from_slice(&EM_X86_64.to_le_bytes()); // Machine: x86_64
         elf[20..24].copy_from_slice(&1u32.to_le_bytes()); // Version
@@ -519,8 +518,8 @@ mod tests {
         elf[32..40].copy_from_slice(&64u64.to_le_bytes()); // Program header offset
         elf[52..54].copy_from_slice(&64u16.to_le_bytes()); // ELF header size
         elf[54..56].copy_from_slice(&56u16.to_le_bytes()); // Program header entry size
-        elf[56..58].copy_from_slice(&1u16.to_le_bytes());  // Program header count
-        
+        elf[56..58].copy_from_slice(&1u16.to_le_bytes()); // Program header count
+
         // Program header (PT_LOAD)
         elf[64..68].copy_from_slice(&PT_LOAD.to_le_bytes()); // Type
         elf[68..72].copy_from_slice(&(PF_R | PF_X).to_le_bytes()); // Flags
@@ -530,7 +529,7 @@ mod tests {
         elf[96..104].copy_from_slice(&120u64.to_le_bytes()); // File size
         elf[104..112].copy_from_slice(&120u64.to_le_bytes()); // Memory size
         elf[112..120].copy_from_slice(&0x1000u64.to_le_bytes()); // Alignment
-        
+
         elf
     }
 
@@ -539,7 +538,7 @@ mod tests {
         let elf = create_minimal_elf();
         let result = Elf64Loader::parse(&elf);
         assert!(result.is_ok());
-        
+
         let program = result.unwrap();
         assert_eq!(program.entry_point, 0x400000);
         assert_eq!(program.segments.len(), 1);
@@ -552,7 +551,7 @@ mod tests {
     fn test_invalid_magic() {
         let mut elf = create_minimal_elf();
         elf[0] = 0x00; // Corrupt magic
-        
+
         let result = Elf64Loader::parse(&elf);
         assert_eq!(result, Err(ElfError::InvalidMagic));
     }

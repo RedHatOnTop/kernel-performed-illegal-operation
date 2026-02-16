@@ -2,9 +2,9 @@
 //!
 //! Locale detection, negotiation, and preferences.
 
+use super::Direction;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use super::Direction;
 
 /// Locale
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ impl Locale {
     /// Parse locale from string
     pub fn parse(tag: &str) -> Option<Self> {
         let parts: Vec<&str> = tag.split(|c| c == '-' || c == '_').collect();
-        
+
         if parts.is_empty() {
             return None;
         }
@@ -44,7 +44,13 @@ impl Locale {
         for part in parts.iter().skip(1) {
             if part.len() == 2 && part.chars().all(|c| c.is_ascii_uppercase()) {
                 locale.region = Some(part.to_string());
-            } else if part.len() == 4 && part.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+            } else if part.len() == 4
+                && part
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_uppercase())
+                    .unwrap_or(false)
+            {
                 locale.script = Some(part.to_string());
             } else {
                 locale.variant = Some(part.to_string());

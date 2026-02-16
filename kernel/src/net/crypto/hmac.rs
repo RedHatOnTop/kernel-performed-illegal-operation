@@ -2,8 +2,8 @@
 //!
 //! Provides HMAC-SHA-256 (32-byte tag) and HMAC-SHA-384 (48-byte tag).
 
-use alloc::vec::Vec;
 use super::sha::{sha256, sha384};
+use alloc::vec::Vec;
 
 /// HMAC-SHA-256 → 32-byte MAC.
 pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {

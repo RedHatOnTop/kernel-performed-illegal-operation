@@ -160,11 +160,11 @@ impl VirtioBlock {
     /// Must be called with a valid VirtIO block PCI device.
     pub unsafe fn new(device: &PciDevice) -> Option<Self> {
         let pci_addr = device.address;
-        
+
         // Enable PCI bus mastering and I/O space
         pci::enable_bus_master(pci_addr);
         pci::enable_io_space(pci_addr);
-        
+
         // Get I/O base from BAR0
         let bar0 = device.bars[0];
         if (bar0 & 0x1) == 0 {
@@ -173,31 +173,32 @@ impl VirtioBlock {
             return None;
         }
         let io_base = (bar0 & !0x3) as u16;
-        
+
         crate::serial_println!("[VirtIO-Blk] I/O base: {:#x}", io_base);
-        
+
         // Reset device
         Self::write_status_raw(io_base, 0);
-        
+
         // Acknowledge device
         Self::write_status_raw(io_base, device_status::ACKNOWLEDGE);
-        
+
         // Indicate we know how to drive it
-        Self::write_status_raw(io_base, 
-            device_status::ACKNOWLEDGE | device_status::DRIVER);
-        
+        Self::write_status_raw(io_base, device_status::ACKNOWLEDGE | device_status::DRIVER);
+
         // Read features (we don't need any special features for basic I/O)
         let mut features_port: Port<u32> = Port::new(io_base + legacy_regs::DEVICE_FEATURES);
         let _features = unsafe { features_port.read() };
-        
+
         // Accept no features (basic operation)
         let mut driver_features_port: Port<u32> = Port::new(io_base + legacy_regs::DRIVER_FEATURES);
         unsafe { driver_features_port.write(0) };
-        
+
         // Mark features OK
-        Self::write_status_raw(io_base,
-            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK);
-        
+        Self::write_status_raw(
+            io_base,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
+
         // Check that features OK was accepted
         let status = Self::read_status_raw(io_base);
         if (status & device_status::FEATURES_OK) == 0 {
@@ -205,58 +206,65 @@ impl VirtioBlock {
             Self::write_status_raw(io_base, device_status::FAILED);
             return None;
         }
-        
+
         // Set up virtqueue 0
         let mut queue_select: Port<u16> = Port::new(io_base + legacy_regs::QUEUE_SELECT);
         unsafe { queue_select.write(0) };
-        
+
         let mut queue_size_port: Port<u16> = Port::new(io_base + legacy_regs::QUEUE_SIZE);
         let queue_size = unsafe { queue_size_port.read() };
-        
+
         if queue_size == 0 {
             crate::serial_println!("[VirtIO-Blk] Queue not available");
             Self::write_status_raw(io_base, device_status::FAILED);
             return None;
         }
-        
+
         crate::serial_println!("[VirtIO-Blk] Queue size: {}", queue_size);
-        
+
         // Allocate queue memory (simplified - use kernel heap)
         // In a real driver, this would be physically contiguous memory
         let desc_size = core::mem::size_of::<super::queue::VirtqDesc>() * queue_size as usize;
         let avail_size = 6 + 2 * queue_size as usize; // flags + idx + ring + used_event
-        let used_size = 6 + 8 * queue_size as usize;  // flags + idx + ring + avail_event
-        
+        let used_size = 6 + 8 * queue_size as usize; // flags + idx + ring + avail_event
+
         // For simplicity, allocate a large buffer
         // Real implementation needs physically contiguous pages
         let queue_mem = alloc::vec![0u8; 4096 * 4].into_boxed_slice();
         let queue_ptr = Box::into_raw(queue_mem);
         let queue_base = queue_ptr as *mut u8 as u64;
-        
+
         // Note: This is simplified - real driver needs proper page alignment
         let desc_phys = queue_base;
         let avail_phys = desc_phys + desc_size as u64;
         let used_phys = (avail_phys + avail_size as u64 + 4095) & !4095; // Page-align used ring
-        
+
         // Tell device the queue address (legacy: page number)
         let mut queue_addr: Port<u32> = Port::new(io_base + legacy_regs::QUEUE_ADDRESS);
         unsafe { queue_addr.write((desc_phys / 4096) as u32) };
-        
+
         // Read device capacity
         let mut cap_low: Port<u32> = Port::new(io_base + legacy_regs::CONFIG);
         let mut cap_high: Port<u32> = Port::new(io_base + legacy_regs::CONFIG + 4);
         let capacity = unsafe { cap_low.read() as u64 | ((cap_high.read() as u64) << 32) };
-        
-        crate::serial_println!("[VirtIO-Blk] Capacity: {} sectors ({} MB)", 
-            capacity, capacity * 512 / 1024 / 1024);
-        
+
+        crate::serial_println!(
+            "[VirtIO-Blk] Capacity: {} sectors ({} MB)",
+            capacity,
+            capacity * 512 / 1024 / 1024
+        );
+
         // Mark driver OK
-        Self::write_status_raw(io_base,
-            device_status::ACKNOWLEDGE | device_status::DRIVER | 
-            device_status::FEATURES_OK | device_status::DRIVER_OK);
-        
+        Self::write_status_raw(
+            io_base,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
+        );
+
         crate::serial_println!("[VirtIO-Blk] Initialization complete");
-        
+
         Some(VirtioBlock {
             pci_addr,
             io_base,
@@ -274,54 +282,58 @@ impl VirtioBlock {
             data_buf: Box::new([0u8; BLOCK_SIZE]),
         })
     }
-    
+
     /// Read device status register.
     fn read_status_raw(io_base: u16) -> u8 {
         let mut port: Port<u8> = Port::new(io_base + legacy_regs::DEVICE_STATUS);
         unsafe { port.read() }
     }
-    
+
     /// Write device status register.
     fn write_status_raw(io_base: u16, status: u8) {
         let mut port: Port<u8> = Port::new(io_base + legacy_regs::DEVICE_STATUS);
         unsafe { port.write(status) }
     }
-    
+
     /// Notify the device about available buffers.
     fn notify(&self, queue: u16) {
         let mut port: Port<u16> = Port::new(self.io_base + legacy_regs::QUEUE_NOTIFY);
         unsafe { port.write(queue) };
     }
-    
+
     /// Get device capacity in sectors.
     pub fn capacity(&self) -> u64 {
         self.capacity
     }
-    
+
     /// Get device capacity in bytes.
     pub fn capacity_bytes(&self) -> u64 {
         self.capacity * BLOCK_SIZE as u64
     }
-    
+
     /// Read a single sector using VirtQueue descriptor chain.
     ///
     /// Submits a 3-descriptor chain:
     /// - Desc 0: request header (device-readable)
     /// - Desc 1: data buffer (device-writable)
     /// - Desc 2: status byte (device-writable)
-    pub fn read_sector(&mut self, sector: u64, buffer: &mut [u8; BLOCK_SIZE]) -> Result<(), RequestStatus> {
+    pub fn read_sector(
+        &mut self,
+        sector: u64,
+        buffer: &mut [u8; BLOCK_SIZE],
+    ) -> Result<(), RequestStatus> {
         if sector >= self.capacity {
             return Err(RequestStatus::IoErr);
         }
-        
+
         // Set up request header
         self.header_buf.request_type = RequestType::In as u32;
         self.header_buf.reserved = 0;
         self.header_buf.sector = sector;
-        
+
         // Reset status
         *self.status_buf = RequestStatus::Pending as u8;
-        
+
         // Clear data buffer
         self.data_buf.fill(0);
 
@@ -399,24 +411,28 @@ impl VirtioBlock {
             Err(status)
         }
     }
-    
+
     /// Write a single sector using VirtQueue descriptor chain.
-    pub fn write_sector(&mut self, sector: u64, buffer: &[u8; BLOCK_SIZE]) -> Result<(), RequestStatus> {
+    pub fn write_sector(
+        &mut self,
+        sector: u64,
+        buffer: &[u8; BLOCK_SIZE],
+    ) -> Result<(), RequestStatus> {
         if sector >= self.capacity {
             return Err(RequestStatus::IoErr);
         }
-        
+
         // Set up request header
         self.header_buf.request_type = RequestType::Out as u32;
         self.header_buf.reserved = 0;
         self.header_buf.sector = sector;
-        
+
         // Reset status
         *self.status_buf = RequestStatus::Pending as u8;
 
         // Copy data to our buffer
         self.data_buf.copy_from_slice(buffer);
-        
+
         // Build 3-descriptor chain
         let desc_base = self.desc_phys as *mut VirtqDescRaw;
         let avail_base = self.avail_phys as *mut u16;
@@ -489,22 +505,27 @@ static VIRTIO_BLOCK_DEVICES: Mutex<Vec<VirtioBlock>> = Mutex::new(Vec::new());
 /// Initialize VirtIO block devices.
 pub fn init() {
     let devices = pci::find_virtio_block();
-    
+
     if devices.is_empty() {
         crate::serial_println!("[VirtIO-Blk] No VirtIO block devices found");
         return;
     }
-    
-    crate::serial_println!("[VirtIO-Blk] Found {} VirtIO block device(s)", devices.len());
-    
+
+    crate::serial_println!(
+        "[VirtIO-Blk] Found {} VirtIO block device(s)",
+        devices.len()
+    );
+
     for device in devices {
         match unsafe { VirtioBlock::new(&device) } {
             Some(blk) => {
                 VIRTIO_BLOCK_DEVICES.lock().push(blk);
             }
             None => {
-                crate::serial_println!("[VirtIO-Blk] Failed to initialize device at {}", 
-                    device.address);
+                crate::serial_println!(
+                    "[VirtIO-Blk] Failed to initialize device at {}",
+                    device.address
+                );
             }
         }
     }
@@ -517,7 +538,10 @@ pub fn device_count() -> usize {
 
 /// Get info about VirtIO block devices (index, capacity_sectors, capacity_mb).
 pub fn device_info() -> Vec<(usize, u64, u64)> {
-    VIRTIO_BLOCK_DEVICES.lock().iter().enumerate().map(|(i, dev)| {
-        (i, dev.capacity(), dev.capacity_bytes() / (1024 * 1024))
-    }).collect()
+    VIRTIO_BLOCK_DEVICES
+        .lock()
+        .iter()
+        .enumerate()
+        .map(|(i, dev)| (i, dev.capacity(), dev.capacity_bytes() / (1024 * 1024)))
+        .collect()
 }

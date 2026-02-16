@@ -168,7 +168,13 @@ impl StackFrame {
     pub fn to_string(&self) -> String {
         if let Some(ref sym) = self.symbol {
             if let Some(ref module) = self.module {
-                alloc::format!("{:#018x} {}!{} + {:#x}", self.address, module, sym, self.offset)
+                alloc::format!(
+                    "{:#018x} {}!{} + {:#x}",
+                    self.address,
+                    module,
+                    sym,
+                    self.offset
+                )
             } else {
                 alloc::format!("{:#018x} {} + {:#x}", self.address, sym, self.offset)
             }
@@ -229,7 +235,10 @@ impl CrashInfo {
         report.push_str("=== KPIO CRASH REPORT ===\n\n");
         report.push_str(&alloc::format!("Type: {}\n", self.crash_type.name()));
         report.push_str(&alloc::format!("Message: {}\n", self.message));
-        report.push_str(&alloc::format!("Severity: {:?}\n", self.crash_type.severity()));
+        report.push_str(&alloc::format!(
+            "Severity: {:?}\n",
+            self.crash_type.severity()
+        ));
         report.push_str(&alloc::format!("Kernel Version: {}\n", self.kernel_version));
         report.push_str(&alloc::format!("CPU: {}\n", self.cpu_number));
 
@@ -302,7 +311,7 @@ pub fn init() {
 pub fn handle_crash(crash_type: CrashType, message: &str) -> ! {
     let mut handler = CRASH_HANDLER.lock();
     handler.handle(crash_type, message);
-    
+
     // Halt the system
     loop {
         #[cfg(target_arch = "x86_64")]

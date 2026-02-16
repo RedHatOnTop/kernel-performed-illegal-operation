@@ -19,9 +19,14 @@ pub struct Span {
 impl Span {
     /// Create a new span.
     pub fn new(start: usize, end: usize, line: usize, column: usize) -> Self {
-        Span { start, end, line, column }
+        Span {
+            start,
+            end,
+            line,
+            column,
+        }
     }
-    
+
     /// Merge two spans.
     pub fn merge(self, other: Span) -> Self {
         Span {
@@ -46,20 +51,23 @@ pub enum TokenKind {
     /// BigInt literal (42n)
     BigInt(String),
     /// Regular expression literal (/pattern/flags)
-    RegExp { pattern: String, flags: String },
+    RegExp {
+        pattern: String,
+        flags: String,
+    },
     /// Boolean true
     True,
     /// Boolean false
     False,
     /// Null literal
     Null,
-    
+
     // Identifiers and Keywords
     /// Identifier (variable name, function name, etc.)
     Identifier(String),
     /// Private identifier (#name)
     PrivateIdentifier(String),
-    
+
     // Keywords
     Await,
     Break,
@@ -98,7 +106,7 @@ pub enum TokenKind {
     While,
     With,
     Yield,
-    
+
     // Future reserved words
     Implements,
     Interface,
@@ -106,13 +114,13 @@ pub enum TokenKind {
     Private,
     Protected,
     Public,
-    
+
     // Async/Generator
     Async,
     Of,
     Get,
     Set,
-    
+
     // Punctuators
     /// {
     LeftBrace,
@@ -228,7 +236,7 @@ pub enum TokenKind {
     QuestionQuestionAssign,
     /// =>
     Arrow,
-    
+
     // Special
     /// End of file
     Eof,
@@ -241,33 +249,78 @@ pub enum TokenKind {
 impl TokenKind {
     /// Check if this token is a keyword.
     pub fn is_keyword(&self) -> bool {
-        matches!(self,
-            TokenKind::Await | TokenKind::Break | TokenKind::Case | TokenKind::Catch |
-            TokenKind::Class | TokenKind::Const | TokenKind::Continue | TokenKind::Debugger |
-            TokenKind::Default | TokenKind::Delete | TokenKind::Do | TokenKind::Else |
-            TokenKind::Enum | TokenKind::Export | TokenKind::Extends | TokenKind::Finally |
-            TokenKind::For | TokenKind::Function | TokenKind::If | TokenKind::Import |
-            TokenKind::In | TokenKind::Instanceof | TokenKind::Let | TokenKind::New |
-            TokenKind::Return | TokenKind::Static | TokenKind::Super | TokenKind::Switch |
-            TokenKind::This | TokenKind::Throw | TokenKind::Try | TokenKind::Typeof |
-            TokenKind::Var | TokenKind::Void | TokenKind::While | TokenKind::With |
-            TokenKind::Yield | TokenKind::Async | TokenKind::Of | TokenKind::Get |
-            TokenKind::Set | TokenKind::True | TokenKind::False | TokenKind::Null
+        matches!(
+            self,
+            TokenKind::Await
+                | TokenKind::Break
+                | TokenKind::Case
+                | TokenKind::Catch
+                | TokenKind::Class
+                | TokenKind::Const
+                | TokenKind::Continue
+                | TokenKind::Debugger
+                | TokenKind::Default
+                | TokenKind::Delete
+                | TokenKind::Do
+                | TokenKind::Else
+                | TokenKind::Enum
+                | TokenKind::Export
+                | TokenKind::Extends
+                | TokenKind::Finally
+                | TokenKind::For
+                | TokenKind::Function
+                | TokenKind::If
+                | TokenKind::Import
+                | TokenKind::In
+                | TokenKind::Instanceof
+                | TokenKind::Let
+                | TokenKind::New
+                | TokenKind::Return
+                | TokenKind::Static
+                | TokenKind::Super
+                | TokenKind::Switch
+                | TokenKind::This
+                | TokenKind::Throw
+                | TokenKind::Try
+                | TokenKind::Typeof
+                | TokenKind::Var
+                | TokenKind::Void
+                | TokenKind::While
+                | TokenKind::With
+                | TokenKind::Yield
+                | TokenKind::Async
+                | TokenKind::Of
+                | TokenKind::Get
+                | TokenKind::Set
+                | TokenKind::True
+                | TokenKind::False
+                | TokenKind::Null
         )
     }
-    
+
     /// Check if this is an assignment operator.
     pub fn is_assignment(&self) -> bool {
-        matches!(self,
-            TokenKind::Assign | TokenKind::PlusAssign | TokenKind::MinusAssign |
-            TokenKind::StarAssign | TokenKind::SlashAssign | TokenKind::PercentAssign |
-            TokenKind::StarStarAssign | TokenKind::LeftShiftAssign | TokenKind::RightShiftAssign |
-            TokenKind::UnsignedRightShiftAssign | TokenKind::AmpersandAssign |
-            TokenKind::PipeAssign | TokenKind::CaretAssign | TokenKind::AmpersandAmpersandAssign |
-            TokenKind::PipePipeAssign | TokenKind::QuestionQuestionAssign
+        matches!(
+            self,
+            TokenKind::Assign
+                | TokenKind::PlusAssign
+                | TokenKind::MinusAssign
+                | TokenKind::StarAssign
+                | TokenKind::SlashAssign
+                | TokenKind::PercentAssign
+                | TokenKind::StarStarAssign
+                | TokenKind::LeftShiftAssign
+                | TokenKind::RightShiftAssign
+                | TokenKind::UnsignedRightShiftAssign
+                | TokenKind::AmpersandAssign
+                | TokenKind::PipeAssign
+                | TokenKind::CaretAssign
+                | TokenKind::AmpersandAmpersandAssign
+                | TokenKind::PipePipeAssign
+                | TokenKind::QuestionQuestionAssign
         )
     }
-    
+
     /// Get keyword from string.
     pub fn keyword_from_str(s: &str) -> Option<TokenKind> {
         match s {
@@ -365,7 +418,7 @@ impl Token {
     pub fn new(kind: TokenKind, span: Span) -> Self {
         Token { kind, span }
     }
-    
+
     /// Check if this is EOF.
     pub fn is_eof(&self) -> bool {
         matches!(self.kind, TokenKind::Eof)
