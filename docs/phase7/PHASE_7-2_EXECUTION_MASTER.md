@@ -25,7 +25,7 @@
 | 7-2.S1 | Parser 섹션 완전성 | WASM 섹션 파서 범위·구조 검증 체계 고정 | ✅ 완료 |
 | 7-2.S2 | Module 검증 강화 | type/function/import/export 정합성 게이트 확정 | ✅ 완료 |
 | 7-2.S3 | Opcode 디코딩 커버리지 | 디코더/명령 집합 테스트 매트릭스 확정 | ✅ 완료 |
-| 7-2.S4 | Interpreter 실행 정확성-I | 스택/제어흐름/정수 연산 정확성 검증 | ⏳ 대기 |
+| 7-2.S4 | Interpreter 실행 정확성-I | 스택/제어흐름/정수 연산 정확성 검증 | ✅ 완료 |
 | 7-2.S5 | Interpreter 실행 정확성-II | 메모리/부동소수/트랩/간접호출 검증 | ⏳ 대기 |
 | 7-2.S6 | Instance·Engine 통합 | instantiate/call/lifecycle/caching 검증 | ⏳ 대기 |
 | 7-2.S7 | WASI P1 파일·프로세스 | fd/path/args/env/proc_exit 검증 | ⏳ 대기 |
@@ -129,14 +129,19 @@
 - 스택 기계 핵심(스택/프레임/제어흐름/정수)을 안정화한다.
 
 **작업**
-- [ ] ValueStack/CallStack/BlockStack 검증 항목 고정
-- [ ] block/loop/if/br/br_if/br_table 경로 테스트 정의
-- [ ] i32/i64 산술/비교/비트연산 정확성 케이스 정의
+- [x] ValueStack/CallStack/BlockStack 검증 항목 고정
+- [x] block/loop/if/br/br_if/br_table 경로 테스트 정의
+- [x] i32/i64 산술/비교/비트연산 정확성 케이스 정의
 
 **품질 게이트**
-- [ ] S4-QG1: 제어흐름 테스트 매트릭스 완성
-- [ ] S4-QG2: 정수 연산 100+ 케이스 계획 확정
-- [ ] S4-QG3: DivisionByZero/StackUnderflow 트랩 검증 절차 확정
+- [x] S4-QG1: 제어흐름 테스트 매트릭스 완성
+- [x] S4-QG2: 정수 연산 100+ 케이스 계획 확정
+- [x] S4-QG3: DivisionByZero/StackUnderflow 트랩 검증 절차 확정
+
+**게이트 결과**
+- 통과율: **3/3 = 100%**
+- 판정: **PASS**
+- 근거 문서: `docs/phase7/PHASE_7-2_S4_INTERPRETER_CORE_GATE_REPORT.md`
 
 ---
 
@@ -239,4 +244,5 @@
 - 2026-02-16: `7-2.S1` 완료 (PASS, 100%)
 - 2026-02-16: `7-2.S2` 완료 (PASS, 100%)
 - 2026-02-16: `7-2.S3` 완료 (PASS, 100%)
-- 다음 활성화 대상: `7-2.S4`
+- 2026-02-16: `7-2.S4` 완료 (PASS, 100%)
+- 다음 활성화 대상: `7-2.S5`
