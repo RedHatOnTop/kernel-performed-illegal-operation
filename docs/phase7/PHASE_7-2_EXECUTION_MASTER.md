@@ -26,7 +26,7 @@
 | 7-2.S2 | Module 검증 강화 | type/function/import/export 정합성 게이트 확정 | ✅ 완료 |
 | 7-2.S3 | Opcode 디코딩 커버리지 | 디코더/명령 집합 테스트 매트릭스 확정 | ✅ 완료 |
 | 7-2.S4 | Interpreter 실행 정확성-I | 스택/제어흐름/정수 연산 정확성 검증 | ✅ 완료 |
-| 7-2.S5 | Interpreter 실행 정확성-II | 메모리/부동소수/트랩/간접호출 검증 | ⏳ 대기 |
+| 7-2.S5 | Interpreter 실행 정확성-II | 메모리/부동소수/트랩/간접호출 검증 | ✅ 완료 |
 | 7-2.S6 | Instance·Engine 통합 | instantiate/call/lifecycle/caching 검증 | ⏳ 대기 |
 | 7-2.S7 | WASI P1 파일·프로세스 | fd/path/args/env/proc_exit 검증 | ⏳ 대기 |
 | 7-2.S8 | Host 바인딩 확장 | wasi_snapshot_preview1 + kpio host 연결 | ⏳ 대기 |
@@ -151,14 +151,19 @@
 - 메모리/부동소수/트랩/간접 호출 품질을 고정한다.
 
 **작업**
-- [ ] load/store/memory.grow 경계 테스트 정의
-- [ ] f32/f64 NaN/Inf 동작 검증 케이스 정의
-- [ ] call_indirect 시그니처 불일치 트랩 케이스 정의
+- [x] load/store/memory.grow 경계 테스트 정의
+- [x] f32/f64 NaN/Inf 동작 검증 케이스 정의
+- [x] call_indirect 시그니처 불일치 트랩 케이스 정의
 
 **품질 게이트**
-- [ ] S5-QG1: Memory OOB 트랩 테스트 절차 고정
-- [ ] S5-QG2: IEEE 754 핵심 케이스 목록 완성
-- [ ] S5-QG3: 간접 호출 성공/실패 케이스 모두 존재
+- [x] S5-QG1: Memory OOB 트랩 테스트 절차 고정
+- [x] S5-QG2: IEEE 754 핵심 케이스 목록 완성
+- [x] S5-QG3: 간접 호출 성공/실패 케이스 모두 존재
+
+**게이트 결과**
+- 통과율: **3/3 = 100%**
+- 판정: **PASS**
+- 근거 문서: `docs/phase7/PHASE_7-2_S5_INTERPRETER_EXT_GATE_REPORT.md`
 
 ---
 
@@ -245,4 +250,5 @@
 - 2026-02-16: `7-2.S2` 완료 (PASS, 100%)
 - 2026-02-16: `7-2.S3` 완료 (PASS, 100%)
 - 2026-02-16: `7-2.S4` 완료 (PASS, 100%)
-- 다음 활성화 대상: `7-2.S5`
+- 2026-02-16: `7-2.S5` 완료 (PASS, 100%)
+- 다음 활성화 대상: `7-2.S6`
