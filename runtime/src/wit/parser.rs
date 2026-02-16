@@ -732,6 +732,7 @@ fn parse_world(tz: &mut Tokenizer) -> Result<WitWorld, WitParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn test_parse_package() {

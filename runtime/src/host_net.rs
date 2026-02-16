@@ -370,6 +370,7 @@ mod tests {
         module.memories.push(MemoryType {
             min: 1,
             max: None,
+            shared: false,
         });
         ExecutorContext::new(module).unwrap()
     }

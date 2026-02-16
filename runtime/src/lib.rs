@@ -45,6 +45,7 @@ pub mod parser;
 pub mod sandbox;
 pub mod service_worker;
 pub mod wasi;
+pub mod wasi2;
 pub mod wit;
 
 use alloc::string::String;

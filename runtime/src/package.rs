@@ -463,6 +463,7 @@ impl KpioAppPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn test_parse_minimal_toml_basic() {

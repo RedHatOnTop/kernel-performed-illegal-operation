@@ -428,6 +428,7 @@ pub struct MatchAllOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     fn make_client(id: &str, ctype: ClientType) -> ClientInfo {
         ClientInfo {

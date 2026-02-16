@@ -52,6 +52,8 @@ pub struct ExecutorContext {
     pub exit_code: Option<i32>,
     /// WASI context for WASI system calls.
     pub wasi_ctx: Option<WasiCtx>,
+    /// WASI Preview 2 context for resource-based WASI P2 interfaces.
+    pub wasi2_ctx: Option<crate::wasi2::Wasi2Ctx>,
 }
 
 impl ExecutorContext {
@@ -147,6 +149,7 @@ impl ExecutorContext {
             stderr: Vec::new(),
             exit_code: None,
             wasi_ctx: None,
+            wasi2_ctx: None,
         };
 
         // Initialize data segments

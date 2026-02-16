@@ -182,6 +182,8 @@ pub fn register_all(imports: &mut Imports) {
     crate::host_gui::register(imports);
     crate::host_system::register(imports);
     crate::host_net::register(imports);
+    // WASI Preview 2 (wasi:io/streams, wasi:io/poll)
+    crate::wasi2::host::register(imports);
 }
 
 /// Register WASI Preview 1 functions.

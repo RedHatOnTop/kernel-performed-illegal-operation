@@ -43,6 +43,25 @@ pub struct Module {
 }
 
 impl Module {
+    /// Create an empty module (useful for testing).
+    pub fn empty() -> Self {
+        Self {
+            types: Vec::new(),
+            imports: Vec::new(),
+            functions: Vec::new(),
+            tables: Vec::new(),
+            memories: Vec::new(),
+            globals: Vec::new(),
+            exports: Vec::new(),
+            start: None,
+            elements: Vec::new(),
+            code: Vec::new(),
+            data: Vec::new(),
+            name: None,
+            data_count: None,
+        }
+    }
+
     /// Create a module from WASM bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, RuntimeError> {
         let module = WasmParser::parse(bytes)

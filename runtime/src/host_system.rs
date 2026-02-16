@@ -205,6 +205,7 @@ fn host_log(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::String;
     use crate::module::{MemoryType, Module};
 
     fn make_ctx_with_memory() -> ExecutorContext {
@@ -212,6 +213,7 @@ mod tests {
         module.memories.push(MemoryType {
             min: 1,
             max: None,
+            shared: false,
         });
         ExecutorContext::new(module).unwrap()
     }
