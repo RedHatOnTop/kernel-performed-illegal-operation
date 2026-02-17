@@ -113,6 +113,67 @@ pub enum PackageError {
     TooLarge { actual: usize, limit: usize },
     /// Generic I/O or processing error.
     IoError(String),
+    /// Invalid version format.
+    InvalidVersion(String),
+    /// Invalid app ID format.
+    InvalidAppId(String),
+}
+
+/// Validate a manifest's required fields and format.
+///
+/// Checks:
+/// - `id` is non-empty and contains only alphanumeric, `.`, `-`, `_` chars
+/// - `name` is non-empty
+/// - `version` matches `major.minor.patch` format (digits + dots)
+/// - `entry` ends with `.wasm`
+pub fn validate_manifest(manifest: &AppManifest) -> Result<(), PackageError> {
+    // Validate app ID format
+    if manifest.id.is_empty() {
+        return Err(PackageError::InvalidAppId(String::from("empty app id")));
+    }
+    for c in manifest.id.chars() {
+        if !c.is_alphanumeric() && c != '.' && c != '-' && c != '_' {
+            return Err(PackageError::InvalidAppId(alloc::format!(
+                "invalid character '{}' in app id",
+                c
+            )));
+        }
+    }
+
+    // Validate name
+    if manifest.name.is_empty() {
+        return Err(PackageError::MissingField(String::from("name")));
+    }
+
+    // Validate version format (digits + dots, at least "N.N.N")
+    if manifest.version.is_empty() {
+        return Err(PackageError::InvalidVersion(String::from("empty version")));
+    }
+    let parts: Vec<&str> = manifest.version.split('.').collect();
+    if parts.len() < 2 {
+        return Err(PackageError::InvalidVersion(alloc::format!(
+            "version '{}' needs at least major.minor",
+            manifest.version
+        )));
+    }
+    for part in &parts {
+        if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
+            return Err(PackageError::InvalidVersion(alloc::format!(
+                "invalid version component '{}'",
+                part
+            )));
+        }
+    }
+
+    // Validate entry ends with .wasm
+    if !manifest.entry.ends_with(".wasm") {
+        return Err(PackageError::MissingEntry(alloc::format!(
+            "entry '{}' must end with .wasm",
+            manifest.entry
+        )));
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -538,5 +599,81 @@ network = "false"
         let data = vec![0u8; 100];
         let result = KpioAppPackage::from_bytes(&data);
         assert!(matches!(result, Err(PackageError::InvalidArchive(_))));
+    }
+
+    // ── Manifest validation tests ───────────────────────────────────
+
+    fn make_test_manifest(id: &str, name: &str, version: &str, entry: &str) -> AppManifest {
+        AppManifest {
+            id: String::from(id),
+            name: String::from(name),
+            version: String::from(version),
+            description: None,
+            author: None,
+            icon: None,
+            entry: String::from(entry),
+            permissions: ManifestPermissions::default(),
+            min_kpio_version: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_manifest_valid() {
+        let m = make_test_manifest("com.example.app", "My App", "1.0.0", "app.wasm");
+        assert!(validate_manifest(&m).is_ok());
+    }
+
+    #[test]
+    fn test_validate_manifest_empty_id() {
+        let m = make_test_manifest("", "App", "1.0.0", "app.wasm");
+        assert!(matches!(validate_manifest(&m), Err(PackageError::InvalidAppId(_))));
+    }
+
+    #[test]
+    fn test_validate_manifest_invalid_id_chars() {
+        let m = make_test_manifest("com/example/app", "App", "1.0.0", "app.wasm");
+        assert!(matches!(validate_manifest(&m), Err(PackageError::InvalidAppId(_))));
+    }
+
+    #[test]
+    fn test_validate_manifest_empty_name() {
+        let m = make_test_manifest("com.test", "", "1.0.0", "app.wasm");
+        assert!(matches!(validate_manifest(&m), Err(PackageError::MissingField(_))));
+    }
+
+    #[test]
+    fn test_validate_manifest_empty_version() {
+        let m = make_test_manifest("com.test", "App", "", "app.wasm");
+        assert!(matches!(validate_manifest(&m), Err(PackageError::InvalidVersion(_))));
+    }
+
+    #[test]
+    fn test_validate_manifest_bad_version_format() {
+        let m = make_test_manifest("com.test", "App", "abc", "app.wasm");
+        assert!(matches!(validate_manifest(&m), Err(PackageError::InvalidVersion(_))));
+    }
+
+    #[test]
+    fn test_validate_manifest_single_number_version() {
+        let m = make_test_manifest("com.test", "App", "1", "app.wasm");
+        assert!(matches!(validate_manifest(&m), Err(PackageError::InvalidVersion(_))));
+    }
+
+    #[test]
+    fn test_validate_manifest_two_part_version_ok() {
+        let m = make_test_manifest("com.test", "App", "1.0", "app.wasm");
+        assert!(validate_manifest(&m).is_ok());
+    }
+
+    #[test]
+    fn test_validate_manifest_bad_entry() {
+        let m = make_test_manifest("com.test", "App", "1.0.0", "app.txt");
+        assert!(matches!(validate_manifest(&m), Err(PackageError::MissingEntry(_))));
+    }
+
+    #[test]
+    fn test_validate_manifest_valid_id_with_hyphens_underscores() {
+        let m = make_test_manifest("com.my-app_v2", "App", "1.0.0", "app.wasm");
+        assert!(validate_manifest(&m).is_ok());
     }
 }

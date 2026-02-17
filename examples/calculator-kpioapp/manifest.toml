@@ -1,0 +1,14 @@
+[app]
+id = "org.kpio.calculator"
+name = "Calculator"
+version = "1.0.0"
+description = "Basic integer arithmetic calculator for KPIO"
+author = "KPIO Team"
+entry = "app.wasm"
+
+[permissions]
+filesystem = "none"
+network = false
+gui = true
+clipboard = false
+notifications = false

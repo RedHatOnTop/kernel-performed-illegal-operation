@@ -1,0 +1,14 @@
+[app]
+id = "org.kpio.counter"
+name = "Counter"
+version = "1.0.0"
+description = "Stateful counter app - increment/decrement display via stdout"
+author = "KPIO Team"
+entry = "app.wasm"
+
+[permissions]
+filesystem = "none"
+network = false
+gui = false
+clipboard = false
+notifications = false

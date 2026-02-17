@@ -1,0 +1,14 @@
+[app]
+id = "org.kpio.hello-world"
+name = "Hello World"
+version = "1.0.0"
+description = "A minimal KPIO application that prints Hello, KPIO!"
+author = "KPIO Team"
+entry = "app.wasm"
+
+[permissions]
+filesystem = "none"
+network = false
+gui = false
+clipboard = false
+notifications = false
