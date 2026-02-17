@@ -18,6 +18,7 @@
 //! - Profile-guided tiering decisions
 //! - AOT compilation support for system services
 
+pub mod bench;
 pub mod cache;
 pub mod codegen;
 pub mod compiler;
