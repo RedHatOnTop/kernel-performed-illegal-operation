@@ -28,6 +28,7 @@
 extern crate alloc;
 
 pub mod app_launcher;
+pub mod component;
 pub mod engine;
 pub mod executor;
 pub mod host;
