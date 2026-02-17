@@ -6,8 +6,12 @@
 
 extern crate alloc;
 
+pub mod cli;
+pub mod clocks;
+pub mod filesystem;
 pub mod host;
 pub mod poll;
+pub mod random;
 pub mod streams;
 
 use alloc::string::String;
@@ -23,8 +27,7 @@ pub enum ResourceType {
     InputStream,
     OutputStream,
     Pollable,
-    // Extended in later sub-phases:
-    // Descriptor, TcpSocket, UdpSocket, ...
+    Descriptor,
 }
 
 /// A single entry inside the resource table.
@@ -43,6 +46,7 @@ pub enum ResourceData {
     InputStream(streams::InputStreamData),
     OutputStream(streams::OutputStreamData),
     Pollable(poll::PollableState),
+    Descriptor(filesystem::Descriptor),
 }
 
 impl core::fmt::Debug for ResourceData {
@@ -51,6 +55,7 @@ impl core::fmt::Debug for ResourceData {
             ResourceData::InputStream(_) => write!(f, "ResourceData::InputStream"),
             ResourceData::OutputStream(_) => write!(f, "ResourceData::OutputStream"),
             ResourceData::Pollable(s) => write!(f, "ResourceData::Pollable({:?})", s),
+            ResourceData::Descriptor(d) => write!(f, "ResourceData::Descriptor({:?})", d),
         }
     }
 }
@@ -316,6 +321,16 @@ pub struct Wasi2Ctx {
     pub stdout_handle: Option<ResourceHandle>,
     /// Pre-created stderr stream handle.
     pub stderr_handle: Option<ResourceHandle>,
+    /// CLI environment (args, env vars).
+    pub cli_env: cli::CliEnvironment,
+    /// Random number generator.
+    pub random: random::RandomGenerator,
+    /// Monotonic clock.
+    pub monotonic_clock: clocks::MonotonicClock,
+    /// Wall clock.
+    pub wall_clock: clocks::WallClock,
+    /// Filesystem preopens (directories that are pre-opened for the component).
+    pub preopens: Vec<filesystem::Preopen>,
 }
 
 impl Wasi2Ctx {
@@ -358,6 +373,11 @@ impl Wasi2Ctx {
             stdin_handle,
             stdout_handle,
             stderr_handle,
+            cli_env: cli::CliEnvironment::new(),
+            random: random::RandomGenerator::new(),
+            monotonic_clock: clocks::MonotonicClock::new(),
+            wall_clock: clocks::WallClock::new(),
+            preopens: Vec::new(),
         }
     }
 }

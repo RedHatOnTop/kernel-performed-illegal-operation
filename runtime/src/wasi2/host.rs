@@ -13,12 +13,16 @@ use alloc::vec::Vec;
 use crate::executor::ExecutorContext;
 use crate::instance::Imports;
 use crate::interpreter::{TrapError, WasmValue};
+use crate::wasi::Vfs;
 
 use super::{
     ResourceData, ResourceError, ResourceHandle, ResourceType, StreamError, Wasi2Ctx,
 };
 use super::poll;
 use super::streams::InputStreamData;
+use super::filesystem;
+use super::cli;
+use super::clocks;
 
 // ---------------------------------------------------------------------------
 // Registration entry point
@@ -102,6 +106,142 @@ pub fn register(imports: &mut Imports) {
         "[method]pollable.block",
         host_pollable_block,
     );
+
+    // ===== S2: Core Interfaces =====
+
+    // wasi:filesystem/types
+    imports.add_function(
+        "wasi:filesystem/types",
+        "[resource-drop]descriptor",
+        host_descriptor_drop,
+    );
+    imports.add_function(
+        "wasi:filesystem/types",
+        "[method]descriptor.stat",
+        host_descriptor_stat,
+    );
+    imports.add_function(
+        "wasi:filesystem/types",
+        "[method]descriptor.open-at",
+        host_descriptor_open_at,
+    );
+    imports.add_function(
+        "wasi:filesystem/types",
+        "[method]descriptor.readdir",
+        host_descriptor_readdir,
+    );
+    imports.add_function(
+        "wasi:filesystem/types",
+        "[method]descriptor.read-via-stream",
+        host_descriptor_read_via_stream,
+    );
+    imports.add_function(
+        "wasi:filesystem/types",
+        "[method]descriptor.write-via-stream",
+        host_descriptor_write_via_stream,
+    );
+    imports.add_function(
+        "wasi:filesystem/types",
+        "[method]descriptor.metadata-hash",
+        host_descriptor_metadata_hash,
+    );
+
+    // wasi:filesystem/preopens
+    imports.add_function(
+        "wasi:filesystem/preopens",
+        "get-directories",
+        host_get_directories,
+    );
+
+    // wasi:clocks/monotonic-clock
+    imports.add_function(
+        "wasi:clocks/monotonic-clock",
+        "now",
+        host_monotonic_clock_now,
+    );
+    imports.add_function(
+        "wasi:clocks/monotonic-clock",
+        "resolution",
+        host_monotonic_clock_resolution,
+    );
+    imports.add_function(
+        "wasi:clocks/monotonic-clock",
+        "subscribe-instant",
+        host_monotonic_clock_subscribe_instant,
+    );
+    imports.add_function(
+        "wasi:clocks/monotonic-clock",
+        "subscribe-duration",
+        host_monotonic_clock_subscribe_duration,
+    );
+
+    // wasi:clocks/wall-clock
+    imports.add_function(
+        "wasi:clocks/wall-clock",
+        "now",
+        host_wall_clock_now,
+    );
+    imports.add_function(
+        "wasi:clocks/wall-clock",
+        "resolution",
+        host_wall_clock_resolution,
+    );
+
+    // wasi:random/random
+    imports.add_function(
+        "wasi:random/random",
+        "get-random-bytes",
+        host_random_get_bytes,
+    );
+    imports.add_function(
+        "wasi:random/random",
+        "get-random-u64",
+        host_random_get_u64,
+    );
+
+    // wasi:random/insecure
+    imports.add_function(
+        "wasi:random/insecure",
+        "get-insecure-random-bytes",
+        host_random_insecure_get_bytes,
+    );
+    imports.add_function(
+        "wasi:random/insecure",
+        "get-insecure-random-u64",
+        host_random_insecure_get_u64,
+    );
+
+    // wasi:random/insecure-seed
+    imports.add_function(
+        "wasi:random/insecure-seed",
+        "insecure-seed",
+        host_random_insecure_seed,
+    );
+
+    // wasi:cli/stdin
+    imports.add_function("wasi:cli/stdin", "get-stdin", host_cli_get_stdin);
+    // wasi:cli/stdout
+    imports.add_function("wasi:cli/stdout", "get-stdout", host_cli_get_stdout);
+    // wasi:cli/stderr
+    imports.add_function("wasi:cli/stderr", "get-stderr", host_cli_get_stderr);
+    // wasi:cli/environment
+    imports.add_function(
+        "wasi:cli/environment",
+        "get-environment",
+        host_cli_get_environment,
+    );
+    imports.add_function(
+        "wasi:cli/environment",
+        "get-arguments",
+        host_cli_get_arguments,
+    );
+    imports.add_function(
+        "wasi:cli/environment",
+        "initial-cwd",
+        host_cli_initial_cwd,
+    );
+    // wasi:cli/exit
+    imports.add_function("wasi:cli/exit", "exit", host_cli_exit);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +632,633 @@ fn host_pollable_block(
     }
 
     Ok(vec![])
+}
+
+// ===========================================================================
+// S2: Filesystem host functions
+// ===========================================================================
+
+/// `[resource-drop]descriptor` — drop a filesystem descriptor resource.
+fn host_descriptor_drop(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let handle = ResourceHandle::from_u32(arg_i32(args, 0)? as u32);
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    wasi2
+        .resources
+        .delete(handle)
+        .map_err(resource_err_to_trap)?;
+    Ok(vec![])
+}
+
+/// `[method]descriptor.stat` — get file/directory metadata.
+///
+/// Returns: (error: i32, type: i32, size: i64)
+fn host_descriptor_stat(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let handle = ResourceHandle::from_u32(arg_i32(args, 0)? as u32);
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let data = wasi2
+        .resources
+        .get(handle, ResourceType::Descriptor)
+        .map_err(resource_err_to_trap)?;
+
+    let desc = if let ResourceData::Descriptor(d) = data {
+        d.clone()
+    } else {
+        return Err(TrapError::HostError(String::from("not a descriptor")));
+    };
+
+    // Get VFS from wasi context
+    let vfs = get_vfs(ctx)?;
+    let stat = desc.stat(&vfs).map_err(|_| {
+        TrapError::HostError(String::from("stat failed"))
+    })?;
+
+    Ok(vec![
+        WasmValue::I32(0), // success
+        WasmValue::I32(stat.descriptor_type as i32),
+        WasmValue::I64(stat.size as i64),
+    ])
+}
+
+/// `[method]descriptor.open-at` — open a file or directory relative to this descriptor.
+///
+/// Args: (handle, path_ptr, path_len, create, exclusive, truncate, writable)
+/// Returns: (error: i32, new_handle: i32)
+fn host_descriptor_open_at(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let handle = ResourceHandle::from_u32(arg_i32(args, 0)? as u32);
+    let path_ptr = arg_i32(args, 1)? as u32;
+    let path_len = arg_i32(args, 2)? as u32;
+    let create = arg_i32(args, 3)? != 0;
+    let exclusive = arg_i32(args, 4)? != 0;
+    let truncate = arg_i32(args, 5)? != 0;
+    let writable = arg_i32(args, 6)? != 0;
+
+    // Read path from linear memory
+    let path_str = read_string_from_memory(ctx, path_ptr, path_len)?;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let data = wasi2
+        .resources
+        .get(handle, ResourceType::Descriptor)
+        .map_err(resource_err_to_trap)?;
+
+    let desc = if let ResourceData::Descriptor(d) = data {
+        d.clone()
+    } else {
+        return Err(TrapError::HostError(String::from("not a descriptor")));
+    };
+
+    let vfs = get_vfs(ctx)?;
+    let new_desc = desc
+        .open_at(&vfs, &path_str, create, exclusive, truncate, writable)
+        .map_err(|_| TrapError::HostError(String::from("open-at failed")))?;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let new_handle = wasi2
+        .resources
+        .push(ResourceType::Descriptor, ResourceData::Descriptor(new_desc))
+        .map_err(resource_err_to_trap)?;
+
+    Ok(vec![
+        WasmValue::I32(0), // success
+        WasmValue::I32(new_handle.as_u32() as i32),
+    ])
+}
+
+/// `[method]descriptor.readdir` — list directory entries.
+///
+/// Returns: (error: i32, count: i32) — entries written to memory at result_ptr.
+fn host_descriptor_readdir(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let handle = ResourceHandle::from_u32(arg_i32(args, 0)? as u32);
+    let result_ptr = arg_i32(args, 1)? as u32;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let data = wasi2
+        .resources
+        .get(handle, ResourceType::Descriptor)
+        .map_err(resource_err_to_trap)?;
+
+    let desc = if let ResourceData::Descriptor(d) = data {
+        d.clone()
+    } else {
+        return Err(TrapError::HostError(String::from("not a descriptor")));
+    };
+
+    let vfs = get_vfs(ctx)?;
+    let entries = desc
+        .readdir(&vfs)
+        .map_err(|_| TrapError::HostError(String::from("readdir failed")))?;
+
+    // Write entry count to memory
+    let count = entries.len() as u32;
+    if let Some(mem) = ctx.memories.get_mut(0) {
+        mem.write_u32(result_ptr as usize, count)
+            .map_err(|_| TrapError::HostError(String::from("memory write error")))?;
+    }
+
+    Ok(vec![
+        WasmValue::I32(0), // success
+        WasmValue::I32(count as i32),
+    ])
+}
+
+/// `[method]descriptor.read-via-stream` — get an input stream for reading.
+///
+/// Args: (handle, offset: i64)
+/// Returns: (error: i32, stream_handle: i32)
+fn host_descriptor_read_via_stream(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let handle = ResourceHandle::from_u32(arg_i32(args, 0)? as u32);
+    let offset = arg_i64(args, 1)? as u64;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let data = wasi2
+        .resources
+        .get(handle, ResourceType::Descriptor)
+        .map_err(resource_err_to_trap)?;
+
+    let desc = if let ResourceData::Descriptor(d) = data {
+        d.clone()
+    } else {
+        return Err(TrapError::HostError(String::from("not a descriptor")));
+    };
+
+    let vfs = get_vfs(ctx)?;
+    let stream_data = desc
+        .read_via_stream(&vfs, offset)
+        .map_err(|_| TrapError::HostError(String::from("read-via-stream failed")))?;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let stream_handle = wasi2
+        .resources
+        .push(ResourceType::InputStream, ResourceData::InputStream(stream_data))
+        .map_err(resource_err_to_trap)?;
+
+    Ok(vec![
+        WasmValue::I32(0), // success
+        WasmValue::I32(stream_handle.as_u32() as i32),
+    ])
+}
+
+/// `[method]descriptor.write-via-stream` — get an output stream for writing.
+///
+/// Args: (handle)
+/// Returns: (error: i32, stream_handle: i32)
+fn host_descriptor_write_via_stream(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let handle = ResourceHandle::from_u32(arg_i32(args, 0)? as u32);
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let data = wasi2
+        .resources
+        .get(handle, ResourceType::Descriptor)
+        .map_err(resource_err_to_trap)?;
+
+    let desc = if let ResourceData::Descriptor(d) = data {
+        d.clone()
+    } else {
+        return Err(TrapError::HostError(String::from("not a descriptor")));
+    };
+
+    let stream_data = desc
+        .write_via_stream()
+        .map_err(|_| TrapError::HostError(String::from("write-via-stream failed")))?;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let stream_handle = wasi2
+        .resources
+        .push(ResourceType::OutputStream, ResourceData::OutputStream(stream_data))
+        .map_err(resource_err_to_trap)?;
+
+    Ok(vec![
+        WasmValue::I32(0), // success
+        WasmValue::I32(stream_handle.as_u32() as i32),
+    ])
+}
+
+/// `[method]descriptor.metadata-hash` — compute metadata hash.
+///
+/// Returns: (error: i32, upper: i64, lower: i64)
+fn host_descriptor_metadata_hash(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let handle = ResourceHandle::from_u32(arg_i32(args, 0)? as u32);
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let data = wasi2
+        .resources
+        .get(handle, ResourceType::Descriptor)
+        .map_err(resource_err_to_trap)?;
+
+    let desc = if let ResourceData::Descriptor(d) = data {
+        d.clone()
+    } else {
+        return Err(TrapError::HostError(String::from("not a descriptor")));
+    };
+
+    let vfs = get_vfs(ctx)?;
+    let hash = desc
+        .metadata_hash(&vfs)
+        .map_err(|_| TrapError::HostError(String::from("metadata-hash failed")))?;
+
+    Ok(vec![
+        WasmValue::I32(0), // success
+        WasmValue::I64(hash.upper as i64),
+        WasmValue::I64(hash.lower as i64),
+    ])
+}
+
+/// `get-directories` — list preopened directories.
+///
+/// Returns: (count: i32) — writes descriptor handles to result_ptr.
+fn host_get_directories(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let result_ptr = arg_i32(args, 0)? as u32;
+
+    // Get preopens
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let preopens = wasi2.preopens.clone();
+    if preopens.is_empty() {
+        // Return default "/" preopen
+        let default_preopens = filesystem::default_preopens();
+        let mut handles = Vec::new();
+        for preopen in &default_preopens {
+            let h = wasi2
+                .resources
+                .push(
+                    ResourceType::Descriptor,
+                    ResourceData::Descriptor(preopen.descriptor.clone()),
+                )
+                .map_err(resource_err_to_trap)?;
+            handles.push(h);
+        }
+        // Write handles to memory
+        if let Some(mem) = ctx.memories.get_mut(0) {
+            for (i, h) in handles.iter().enumerate() {
+                let offset = result_ptr as usize + i * 4;
+                mem.write_u32(offset, h.as_u32())
+                    .map_err(|_| TrapError::HostError(String::from("memory write error")))?;
+            }
+        }
+        return Ok(vec![WasmValue::I32(handles.len() as i32)]);
+    }
+
+    let mut handles = Vec::new();
+    for preopen in &preopens {
+        let h = wasi2
+            .resources
+            .push(
+                ResourceType::Descriptor,
+                ResourceData::Descriptor(preopen.descriptor.clone()),
+            )
+            .map_err(resource_err_to_trap)?;
+        handles.push(h);
+    }
+    if let Some(mem) = ctx.memories.get_mut(0) {
+        for (i, h) in handles.iter().enumerate() {
+            let offset = result_ptr as usize + i * 4;
+            mem.write_u32(offset, h.as_u32())
+                .map_err(|_| TrapError::HostError(String::from("memory write error")))?;
+        }
+    }
+    Ok(vec![WasmValue::I32(handles.len() as i32)])
+}
+
+// ===========================================================================
+// S2: Clocks host functions
+// ===========================================================================
+
+/// `wasi:clocks/monotonic-clock.now` — get current monotonic time.
+///
+/// Returns: (instant: i64)
+fn host_monotonic_clock_now(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let now = wasi2.monotonic_clock.now();
+    Ok(vec![WasmValue::I64(now as i64)])
+}
+
+/// `wasi:clocks/monotonic-clock.resolution` — clock resolution.
+///
+/// Returns: (duration: i64)
+fn host_monotonic_clock_resolution(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let res = wasi2.monotonic_clock.resolution();
+    Ok(vec![WasmValue::I64(res as i64)])
+}
+
+/// `wasi:clocks/monotonic-clock.subscribe-instant` — subscribe to an instant.
+///
+/// Args: (when: i64) Returns: (pollable_handle: i32)
+fn host_monotonic_clock_subscribe_instant(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let when = arg_i64(args, 0)? as u64;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let wasi2_now = wasi2.monotonic_clock.now();
+    let duration = if when > wasi2_now { when - wasi2_now } else { 0 };
+
+    let poll_handle = poll::create_timer_pollable(&mut wasi2.resources, duration)
+        .map_err(resource_err_to_trap)?;
+
+    Ok(vec![WasmValue::I32(poll_handle.as_u32() as i32)])
+}
+
+/// `wasi:clocks/monotonic-clock.subscribe-duration` — subscribe to duration.
+///
+/// Args: (duration: i64) Returns: (pollable_handle: i32)
+fn host_monotonic_clock_subscribe_duration(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let duration = arg_i64(args, 0)? as u64;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let poll_handle = poll::create_timer_pollable(&mut wasi2.resources, duration)
+        .map_err(resource_err_to_trap)?;
+
+    Ok(vec![WasmValue::I32(poll_handle.as_u32() as i32)])
+}
+
+/// `wasi:clocks/wall-clock.now` — get current wall clock time.
+///
+/// Returns: (seconds: i64, nanoseconds: i32)
+fn host_wall_clock_now(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let datetime = wasi2.wall_clock.now();
+    Ok(vec![
+        WasmValue::I64(datetime.seconds as i64),
+        WasmValue::I32(datetime.nanoseconds as i32),
+    ])
+}
+
+/// `wasi:clocks/wall-clock.resolution` — wall clock resolution.
+///
+/// Returns: (seconds: i64, nanoseconds: i32)
+fn host_wall_clock_resolution(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let datetime = wasi2.wall_clock.resolution();
+    Ok(vec![
+        WasmValue::I64(datetime.seconds as i64),
+        WasmValue::I32(datetime.nanoseconds as i32),
+    ])
+}
+
+// ===========================================================================
+// S2: Random host functions
+// ===========================================================================
+
+/// `wasi:random/random.get-random-bytes(len: u64) → list<u8>`
+///
+/// Args: (len: i64, result_ptr: i32) Returns: (actual_len: i32)
+fn host_random_get_bytes(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let len = arg_i64(args, 0)? as usize;
+    let result_ptr = arg_i32(args, 1)? as u32;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let bytes = wasi2.random.get_random_bytes(len);
+
+    if let Some(mem) = ctx.memories.get_mut(0) {
+        mem.write_bytes(result_ptr as usize, &bytes)
+            .map_err(|_| TrapError::HostError(String::from("memory write error")))?;
+    }
+
+    Ok(vec![WasmValue::I32(bytes.len() as i32)])
+}
+
+/// `wasi:random/random.get-random-u64 → u64`
+fn host_random_get_u64(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let val = wasi2.random.get_random_u64();
+    Ok(vec![WasmValue::I64(val as i64)])
+}
+
+/// `wasi:random/insecure.get-insecure-random-bytes`
+fn host_random_insecure_get_bytes(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let len = arg_i64(args, 0)? as usize;
+    let result_ptr = arg_i32(args, 1)? as u32;
+
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let bytes = wasi2.random.get_insecure_random_bytes(len);
+
+    if let Some(mem) = ctx.memories.get_mut(0) {
+        mem.write_bytes(result_ptr as usize, &bytes)
+            .map_err(|_| TrapError::HostError(String::from("memory write error")))?;
+    }
+
+    Ok(vec![WasmValue::I32(bytes.len() as i32)])
+}
+
+/// `wasi:random/insecure.get-insecure-random-u64`
+fn host_random_insecure_get_u64(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let val = wasi2.random.get_insecure_random_u64();
+    Ok(vec![WasmValue::I64(val as i64)])
+}
+
+/// `wasi:random/insecure-seed.insecure-seed → (u64, u64)`
+fn host_random_insecure_seed(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let (a, b) = wasi2.random.insecure_seed();
+    Ok(vec![WasmValue::I64(a as i64), WasmValue::I64(b as i64)])
+}
+
+// ===========================================================================
+// S2: CLI host functions
+// ===========================================================================
+
+/// `wasi:cli/stdin.get-stdin → own<input-stream>`
+fn host_cli_get_stdin(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx(ctx)?;
+    let handle = wasi2.stdin_handle.ok_or_else(|| {
+        TrapError::HostError(String::from("stdin not initialized"))
+    })?;
+    Ok(vec![WasmValue::I32(handle.as_u32() as i32)])
+}
+
+/// `wasi:cli/stdout.get-stdout → own<output-stream>`
+fn host_cli_get_stdout(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx(ctx)?;
+    let handle = wasi2.stdout_handle.ok_or_else(|| {
+        TrapError::HostError(String::from("stdout not initialized"))
+    })?;
+    Ok(vec![WasmValue::I32(handle.as_u32() as i32)])
+}
+
+/// `wasi:cli/stderr.get-stderr → own<output-stream>`
+fn host_cli_get_stderr(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx(ctx)?;
+    let handle = wasi2.stderr_handle.ok_or_else(|| {
+        TrapError::HostError(String::from("stderr not initialized"))
+    })?;
+    Ok(vec![WasmValue::I32(handle.as_u32() as i32)])
+}
+
+/// `wasi:cli/environment.get-environment → list<(string, string)>`
+///
+/// Args: (result_ptr: i32, max_pairs: i32)
+/// Returns: (count: i32)
+fn host_cli_get_environment(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let result_ptr = arg_i32(args, 0)? as u32;
+    let _max_pairs = arg_i32(args, 1)? as u32;
+
+    let wasi2 = get_wasi2_ctx(ctx)?;
+    let env = wasi2.cli_env.get_environment();
+    let count = env.len();
+
+    // Write count to memory at result_ptr
+    if let Some(mem) = ctx.memories.get_mut(0) {
+        mem.write_u32(result_ptr as usize, count as u32)
+            .map_err(|_| TrapError::HostError(String::from("memory write error")))?;
+    }
+
+    Ok(vec![WasmValue::I32(count as i32)])
+}
+
+/// `wasi:cli/environment.get-arguments → list<string>`
+///
+/// Args: (result_ptr: i32)
+/// Returns: (count: i32)
+fn host_cli_get_arguments(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let result_ptr = arg_i32(args, 0)? as u32;
+
+    let wasi2 = get_wasi2_ctx(ctx)?;
+    let arguments = wasi2.cli_env.get_arguments();
+    let count = arguments.len();
+
+    if let Some(mem) = ctx.memories.get_mut(0) {
+        mem.write_u32(result_ptr as usize, count as u32)
+            .map_err(|_| TrapError::HostError(String::from("memory write error")))?;
+    }
+
+    Ok(vec![WasmValue::I32(count as i32)])
+}
+
+/// `wasi:cli/environment.initial-cwd → option<string>`
+///
+/// Returns: (has_cwd: i32, ptr: i32, len: i32)
+fn host_cli_initial_cwd(
+    ctx: &mut ExecutorContext,
+    _args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let wasi2 = get_wasi2_ctx(ctx)?;
+    match wasi2.cli_env.initial_cwd() {
+        Some(cwd) => Ok(vec![
+            WasmValue::I32(1), // has_cwd = true
+            WasmValue::I32(cwd.len() as i32),
+        ]),
+        None => Ok(vec![WasmValue::I32(0)]),
+    }
+}
+
+/// `wasi:cli/exit.exit(status: result)` — exit the program.
+fn host_cli_exit(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let status = arg_i32(args, 0)? as u32;
+    let exit_status = cli::exit(status);
+    match exit_status {
+        cli::ExitStatus::Code(0) => Ok(vec![]),
+        cli::ExitStatus::Code(code) => Err(TrapError::HostError(
+            alloc::format!("exit with code {}", code),
+        )),
+        cli::ExitStatus::Trap => Err(TrapError::HostError(String::from("exit trap"))),
+    }
+}
+
+// ===========================================================================
+// Helpers for S2
+// ===========================================================================
+
+/// Read a UTF-8 string from linear memory.
+fn read_string_from_memory(
+    ctx: &ExecutorContext,
+    ptr: u32,
+    len: u32,
+) -> Result<String, TrapError> {
+    if let Some(mem) = ctx.memories.get(0) {
+        let bytes = mem
+            .read_bytes(ptr as usize, len as usize)
+            .map_err(|_| TrapError::HostError(String::from("memory read error")))?;
+        String::from_utf8(bytes.to_vec())
+            .map_err(|_| TrapError::HostError(String::from("invalid UTF-8 string")))
+    } else {
+        Err(TrapError::HostError(String::from("no linear memory")))
+    }
+}
+
+/// Get the VFS from the WASI P1 context.
+fn get_vfs(ctx: &ExecutorContext) -> Result<Vfs, TrapError> {
+    // The VFS is in the WASI P1 context
+    if let Some(ref wasi_ctx) = ctx.wasi_ctx {
+        Ok(wasi_ctx.vfs.clone())
+    } else {
+        // Return a default empty VFS
+        Ok(Vfs::new())
+    }
 }
 
 // ---------------------------------------------------------------------------
