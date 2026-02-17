@@ -10,8 +10,10 @@ pub mod cli;
 pub mod clocks;
 pub mod filesystem;
 pub mod host;
+pub mod http;
 pub mod poll;
 pub mod random;
+pub mod sockets;
 pub mod streams;
 
 use alloc::string::String;
@@ -28,6 +30,8 @@ pub enum ResourceType {
     OutputStream,
     Pollable,
     Descriptor,
+    TcpSocket,
+    UdpSocket,
 }
 
 /// A single entry inside the resource table.
@@ -47,6 +51,8 @@ pub enum ResourceData {
     OutputStream(streams::OutputStreamData),
     Pollable(poll::PollableState),
     Descriptor(filesystem::Descriptor),
+    TcpSocket(u32),
+    UdpSocket(u32),
 }
 
 impl core::fmt::Debug for ResourceData {
@@ -56,6 +62,8 @@ impl core::fmt::Debug for ResourceData {
             ResourceData::OutputStream(_) => write!(f, "ResourceData::OutputStream"),
             ResourceData::Pollable(s) => write!(f, "ResourceData::Pollable({:?})", s),
             ResourceData::Descriptor(d) => write!(f, "ResourceData::Descriptor({:?})", d),
+            ResourceData::TcpSocket(id) => write!(f, "ResourceData::TcpSocket({})", id),
+            ResourceData::UdpSocket(id) => write!(f, "ResourceData::UdpSocket({})", id),
         }
     }
 }

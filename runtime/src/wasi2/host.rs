@@ -242,6 +242,81 @@ pub fn register(imports: &mut Imports) {
     );
     // wasi:cli/exit
     imports.add_function("wasi:cli/exit", "exit", host_cli_exit);
+
+    // ===== S3: Network Interfaces =====
+
+    // wasi:sockets/tcp
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[constructor]tcp-socket",
+        host_tcp_socket_new,
+    );
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[method]tcp-socket.start-bind",
+        host_tcp_start_bind,
+    );
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[method]tcp-socket.finish-bind",
+        host_tcp_finish_bind,
+    );
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[method]tcp-socket.start-connect",
+        host_tcp_start_connect,
+    );
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[method]tcp-socket.finish-connect",
+        host_tcp_finish_connect,
+    );
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[method]tcp-socket.start-listen",
+        host_tcp_start_listen,
+    );
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[method]tcp-socket.finish-listen",
+        host_tcp_finish_listen,
+    );
+    imports.add_function(
+        "wasi:sockets/tcp",
+        "[method]tcp-socket.shutdown",
+        host_tcp_shutdown,
+    );
+
+    // wasi:sockets/udp
+    imports.add_function(
+        "wasi:sockets/udp",
+        "[constructor]udp-socket",
+        host_udp_socket_new,
+    );
+    imports.add_function(
+        "wasi:sockets/udp",
+        "[method]udp-socket.start-bind",
+        host_udp_start_bind,
+    );
+    imports.add_function(
+        "wasi:sockets/udp",
+        "[method]udp-socket.finish-bind",
+        host_udp_finish_bind,
+    );
+
+    // wasi:sockets/ip-name-lookup
+    imports.add_function(
+        "wasi:sockets/ip-name-lookup",
+        "resolve-addresses",
+        host_resolve_addresses,
+    );
+
+    // wasi:http/outgoing-handler
+    imports.add_function(
+        "wasi:http/outgoing-handler",
+        "handle",
+        host_http_handle,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1258,6 +1333,262 @@ fn get_vfs(ctx: &ExecutorContext) -> Result<Vfs, TrapError> {
     } else {
         // Return a default empty VFS
         Ok(Vfs::new())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S3: wasi:sockets host functions
+// ---------------------------------------------------------------------------
+
+fn host_tcp_socket_new(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    // arg0: address_family (0=ipv4, 1=ipv6)
+    let family_val = match args.first() {
+        Some(WasmValue::I32(v)) => *v,
+        _ => 0,
+    };
+    let family = if family_val == 1 {
+        super::sockets::IpAddressFamily::Ipv6
+    } else {
+        super::sockets::IpAddressFamily::Ipv4
+    };
+    let socket_id = super::sockets::create_tcp_socket(family);
+
+    // Store as resource
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let handle = wasi2
+        .resources
+        .push(ResourceType::TcpSocket, ResourceData::TcpSocket(socket_id))
+        .map_err(resource_err_to_trap)?;
+    Ok(alloc::vec![WasmValue::I32(handle.as_u32() as i32)])
+}
+
+fn host_tcp_start_bind(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let port = match args.get(1) {
+        Some(WasmValue::I32(v)) => *v as u16,
+        _ => 0,
+    };
+    let result = super::sockets::with_tcp_socket(socket_id, |s| {
+        s.start_bind(super::sockets::IpSocketAddress {
+            address: super::sockets::IpAddress::unspecified_v4(),
+            port,
+        })
+    });
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_tcp_finish_bind(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let result = super::sockets::with_tcp_socket(socket_id, |s| s.finish_bind());
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_tcp_start_connect(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let port = match args.get(1) {
+        Some(WasmValue::I32(v)) => *v as u16,
+        _ => 0,
+    };
+    let result = super::sockets::with_tcp_socket(socket_id, |s| {
+        s.start_connect(super::sockets::IpSocketAddress {
+            address: super::sockets::IpAddress::localhost_v4(),
+            port,
+        })
+    });
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_tcp_finish_connect(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let result = super::sockets::with_tcp_socket(socket_id, |s| s.finish_connect());
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_tcp_start_listen(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let result = super::sockets::with_tcp_socket(socket_id, |s| s.start_listen());
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_tcp_finish_listen(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let result = super::sockets::with_tcp_socket(socket_id, |s| s.finish_listen());
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_tcp_shutdown(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let how = match args.get(1) {
+        Some(WasmValue::I32(0)) => super::sockets::ShutdownType::Receive,
+        Some(WasmValue::I32(1)) => super::sockets::ShutdownType::Send,
+        _ => super::sockets::ShutdownType::Both,
+    };
+    let result = super::sockets::with_tcp_socket(socket_id, |s| s.shutdown(how));
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_udp_socket_new(
+    ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let family_val = match args.first() {
+        Some(WasmValue::I32(v)) => *v,
+        _ => 0,
+    };
+    let family = if family_val == 1 {
+        super::sockets::IpAddressFamily::Ipv6
+    } else {
+        super::sockets::IpAddressFamily::Ipv4
+    };
+    let socket_id = super::sockets::create_udp_socket(family);
+    let wasi2 = get_wasi2_ctx_mut(ctx)?;
+    let handle = wasi2
+        .resources
+        .push(ResourceType::UdpSocket, ResourceData::UdpSocket(socket_id))
+        .map_err(resource_err_to_trap)?;
+    Ok(alloc::vec![WasmValue::I32(handle.as_u32() as i32)])
+}
+
+fn host_udp_start_bind(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let port = match args.get(1) {
+        Some(WasmValue::I32(v)) => *v as u16,
+        _ => 0,
+    };
+    let result = super::sockets::with_udp_socket(socket_id, |s| {
+        s.start_bind(super::sockets::IpSocketAddress {
+            address: super::sockets::IpAddress::unspecified_v4(),
+            port,
+        })
+    });
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_udp_finish_bind(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    let socket_id = match args.first() {
+        Some(WasmValue::I32(v)) => *v as u32,
+        _ => return Ok(alloc::vec![WasmValue::I32(-1)]),
+    };
+    let result = super::sockets::with_udp_socket(socket_id, |s| s.finish_bind());
+    match result {
+        Ok(Ok(())) => Ok(alloc::vec![WasmValue::I32(0)]),
+        _ => Ok(alloc::vec![WasmValue::I32(-1)]),
+    }
+}
+
+fn host_resolve_addresses(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    // Simplified: arg0 = name_ptr, arg1 = name_len
+    // In a real implementation we'd read the string from linear memory.
+    // For now, return the count of resolved addresses (always 1).
+    let _name_ptr = match args.first() {
+        Some(WasmValue::I32(v)) => *v,
+        _ => 0,
+    };
+    // Always resolve to at least 1 address
+    Ok(alloc::vec![WasmValue::I32(1)])
+}
+
+fn host_http_handle(
+    _ctx: &mut ExecutorContext,
+    args: &[WasmValue],
+) -> Result<Vec<WasmValue>, TrapError> {
+    // Simplified stub: arg0 = method (0=GET, 1=POST, ...)
+    // Returns status code of the mock response.
+    let method_val = match args.first() {
+        Some(WasmValue::I32(v)) => *v,
+        _ => 0,
+    };
+    let method = match method_val {
+        1 => super::http::Method::Post,
+        2 => super::http::Method::Put,
+        3 => super::http::Method::Delete,
+        _ => super::http::Method::Get,
+    };
+    let req = super::http::OutgoingRequest::new(method);
+    match super::http::handle(&req, None) {
+        Ok(resp) => Ok(alloc::vec![WasmValue::I32(resp.status.0 as i32)]),
+        Err(_) => Ok(alloc::vec![WasmValue::I32(-1)]),
     }
 }
 
