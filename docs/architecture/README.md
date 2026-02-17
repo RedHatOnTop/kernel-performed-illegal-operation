@@ -34,7 +34,7 @@ This document covers:
 
 This document does NOT cover:
 - Implementation-specific details (see individual component documents)
-- API specifications (see `docs/specifications/`)
+- API specifications (see [KPIO App API Reference](../guides/KPIO_APP_API_REFERENCE.md))
 - Build procedures (see `docs/building.md`)
 
 ### 1.3 Audience

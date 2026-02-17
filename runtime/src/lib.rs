@@ -1,11 +1,11 @@
 //! KPIO WASM Runtime
 //!
 //! This crate provides a lightweight WebAssembly runtime for the KPIO operating system.
-//! The current execution path is a validating parser plus a stack-based interpreter,
-//! with a tiered JIT framework scaffolded under `jit/`.
+//! The execution path consists of a validating parser, a stack-based interpreter,
+//! and a tiered JIT compiler that generates x86_64 machine code.
 //!
-//! WASI support targets WASI Preview 1 (`wasi_snapshot_preview1`) with an in-memory,
-//! sandboxed VFS used by tests and host-side execution.
+//! WASI support covers both Preview 1 (`wasi_snapshot_preview1`) and Preview 2 with
+//! streams, filesystem, clocks, random, CLI, sockets, and HTTP interfaces.
 //!
 //! # Architecture
 //!
@@ -13,14 +13,19 @@
 //! - `module`: Parsed module representation + structural validation
 //! - `instance`: Instantiation + import resolution
 //! - `executor` / `interpreter`: Stack-machine execution and traps
-//! - `wasi`: WASI Preview 1 context + VFS
-//! - `host`: Host function bindings (WASI implemented; KPIO/GPU/NET currently stubbed)
-//! - `memory` / `sandbox`: Linear memory + resource limiting
-//! - `jit`: JIT IR + caching/profiling (codegen is work-in-progress)
-//! - `package`: `.kpioapp` ZIP-based application package format
-//! - `app_launcher`: Application lifecycle management (load → instantiate → run)
+//! - `wasi`: WASI Preview 1 context + in-memory VFS
+//! - `wasi2`: WASI Preview 2 (streams, filesystem, clocks, random, CLI, sockets, HTTP)
+//! - `host`: Host function bindings (WASI + KPIO/GPU/NET)
 //! - `host_gui` / `host_system` / `host_net`: KPIO-specific host API bindings
+//! - `memory` / `sandbox`: Linear memory + resource limiting
+//! - `jit`: Tiered JIT compiler (IR + x86_64 codegen + cache + profiling + benchmarks)
 //! - `wit`: WebAssembly Interface Types (WIT) parser and type system
+//! - `component`: WASM Component Model (canonical ABI, linker, instances, WASI bridge)
+//! - `package`: `.kpioapp` ZIP-based application package format
+//! - `app_launcher`: Application lifecycle management (load → instantiate → run → update)
+//! - `registry`: Application registry (install/uninstall/list)
+//! - `posix_shim`: POSIX → WASI P2 function mapping (22 functions)
+//! - `service_worker`: Service Worker runtime for PWA support
 
 #![no_std]
 #![feature(alloc_error_handler)]

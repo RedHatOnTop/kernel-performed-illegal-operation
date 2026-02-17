@@ -65,49 +65,82 @@ This document does NOT cover:
 ### 1.4 Current Implementation Status
 
 ```
-kernel/src/wasm/
-    mod.rs              # ✅ Module entry, test_runtime()
-    engine.rs           # ✅ wasmi Engine/Module/Instance wrappers
-    host.rs             # ✅ Host function stubs (WASI-like)
+runtime/src/
+    lib.rs              # ✅ Runtime entry, config, error types
+    parser.rs           # ✅ WASM binary parser (all sections)
+    module.rs           # ✅ Module representation + validation
+    instance.rs         # ✅ Instantiation + import resolution
+    interpreter.rs      # ✅ Stack-machine interpreter
+    executor.rs         # ✅ Execution coordinator
+    engine.rs           # ✅ load/instantiate/execute API
+    memory.rs           # ✅ Linear memory with bounds checking
+    opcodes.rs          # ✅ Opcode definitions
+    sandbox.rs          # ✅ Resource limiting (CPU/memory/FD)
+    wasi.rs             # ✅ WASI Preview 1 (full, in-memory VFS)
+    wasi2/              # ✅ WASI Preview 2 (streams, clocks, random, CLI, sockets)
+    host.rs             # ✅ Host functions (wasi + kpio/gpu/gui/system/net)
+    host_gui.rs         # ✅ KPIO GUI API bindings
+    host_system.rs      # ✅ KPIO System API bindings
+    host_net.rs         # ✅ KPIO Network API bindings
+    wit/                # ✅ WIT parser + type system
+    component/          # ✅ Component Model (canonical ABI, linker, instances)
+    jit/                # ✅ JIT compiler (IR + x86_64 codegen + benchmarks)
+    package.rs          # ✅ .kpioapp ZIP package format
+    app_launcher.rs     # ✅ App lifecycle (load → run → update)
+    registry.rs         # ✅ App registry (install/uninstall/list)
+    posix_shim.rs       # ✅ POSIX → WASI P2 mapping (22 functions)
+    service_worker.rs   # ✅ Service worker runtime
 ```
 
-### 1.5 Source Location (Planned Full Structure)
+### 1.5 Source Location (Actual Structure)
 
 ```
 runtime/
     Cargo.toml
     src/
-        lib.rs
-        engine.rs           # Wasmtime engine configuration
-        instance.rs         # WASM instance management
-        wasi/
-            mod.rs
-            fs.rs           # File system operations
-            clock.rs        # Clock and timing
-            random.rs       # Random number generation
-            args.rs         # Command line arguments
-            environ.rs      # Environment variables
-            poll.rs         # I/O polling
-            sock.rs         # Socket operations (preview2)
-        extensions/
-            mod.rs
-            gpu.rs          # WebGPU syscalls
-            ipc.rs          # IPC syscalls
-            capability.rs   # Capability syscalls
-            process.rs      # Process management
-        memory/
-            mod.rs
-            linear.rs       # Linear memory management
-            table.rs        # Table management
-            shared.rs       # Shared memory
-        security/
-            mod.rs
-            sandbox.rs      # Sandboxing configuration
-            capability.rs   # Capability validation
-        loader/
-            mod.rs
-            validator.rs    # Module validation
-            cache.rs        # Compiled module cache
+        lib.rs              # Runtime entry, RuntimeConfig, RuntimeError
+        parser.rs           # WASM binary parser
+        module.rs           # Module data structure + validation
+        instance.rs         # Instance + import binding
+        interpreter.rs      # Stack-machine interpreter
+        executor.rs         # Execution coordinator
+        engine.rs           # High-level load/instantiate/execute
+        memory.rs           # Linear memory management
+        opcodes.rs          # WASM opcode definitions
+        sandbox.rs          # Resource limiting
+        wasi.rs             # WASI Preview 1 (VFS-backed)
+        wasi2/              # WASI Preview 2
+            mod.rs          # Resource table, stream abstraction
+            streams.rs      # Input/output streams
+            filesystem.rs   # File operations
+            clocks.rs       # Monotonic + wall clock
+            random.rs       # CSPRNG random
+            cli.rs          # Args, env, exit, stdout/stderr
+            sockets.rs      # TCP/UDP sockets
+            http.rs         # HTTP outgoing handler
+        host.rs             # WASI + KPIO host function bindings
+        host_gui.rs         # kpio:gui host (create-window, draw-*)
+        host_system.rs      # kpio:system host (time, hostname, notify)
+        host_net.rs         # kpio:net host (fetch, connect, listen)
+        wit/                # WIT parser + AST types
+        component/          # WASM Component Model
+            mod.rs          # ComponentValue, ComponentType enums
+            canonical.rs    # Canonical ABI lower/lift
+            linker.rs       # Component linker
+            instance.rs     # Component instances
+            wasi_bridge.rs  # WASI P2 bridge for components
+        jit/                # JIT compiler infrastructure
+            mod.rs          # Tiered compilation framework
+            ir.rs           # IR opcode definitions
+            codegen.rs      # x86_64 machine code generation
+            cache.rs        # LRU code cache
+            profile.rs      # Call count profiling
+            bench.rs        # Performance benchmarks
+        package.rs          # .kpioapp ZIP package handling
+        app_launcher.rs     # App lifecycle + update management
+        registry.rs         # App install/uninstall registry
+        posix_shim.rs       # POSIX → WASI P2 function mapping
+        service_worker.rs   # Service Worker runtime
 ```
 
 ---

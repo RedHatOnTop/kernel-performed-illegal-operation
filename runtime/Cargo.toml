@@ -19,15 +19,15 @@ bitflags = "2.4"
 log = "0.4"
 
 # Wasmtime runtime
-# 주의: Wasmtime 17.0은 std 환경 필요
-# 커널 내부에서 직접 사용 불가, 사용자 공간 서비스로 실행해야 함
-# no_std 대안: wasmi (인터프리터, 느림)
+# Note: Wasmtime 17.0 requires std environment
+# Cannot be used directly inside the kernel; must run as userspace service
+# no_std alternative: wasmi (interpreter, slower)
 wasmtime = { version = "17.0", default-features = false, features = ["cranelift"], optional = true }
 
-# WASI support (std 필요)
+# WASI support (requires std)
 wasi-common = { version = "17.0", default-features = false, optional = true }
 
-# no_std 호환 WASM 인터프리터 (대안)
+# no_std-compatible WASM interpreter (alternative)
 wasmi = { version = "0.31", default-features = false, optional = true }
 
 # Shared kernel types
@@ -36,9 +36,9 @@ kpio-kernel = { path = "../kernel", optional = true }
 [features]
 default = []
 kernel = ["kpio-kernel"]
-# std 환경에서 Wasmtime 사용 (사용자 공간 서비스)
+# Use Wasmtime in std environment (userspace service)
 std = ["wasmtime", "wasi-common"]
-# no_std 환경에서 wasmi 사용 (커널 내장, 느림)
+# Use wasmi in no_std environment (kernel-embedded, slower)
 no_std_wasm = ["wasmi"]
 
 [dev-dependencies]

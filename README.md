@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
-**Version:** 2.0.0  
-**Status:** Phase 4 Complete ✅  
+**Version:** 2.1.0  
+**Status:** Phase 7-3 Complete ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -39,7 +39,7 @@ The OS adopts a **WASM-Native** architecture, enforcing strict isolation by usin
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | Kernel | Rust (`no_std`) | Hardware abstraction, memory management, scheduling |
-| Runtime | wasmi (interpreter) | WebAssembly execution environment (no_std compatible) |
+| Runtime | Custom interpreter + JIT | WebAssembly execution environment (no_std compatible) |
 | Browser | Servo (Stylo + WebRender) | Full web standards support with OS integration |
 | Graphics | Mesa 3D + Vulkan | GPU acceleration via RADV/ANV/NVK |
 | Compositor | wgpu + Vello | Window management and vector rendering |
@@ -59,6 +59,9 @@ All project documentation is located in the `docs/` directory:
 - [Networking](docs/architecture/networking.md) - TCP/IP stack and driver support
 - [Storage](docs/architecture/storage.md) - File system and rescue capabilities
 - [Development Roadmap](docs/roadmap.md) - Phase-by-phase development plan
+- [WASM App Guide (Rust)](docs/guides/WASM_APP_RUST.md) - Build WASM apps with Rust
+- [WASM App Guide (C/C++)](docs/guides/WASM_APP_C_CPP.md) - Build WASM apps with C/C++
+- [API Reference](docs/guides/KPIO_APP_API_REFERENCE.md) - KPIO App API reference
 - [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute to the project
 - [Build Instructions](docs/building.md) - How to build and test the OS
 
@@ -69,10 +72,10 @@ All project documentation is located in the `docs/` directory:
 ```
 kernel-performed-illegal-operation/
     .cargo/                     # Cargo configuration for bare-metal targets
-    .github/                    # GitHub Actions CI/CD workflows
     docs/                       # Comprehensive documentation
         architecture/           # Architecture design documents
-        specifications/         # Technical specifications
+        guides/                 # Developer guides (WASM app development)
+        phase7/                 # Phase 7 implementation docs
     kernel/                     # Ring 0 kernel implementation
         src/
             arch/               # Architecture-specific code (x86_64)
@@ -81,13 +84,20 @@ kernel-performed-illegal-operation/
             scheduler/          # Task scheduling
             drivers/            # Hardware drivers
             ipc/                # Inter-process communication
-    runtime/                    # WASM runtime integration
+            app/                # App management (lifecycle, registry)
+    runtime/                    # WASM runtime (custom interpreter + JIT)
         src/
-            wasi/               # WASI implementation
-            gpu/                # GPU extensions for WASM
+            component/          # WASM Component Model (canonical ABI)
+            jit/                # JIT compiler (IR + x86_64 codegen)
+            wasi.rs             # WASI Preview 1
+            wasi2/              # WASI Preview 2 (streams, clocks, random, sockets)
+            wit/                # WIT parser and type system
+            package.rs          # .kpioapp package format
+            app_launcher.rs     # App lifecycle management
+            registry.rs         # App registry
+            posix_shim.rs       # POSIX to WASI P2 shim
     graphics/                   # Graphics subsystem
         src/
-            drm/                # Display Resource Management
             compositor/         # Window compositor
             renderer/           # Vector rendering (Vello)
     network/                    # Network stack
@@ -98,12 +108,10 @@ kernel-performed-illegal-operation/
         src/
             vfs/                # Virtual File System
             fs/                 # File system implementations
-    userspace/                  # User-space utilities and services
-        src/
-            shell/              # WASM-based shell
-            init/               # Init system
+    examples/                   # Sample apps (.kpioapp examples)
+    plans/                      # Phase implementation plans
+    tests/                      # Integration tests
     tools/                      # Build and development tools
-    tests/                      # Integration and system tests
 ```
 
 ---
@@ -138,15 +146,16 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 4: Integration, Testing & Production Deployment** - ✅ Complete (2026-01-30)
+**Phase 7-3: WASM/WASI App Runtime** - ✅ Complete (2026-02-17)
 
-- ✅ Integration testing framework and WPT integration
-- ✅ Real hardware support (network, storage, display, input)
-- ✅ PWA support (service workers, manifest, push, installation)
-- ✅ Cloud synchronization (accounts, bookmarks, history, settings, tabs)
-- ✅ Production hardening (crash reporting, updates, telemetry, a11y, i18n)
+- ✅ WASI Preview 2 implementation (streams, clocks, random, CLI, sockets)
+- ✅ WASM Component Model core (canonical ABI, linker, instances)
+- ✅ JIT compiler completion (full integer + floating-point codegen)
+- ✅ App packaging & registry (.kpioapp format, install/uninstall lifecycle)
+- ✅ Cross-compile guides (Rust, C/C++) and POSIX shim library
+- ✅ 540+ unit tests across all runtime modules
 
-**Next:** Phase 5 - Post-launch enhancements and ecosystem growth
+**Next:** Phase 7-4 — Linux Binary Compatibility Layer
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 

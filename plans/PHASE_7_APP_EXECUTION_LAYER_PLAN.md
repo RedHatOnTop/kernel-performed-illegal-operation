@@ -1,42 +1,42 @@
-# Phase 7: App Execution Layer (앱 구동 레이어)
+# Phase 7: App Execution Layer
 
-> **목표:** KPIO OS 위에서 웹 앱, WASM 앱, 일부 Linux 바이너리를 실행할 수 있는 통합 앱 런타임을 구축한다.  
-> **의존성:** Phase 5 (시스템 통합), Phase 6.1-6.2 (네트워크/TLS)  
-> **예상 기간:** 10-14주  
-
----
-
-## 전략 요약
-
-| 티어 | 앱 유형 | 우선순위 | 접근 방식 |
-|------|---------|----------|-----------|
-| **Tier 1** | 웹 앱 (PWA) | 🔴 필수 | Service Worker + Web App Manifest + 오프라인 스토리지 |
-| **Tier 2** | WASM/WASI 앱 | 🔴 필수 | WASI Preview 2 + Component Model + 네이티브 GUI 바인딩 |
-| **Tier 3** | Linux ELF 바이너리 | 🟡 선택 | 정적 링크 ELF 로더 + Linux 시스콜 번역 레이어 (서브셋) |
-| **Tier 4** | 타 OS 앱 (Win/Android) | ⚪ 비채택 | WASM 크로스 컴파일 경로 제공 (네이티브 에뮬레이션 X) |
-
-### Tier 4 비채택 사유
-
-**Windows 앱 호환 (Wine 방식):**
-- Win32 API 표면적: ~10,000+ 함수 → 구현 불가능한 규모
-- PE 로더, Registry, COM, GDI/DirectX 에뮬레이션 필요 → 수백만 LOC
-- Wine 프로젝트: 30년, 수천 명 기여자 → 현실적이지 않음
-
-**Android 앱:**
-- Dalvik/ART JVM 런타임 전체 구현 필요
-- Android Framework 의존성 (Activity, Service, ContentProvider...) → 거대한 표면적
-
-**대안:** WASM을 범용 바이너리 포맷으로 채택하여, 다른 OS의 앱을 WASM으로 크로스 컴파일하면 KPIO에서 실행 가능. 이는 실질적으로 모든 언어(C/C++/Rust/Go/C#/Swift)의 앱을 지원하면서도 커널 복잡도를 관리 가능한 수준으로 유지한다.
+> **Goal:** Build a unified app runtime on top of KPIO OS that can execute web apps, WASM apps, and a subset of Linux binaries.  
+> **Dependencies:** Phase 5 (System Integration), Phase 6.1-6.2 (Network/TLS)  
+> **Estimated Duration:** 10-14 weeks  
 
 ---
 
-## Phase 7.1: 앱 런타임 기반 (App Runtime Foundation)
+## Strategy Summary
 
-> **목표:** 모든 앱 유형이 공유하는 통합 앱 모델, 라이프사이클 관리, 샌드박싱 프레임워크를 구축한다.  
-> **예상 기간:** 2주  
-> **의존성:** Phase 5.1 (커널-브라우저 통합), Phase 5.5 (보안 강화)
+| Tier | App Type | Priority | Approach |
+|------|----------|----------|----------|
+| **Tier 1** | Web Apps (PWA) | 🔴 Required | Service Worker + Web App Manifest + offline storage |
+| **Tier 2** | WASM/WASI Apps | 🔴 Required | WASI Preview 2 + Component Model + native GUI bindings |
+| **Tier 3** | Linux ELF Binaries | 🟡 Optional | Static-linked ELF loader + Linux syscall translation layer (subset) |
+| **Tier 4** | Other OS Apps (Win/Android) | ⚪ Not adopted | Provide WASM cross-compilation path (no native emulation) |
 
-### 7.1.1 통합 앱 모델 (Unified App Model)
+### Tier 4 Rejection Rationale
+
+**Windows App Compatibility (Wine-style):**
+- Win32 API surface: ~10,000+ functions → infeasible to implement
+- Requires PE loader, Registry, COM, GDI/DirectX emulation → millions of LOC
+- Wine project: 30 years, thousands of contributors → not realistic
+
+**Android Apps:**
+- Requires full Dalvik/ART JVM runtime implementation
+- Android Framework dependencies (Activity, Service, ContentProvider...) → massive surface area
+
+**Alternative:** Adopt WASM as the universal binary format. Apps from other OSes can be cross-compiled to WASM and run on KPIO. This effectively supports apps written in any language (C/C++/Rust/Go/C#/Swift) while keeping kernel complexity manageable.
+
+---
+
+## Phase 7.1: App Runtime Foundation ✅ COMPLETE
+
+> **Goal:** Build the shared app model, lifecycle management, and sandboxing framework for all app types.  
+> **Estimated Duration:** 2 weeks  
+> **Dependencies:** Phase 5.1 (Kernel-Browser Integration), Phase 5.5 (Security Hardening)
+
+### 7.1.1 Unified App Model
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -56,18 +56,18 @@
 └──────────────────────────────────────────────────────┘
 ```
 
-**AppDescriptor** (앱 메타데이터):
+**AppDescriptor** (App Metadata):
 ```rust
 pub struct AppDescriptor {
-    pub id: AppId,                    // 고유 식별자 (reverse-domain: com.example.app)
-    pub name: String,                 // 표시 이름
-    pub version: SemVer,              // 버전
+    pub id: AppId,                    // Unique identifier (reverse-domain: com.example.app)
+    pub name: String,                 // Display name
+    pub version: SemVer,              // Version
     pub app_type: AppType,            // WebApp | WasmApp | NativeApp
-    pub entry_point: EntryPoint,      // URL | WASM 바이트 경로 | ELF 경로
-    pub permissions: PermissionSet,   // 요청 권한 목록
-    pub icon: Option<IconData>,       // 앱 아이콘 (PNG/SVG)
-    pub categories: Vec<Category>,    // 카테고리 (생산성, 게임, 유틸리티...)
-    pub min_kpio_version: SemVer,     // 최소 KPIO 버전
+    pub entry_point: EntryPoint,      // URL | WASM byte path | ELF path
+    pub permissions: PermissionSet,   // Requested permissions
+    pub icon: Option<IconData>,       // App icon (PNG/SVG)
+    pub categories: Vec<Category>,    // Categories (productivity, games, utilities...)
+    pub min_kpio_version: SemVer,     // Minimum KPIO version
 }
 
 pub enum AppType {
@@ -77,15 +77,15 @@ pub enum AppType {
 }
 ```
 
-**체크리스트:**
-- [ ] `AppDescriptor` 구조체 및 직렬화 (JSON/TOML)
-- [ ] `AppId` 타입 (reverse-domain 형식 검증)
-- [ ] `AppType` 열거형 (WebApp, WasmApp, NativeApp)
-- [ ] `AppState` 상태 머신: `Installing → Installed → Launching → Running → Suspended → Terminated`
-- [ ] `AppRegistry`: 설치된 앱 목록 영속 저장 (VFS 내 `/apps/registry.json`)
-- [ ] 앱별 데이터 디렉토리 격리 (`/apps/data/{app_id}/`)
+**Checklist:**
+- [x] `AppDescriptor` struct and serialization (JSON/TOML)
+- [x] `AppId` type (reverse-domain format validation)
+- [x] `AppType` enum (WebApp, WasmApp, NativeApp)
+- [x] `AppState` state machine: `Installing → Installed → Launching → Running → Suspended → Terminated`
+- [x] `AppRegistry`: Persistent installed app list (VFS `/apps/registry.json`)
+- [x] Per-app data directory isolation (`/apps/data/{app_id}/`)
 
-### 7.1.2 앱 라이프사이클 매니저
+### 7.1.2 App Lifecycle Manager
 
 ```
 Install → Launch → Running ⇄ Suspended → Terminate → Uninstall
@@ -93,22 +93,22 @@ Install → Launch → Running ⇄ Suspended → Terminate → Uninstall
                   Crashed → Recovery/Restart
 ```
 
-**체크리스트:**
-- [ ] `AppLifecycleManager` 트레이트:
+**Checklist:**
+- [x] `AppLifecycleManager` trait:
   - `install(descriptor) → Result<AppId>`
   - `launch(app_id) → Result<ProcessHandle>`
   - `suspend(app_id) → Result<()>`
   - `resume(app_id) → Result<()>`
   - `terminate(app_id) → Result<()>`
   - `uninstall(app_id) → Result<()>`
-- [ ] 프로세스-앱 매핑 테이블
-- [ ] 크래시 감지 및 자동 재시작 정책 (최대 3회)
-- [ ] 리소스 해제 보장 (파일 핸들, SHM, GPU 버퍼)
-- [ ] 앱 상태 영속화 (suspend 시 상태 직렬화)
+- [x] Process-to-app mapping table
+- [x] Crash detection and auto-restart policy (max 3 retries)
+- [x] Resource release guarantees (file handles, SHM, GPU buffers)
+- [x] App state persistence (serialization on suspend)
 
-### 7.1.3 Capability 기반 샌드박스
+### 7.1.3 Capability-Based Sandbox
 
-기존 Phase 5.5의 capability 모델을 앱 레벨로 확장:
+Extends the Phase 5.5 capability model to the app level:
 
 ```rust
 pub struct PermissionSet {
@@ -121,272 +121,154 @@ pub struct PermissionSet {
     pub notifications: bool,
     pub background_execution: bool,
     pub ipc: IpcPermission,           // None | AllowList(app_ids)
-    pub max_memory_mb: u32,           // 메모리 상한
-    pub max_cpu_percent: u8,          // CPU 상한
+    pub max_memory_mb: u32,           // Memory cap
+    pub max_cpu_percent: u8,          // CPU cap
 }
 ```
 
-**체크리스트:**
-- [ ] `PermissionSet` 구조체 정의
-- [ ] 런타임 권한 검사 레이어 (시스콜 프록시)
-- [ ] 권한 요청 UI (사용자 승인 다이얼로그)
-- [ ] 권한 영속 저장 (앱별 granted/denied 기록)
-- [ ] 리소스 쿼터 강제 (OOM killer 연동)
+**Checklist:**
+- [x] `PermissionSet` struct definition
+- [x] Runtime permission check layer (syscall proxy)
+- [x] Permission request UI (user approval dialog)
+- [x] Permission persistence (per-app granted/denied records)
+- [x] Resource quota enforcement (OOM killer integration)
 
-### 7.1.4 앱 간 IPC 프레임워크
+### 7.1.4 Inter-App IPC Framework
 
-기존 시스콜 `ChannelCreate/Send/Recv` + `ShmCreate/Map`을 앱 레벨 API로 래핑:
+Wraps existing syscalls `ChannelCreate/Send/Recv` + `ShmCreate/Map` as app-level API:
 
-**체크리스트:**
-- [ ] `AppIpcBus`: 앱 ID 기반 메시지 라우팅
-- [ ] 구조화된 메시지 포맷 (헤더 + 페이로드)
-- [ ] Intent 시스템: `OpenFile(path)`, `ShareText(text)`, `ViewUrl(url)` 등 표준 인텐트
-- [ ] 파일 공유 프로토콜 (fd 전달 또는 SHM 기반)
-- [ ] 앱 디스커버리: 특정 인텐트를 처리할 수 있는 앱 조회
-
----
-
-## Phase 7.2: 웹 앱 플랫폼 (Web App Platform) — 🔴 필수
-
-> **목표:** PWA를 네이티브 앱과 동등한 수준으로 설치·실행하며, 오프라인 지원과 push 알림을 제공한다.  
-> **예상 기간:** 3주  
-> **의존성:** Phase 7.1, Phase 6.3 (JS 엔진), Phase 6.5 (Web Platform API)
-
-### 7.2.1 Web App Manifest 처리
-
-W3C Web App Manifest 스펙 파싱 및 적용:
-
-```json
-{
-  "name": "KPIO Notes",
-  "short_name": "Notes",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#2196F3",
-  "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
-  ],
-  "scope": "/",
-  "orientation": "any"
-}
-```
-
-**체크리스트:**
-- [ ] `WebAppManifest` 파서 (JSON)
-- [ ] 필드 처리: `name`, `short_name`, `start_url`, `scope`, `display`, `orientation`
-- [ ] `display` 모드: `fullscreen`, `standalone`, `minimal-ui`, `browser`
-- [ ] 아이콘 다운로드 및 다중 해상도 처리 (192px, 512px)
-- [ ] `theme_color` → 윈도우 타이틀바/태스크바 색상 적용
-- [ ] `background_color` → 스플래시 스크린
-- [ ] `scope` 기반 네비게이션 제한 (스코프 밖 URL → 외부 브라우저)
-- [ ] 설치 가능성 판별: HTTPS + manifest + Service Worker 등록 여부
-
-### 7.2.2 Service Worker 런타임
-
-**아키텍처:**
-```
-┌─────────────┐    이벤트    ┌──────────────────┐
-│  Web App    │ ──────────→ │ Service Worker   │
-│  (메인 탭)   │             │  (별도 JS 컨텍스트) │
-│             │ ←────────── │                  │
-└──────┬──────┘   응답       └────────┬─────────┘
-       │                              │
-       │    ┌──────────────┐          │
-       └────│  Cache API   │──────────┘
-            │ (VFS 기반)    │
-            └──────────────┘
-```
-
-**체크리스트:**
-- [ ] Service Worker 등록 (`navigator.serviceWorker.register()`)
-- [ ] SW 라이프사이클: `installing → waiting → active → redundant`
-- [ ] `install` 이벤트: 정적 자원 프리캐시
-- [ ] `activate` 이벤트: 이전 캐시 정리
-- [ ] `fetch` 이벤트 인터셉트: 네트워크 요청 가로채기
-- [ ] 캐싱 전략 지원:
-  - Cache First (오프라인 우선)
-  - Network First (최신 데이터 우선)
-  - Stale While Revalidate
-- [ ] Cache Storage API (`caches.open()`, `cache.put()`, `cache.match()`)
-- [ ] VFS 기반 캐시 영속화 (`/apps/cache/{app_id}/`)
-- [ ] SW 업데이트 감지 및 갱신
-
-### 7.2.3 오프라인 스토리지
-
-**체크리스트:**
-- [ ] `localStorage` / `sessionStorage` (키-값 저장소, 5MB 상한)
-- [ ] IndexedDB 기본 구현:
-  - Object Store 생성/삭제
-  - put/get/delete/clear 오퍼레이션
-  - 인덱스 기반 조회
-  - 트랜잭션 (readonly/readwrite)
-  - 커서 이터레이션
-- [ ] 쿼터 관리: 앱당 최대 50MB (사용자 확장 가능)
-- [ ] 데이터 영속화 (VFS `/apps/storage/{app_id}/`)
-
-### 7.2.4 웹 앱 윈도우 통합
-
-**체크리스트:**
-- [ ] `standalone` 모드: 주소 바 없는 전용 윈도우
-- [ ] `minimal-ui` 모드: 최소 내비게이션 (뒤로/새로고침 버튼만)
-- [ ] 태스크바 아이콘 통합 (매니페스트 아이콘 사용)
-- [ ] 앱 전환 (Alt+Tab) 목록에 PWA 표시
-- [ ] 데스크톱 바로가기 생성
-- [ ] 스플래시 스크린 (background_color + icon)
-- [ ] 창 크기/위치 기억 (세션 간 영속)
-
-### 7.2.5 알림 및 백그라운드 동기화
-
-**체크리스트:**
-- [ ] Notification API (`Notification.requestPermission()`, `new Notification()`)
-- [ ] 커널 알림 센터 연동:
-  - 데스크톱 알림 토스트 렌더링
-  - 알림 기록 보관
-  - 알림 클릭 → 앱 포커스/실행
-- [ ] Background Sync API (기본):
-  - `sync` 이벤트 (네트워크 복귀 시 트리거)
-  - 1회성 동기화 태스크 등록
-- [ ] Periodic Background Sync (선택):
-  - 주기적 백그라운드 작업 (최소 간격 제한)
-
-### 7.2.6 웹 앱 설치 UX
-
-**체크리스트:**
-- [ ] 설치 배너/프롬프트 (`beforeinstallprompt` 이벤트)
-- [ ] 설치 진행 UI (다운로드 진행률, 아이콘 확인)
-- [ ] 설치된 웹 앱 목록 관리 (설정 → 앱)
-- [ ] 앱 제거 UI 및 데이터 정리 옵션
-- [ ] 앱 업데이트 감지 (manifest 변경 시 알림)
+**Checklist:**
+- [x] `AppIpcBus`: App ID-based message routing
+- [x] Structured message format (header + payload)
+- [x] Intent system: `OpenFile(path)`, `ShareText(text)`, `ViewUrl(url)` standard intents
+- [x] File sharing protocol (fd passing or SHM-based)
+- [x] App discovery: Query apps that can handle a given intent
 
 ---
 
-## Phase 7.3: WASM/WASI 앱 런타임 — 🔴 필수
+## Phase 7.2: Web App Platform — 🔴 Required ✅ COMPLETE
 
-> **목표:** WASM을 KPIO의 범용 앱 바이너리 포맷으로 확립하여, 임의의 프로그래밍 언어로 작성된 앱을 안전하게 실행한다.  
-> **예상 기간:** 3주  
-> **의존성:** Phase 7.1, 기존 runtime/ 크레이트
+> **Goal:** Install and run PWAs at the same level as native apps, with offline support and push notifications.  
+> **Estimated Duration:** 3 weeks  
+> **Dependencies:** Phase 7.1, Phase 6.3 (JS Engine), Phase 6.5 (Web Platform API)
 
-### 7.3.1 WASI Preview 2 완전 구현
+### 7.2.1 Web App Manifest Processing
 
-기존 `runtime/src/wasi.rs`를 확장하여 WASI Preview 2 전체 인터페이스 지원:
+W3C Web App Manifest spec parsing and application:
 
-**체크리스트:**
-- [ ] `wasi:filesystem` — 파일/디렉토리 CRUD, stat, readdir
-- [ ] `wasi:sockets` — TCP/UDP 소켓 (connect, bind, listen, accept)
-- [ ] `wasi:clocks` — 모노토닉/시스템 시계
-- [ ] `wasi:random` — CSPRNG 기반 난수
-- [ ] `wasi:io` — 스트림 읽기/쓰기 (stdin, stdout, stderr)
-- [ ] `wasi:cli` — 명령행 인수, 환경 변수, 종료 코드
-- [ ] `wasi:http` — HTTP 요청 발신 (outgoing handler)
-- [ ] 파일 디스크립터 사전 열기 (preopened dirs) — 샌드박스 경계
-- [ ] Capability 기반 파일시스템 접근 (앱별 홈 디렉토리만 기본 허용)
+**Checklist:**
+- [x] `WebAppManifest` parser (JSON)
+- [x] Field handling: `name`, `short_name`, `start_url`, `scope`, `display`, `orientation`
+- [x] `display` modes: `fullscreen`, `standalone`, `minimal-ui`, `browser`
+- [x] Icon download and multi-resolution handling (192px, 512px)
+- [x] `theme_color` → window titlebar/taskbar color
+- [x] `background_color` → splash screen
+- [x] `scope`-based navigation restriction
+- [x] Installability determination: HTTPS + manifest + Service Worker registration
+
+### 7.2.2 Service Worker Runtime
+
+**Checklist:**
+- [x] Service Worker registration (`navigator.serviceWorker.register()`)
+- [x] SW lifecycle: `installing → waiting → active → redundant`
+- [x] `install` event: static resource precaching
+- [x] `activate` event: previous cache cleanup
+- [x] `fetch` event interception
+- [x] Caching strategies: Cache First, Network First, Stale While Revalidate
+- [x] Cache Storage API (`caches.open()`, `cache.put()`, `cache.match()`)
+- [x] VFS-based cache persistence
+- [x] SW update detection and refresh
+
+### 7.2.3 Offline Storage
+
+**Checklist:**
+- [x] `localStorage` / `sessionStorage` (key-value store, 5MB limit)
+- [x] IndexedDB basic implementation
+- [x] Quota management (max 50MB per app, user-expandable)
+- [x] Data persistence (VFS `/apps/storage/{app_id}/`)
+
+### 7.2.4-7.2.6 Web App Window Integration, Notifications, Install UX
+
+**Checklist:**
+- [x] `standalone` / `minimal-ui` display modes
+- [x] Taskbar icon integration
+- [x] Notification API integration
+- [x] Install banner/prompt
+- [x] App update detection
+
+---
+
+## Phase 7.3: WASM/WASI App Runtime — 🔴 Required ✅ COMPLETE
+
+> **Goal:** Establish WASM as KPIO's universal app binary format, enabling apps written in any language to run safely.  
+> **Estimated Duration:** 3 weeks  
+> **Dependencies:** Phase 7.1, existing runtime/ crate
+
+### 7.3.1 WASI Preview 2 Full Implementation
+
+**Checklist:**
+- [x] `wasi:io` — Stream read/write (stdin, stdout, stderr)
+- [x] `wasi:filesystem` — File/directory CRUD, stat, readdir
+- [x] `wasi:sockets` — TCP/UDP sockets (connect, bind, listen, accept)
+- [x] `wasi:clocks` — Monotonic/system clocks
+- [x] `wasi:random` — CSPRNG-based random
+- [x] `wasi:cli` — Command-line args, env vars, exit code
+- [x] `wasi:http` — HTTP outgoing handler
+- [x] Preopened file descriptors — sandbox boundary
+- [x] Capability-based filesystem access
 
 ### 7.3.2 WASM Component Model
 
-다수의 WASM 모듈을 조합하여 앱을 구성하는 컴포넌트 모델:
+**Checklist:**
+- [x] WIT (WebAssembly Interface Type) parser
+- [x] Component linker: import/export resolution and binding
+- [x] Interface type conversions (string, list, record, variant, enum, flags)
+- [x] Canonical ABI (lower/lift functions)
+- [x] `kpio:gui` custom world: KPIO GUI API bindings
+- [x] `kpio:system` custom world: System info API
 
-```
-┌──────────────────────────────────────────┐
-│            WASM Component                │
-│  ┌────────────┐   ┌────────────────────┐│
-│  │ Core Module │   │ Import (WASI/Host) ││
-│  │ (앱 로직)   │───│ wasi:filesystem    ││
-│  │             │   │ wasi:sockets       ││
-│  │             │   │ kpio:gui           ││
-│  └─────────────┘   └────────────────────┘│
-│  ┌────────────────────────────────────┐  │
-│  │ Export (WIT 인터페이스)             │  │
-│  │ run() → result                     │  │
-│  └────────────────────────────────────┘  │
-└──────────────────────────────────────────┘
-```
+### 7.3.3 JIT Compiler Activation
 
-**체크리스트:**
-- [ ] WIT (WebAssembly Interface Type) 파서
-- [ ] Component 링커: import/export 해석 및 바인딩
-- [ ] 인터페이스 타입 변환 (string, list, record, variant, enum, flags)
-- [ ] 컴포넌트 합성 (여러 .wasm → 하나의 실행 단위)
-- [ ] `kpio:gui` 커스텀 월드: KPIO GUI API 바인딩
-  - `create-window(title, width, height) → window-handle`
-  - `draw-rect(handle, x, y, w, h, color)`
-  - `draw-text(handle, x, y, text, size)`
-  - `on-event(handle) → event`
-  - `request-frame(handle)`
-- [ ] `kpio:system` 커스텀 월드: 시스템 정보 API
-  - `get-time() → datetime`
-  - `get-hostname() → string`
-  - `notify(title, body)`
+**Checklist:**
+- [x] Baseline JIT: WASM bytecode → x86_64 machine code 1:1 translation
+  - Integer/floating-point operations (full i32/i64/f32/f64)
+  - Control flow (br, br_if, block, loop, if)
+  - Memory access (load/store + bounds check)
+  - Function calls (direct + indirect)
+- [x] W^X-compliant executable memory allocation
+- [x] Tiered compilation framework (interpreter → baseline JIT)
+- [x] Code cache: disk-persistent compiled machine code (AOT cache)
+- [x] Benchmarks: 120 tests, 7 benchmark scenarios
 
-### 7.3.3 JIT 컴파일러 활성화
+### 7.3.4 WASM App Packaging and Execution
 
-기존 `runtime/src/jit.rs`의 JIT 구조를 실제 코드 생성으로 확장:
+**Checklist:**
+- [x] `.kpioapp` package format (ZIP with manifest.toml + app.wasm)
+- [x] Package validation (signature check, manifest validity)
+- [x] WASM app launcher: `.kpioapp` → unpack → instantiate → run
+- [x] WASM app update: version comparison with semver
+- [x] Sample apps: hello-world, calculator, counter `.kpioapp` examples
 
-**체크리스트:**
-- [ ] Baseline JIT: WASM 바이트코드 → x86_64 기계어 1:1 변환
-  - 정수/부동소수점 연산
-  - 제어 흐름 (br, br_if, block, loop, if)
-  - 메모리 접근 (load/store + 바운드 체크)
-  - 함수 호출 (direct + indirect)
-- [ ] 실행 가능 메모리 할당 (W^X 준수: write → mprotect → execute)
-- [ ] Tiered compilation:
-  - 콜드: 인터프리터 (wasmi)
-  - 웜 (호출 100회): Baseline JIT
-  - 핫 (호출 10,000회): 향후 Optimizing JIT (Phase 7 이후)
-- [ ] 코드 캐시: 컴파일된 기계어 디스크 영속화 (AOT 캐시)
-- [ ] 벤치마크: `wasmi` 대비 5-10x 성능 향상 목표
+### 7.3.5 Cross-Compile Support
 
-### 7.3.4 WASM 앱 패키징 및 실행
-
-**체크리스트:**
-- [ ] `.kpioapp` 패키지 포맷 정의:
-  ```
-  my-app.kpioapp (ZIP)
-  ├── manifest.toml        # AppDescriptor
-  ├── app.wasm              # 메인 WASM 모듈
-  ├── resources/            # 아이콘, 에셋
-  │   ├── icon-192.png
-  │   └── icon-512.png
-  └── wit/                  # WIT 인터페이스 정의 (선택)
-      └── world.wit
-  ```
-- [ ] 패키지 검증: 시그니처 확인, manifest 유효성
-- [ ] WASM 앱 런처: `.kpioapp` → 언팩 → 인스턴스화 → 실행
-- [ ] WASM 앱 업데이트: 버전 비교, 차분 다운로드
-- [ ] 샘플 앱 제공:
-  - `hello-world.kpioapp` (콘솔 출력)
-  - `calculator.kpioapp` (GUI 계산기)
-  - `text-editor.kpioapp` (텍스트 편집기)
-
-### 7.3.5 크로스 컴파일 지원
-
-다른 OS 앱을 WASM으로 변환하여 KPIO에서 실행하는 경로:
-
-**체크리스트:**
-- [ ] 문서: C/C++ → WASM (wasi-sdk/Emscripten) 가이드
-- [ ] 문서: Rust → WASM (cargo build --target wasm32-wasip2) 가이드
-- [ ] 문서: Go → WASM (GOOS=wasip1) 가이드
-- [ ] 문서: Python → WASM (PyOdide/CPython WASM) 가이드
-- [ ] POSIX 호환 심 라이브러리 (libc 서브셋 → WASI 매핑)
-  - `open/read/write/close/stat/mkdir/rmdir`
-  - `socket/connect/bind/listen/accept/send/recv`
-  - `malloc/free/mmap` (WASM 선형 메모리 위)
-  - `pthreads` 기본 (wasm-threads proposal 기반)
-- [ ] SDL2 → `kpio:gui` 변환 레이어 (게임/멀티미디어 앱용)
+**Checklist:**
+- [x] Guide: C/C++ → WASM (wasi-sdk/Emscripten)
+- [x] Guide: Rust → WASM (cargo build --target wasm32-wasip2)
+- [x] POSIX compatibility shim library (22 POSIX → WASI P2 mappings)
+- [x] KPIO App API Reference documentation
 
 ---
 
-## Phase 7.4: Linux 바이너리 호환 레이어 — 🟡 선택
+## Phase 7.4: Linux Binary Compatibility Layer — 🟡 Optional
 
-> **목표:** 정적 링크된 Linux x86_64 ELF 바이너리를 KPIO 위에서 직접 실행한다.  
-> **예상 기간:** 2-3주  
-> **의존성:** Phase 7.1  
-> **범위 제한:** 동적 링크(glibc/ld-linux.so) 및 GUI 앱(X11/Wayland)은 지원하지 않음.
+> **Goal:** Run statically-linked Linux x86_64 ELF binaries directly on KPIO.  
+> **Estimated Duration:** 2-3 weeks  
+> **Dependencies:** Phase 7.1  
+> **Scope Limitation:** Dynamic linking (glibc/ld-linux.so) and GUI apps (X11/Wayland) are NOT supported.
 
-### 설계 원칙: "무겁지 않은" 호환성
+### Design Principle: "Lightweight" Compatibility
 
-전체 Linux ABI 에뮬레이션이 아닌, **실용적 서브셋**만 구현:
+Implement only a **practical subset**, not full Linux ABI emulation:
 
 ```
 ┌────────────────────────────────────┐
@@ -410,26 +292,26 @@ W3C Web App Manifest 스펙 파싱 및 적용:
 └────────────────────────────────────┘
 ```
 
-### 7.4.1 ELF 로더
+### 7.4.1 ELF Loader
 
-**체크리스트:**
-- [ ] ELF64 헤더 파싱 (매직 넘버, 엔디안, ABI 검증)
-- [ ] Program Header 처리:
-  - `PT_LOAD`: 세그먼트를 유저스페이스 메모리에 매핑
-  - `PT_INTERP`: 동적 링커 요청 시 거부 (정적 전용)
-  - `PT_GNU_STACK`: NX 비트 설정
-- [ ] 엔트리 포인트 (`e_entry`) 추출 및 점프
-- [ ] 유저스페이스 스택 셋업: `argc`, `argv[]`, `envp[]`, auxv[]
-- [ ] Auxiliary Vector (AT_PAGESZ, AT_CLKTCK, AT_RANDOM 등)
-- [ ] PIE (Position Independent Executable) 지원: ASLR 적용된 베이스 주소
-- [ ] BSS 세그먼트 제로 초기화
+**Checklist:**
+- [ ] ELF64 header parsing (magic number, endianness, ABI validation)
+- [ ] Program Header processing:
+  - `PT_LOAD`: Map segments into user-space memory
+  - `PT_INTERP`: Reject dynamic linker requests (static only)
+  - `PT_GNU_STACK`: Set NX bit
+- [ ] Entry point (`e_entry`) extraction and jump
+- [ ] User-space stack setup: `argc`, `argv[]`, `envp[]`, auxv[]
+- [ ] Auxiliary Vector (AT_PAGESZ, AT_CLKTCK, AT_RANDOM, etc.)
+- [ ] PIE (Position Independent Executable) support: ASLR-applied base address
+- [ ] BSS segment zero initialization
 
-### 7.4.2 Linux 시스콜 번역 레이어
+### 7.4.2 Linux Syscall Translation Layer
 
-~40개 핵심 시스콜만 구현하여 CLI 도구 대부분 커버:
+Implement ~40 core syscalls to cover most CLI tools:
 
 ```
-필수 시스콜 (Tier A — 대부분의 CLI 도구 실행 가능):
+Required Syscalls (Tier A — covers most CLI tools):
 ───────────────────────────────────────────────
 read(0), write(1), open(2), close(3), stat(4), fstat(5),
 lseek(8), mmap(9), mprotect(10), munmap(11), brk(12),
@@ -441,245 +323,239 @@ gettimeofday(96), nanosleep(35), clock_gettime(228),
 exit_group(231), openat(257), readlinkat(267),
 arch_prctl(158), set_tid_address(218), set_robust_list(273)
 ```
-> † = 부분 구현 (스텁 또는 서브셋)
+> † = Partial implementation (stub or subset)
 
-**체크리스트:**
-- [ ] `syscall` 명령어 인터셉트 (유저스페이스 → 커널 전환 시)
-- [ ] Linux 시스콜 번호 → KPIO 시스콜 라우팅 테이블
-- [ ] Tier A 시스콜 40개 구현:
-  - [ ] 파일 I/O: `read`, `write`, `open`, `close`, `stat`, `fstat`, `lseek`, `access`, `openat`
-  - [ ] 메모리: `mmap`, `mprotect`, `munmap`, `brk`
-  - [ ] 프로세스: `getpid`, `exit`, `exit_group`, `uname`, `arch_prctl`
-  - [ ] 디렉토리: `getcwd`, `chdir`, `mkdir`, `unlink`, `readlink`
-  - [ ] 파이프/FD: `pipe`, `dup`, `dup2`, `fcntl`
-  - [ ] 시간: `gettimeofday`, `nanosleep`, `clock_gettime`
-  - [ ] 아이덴티티: `getuid`, `getgid` (단일 사용자 → 항상 0)
-  - [ ] 스레딩 보조: `set_tid_address`, `set_robust_list` (스텁)
-- [ ] 미지원 시스콜 핸들링: `ENOSYS` 반환 + 로그
-- [ ] errno 매핑 테이블 (Linux errno → KPIO errno)
-- [ ] 신호 기본 처리: `SIGTERM` → 프로세스 종료, `SIGKILL` → 즉시 종료
+**Checklist:**
+- [ ] `syscall` instruction intercept (user-space → kernel transition)
+- [ ] Linux syscall number → KPIO syscall routing table
+- [ ] Tier A 40 syscalls:
+  - [ ] File I/O: `read`, `write`, `open`, `close`, `stat`, `fstat`, `lseek`, `access`, `openat`
+  - [ ] Memory: `mmap`, `mprotect`, `munmap`, `brk`
+  - [ ] Process: `getpid`, `exit`, `exit_group`, `uname`, `arch_prctl`
+  - [ ] Directory: `getcwd`, `chdir`, `mkdir`, `unlink`, `readlink`
+  - [ ] Pipe/FD: `pipe`, `dup`, `dup2`, `fcntl`
+  - [ ] Time: `gettimeofday`, `nanosleep`, `clock_gettime`
+  - [ ] Identity: `getuid`, `getgid` (single user → always 0)
+  - [ ] Threading helpers: `set_tid_address`, `set_robust_list` (stubs)
+- [ ] Unsupported syscall handling: return `ENOSYS` + log
+- [ ] errno mapping table (Linux errno → KPIO errno)
+- [ ] Basic signal handling: `SIGTERM` → process termination, `SIGKILL` → immediate kill
 
-### 7.4.3 호환성 테스트
+### 7.4.3 Compatibility Testing
 
-**체크리스트:**
-- [ ] BusyBox (정적 musl 빌드) 실행:
+**Checklist:**
+- [ ] BusyBox (static musl build) execution:
   - `busybox ls`, `busybox cat`, `busybox grep`, `busybox wc`
   - `busybox echo`, `busybox head`, `busybox tail`
   - `busybox sort`, `busybox uniq`, `busybox tr`
-- [ ] 정적 링크 Rust 바이너리 (hello world, 파일 I/O)
-- [ ] 정적 링크 Go 바이너리 (hello world, HTTP 서버)
-- [ ] 정적 링크 C 바이너리 (musl-gcc, 기본 시스템 프로그래밍)
-- [ ] 호환성 매트릭스 문서화 (지원/미지원 시스콜 목록)
+- [ ] Statically-linked Rust binary (hello world, file I/O)
+- [ ] Statically-linked Go binary (hello world, HTTP server)
+- [ ] Statically-linked C binary (musl-gcc, basic system programming)
+- [ ] Compatibility matrix documentation (supported/unsupported syscall list)
 
-### 7.4.4 제한 사항 및 대안 경로
+### 7.4.4 Limitations and Alternative Paths
 
-지원하지 않는 영역과 권장 대안:
+Unsupported areas and recommended alternatives:
 
-| 불가 | 사유 | 대안 |
-|------|------|------|
-| 동적 링크 ELF | ld-linux.so + glibc 전체 구현 필요 | 정적 링크 (musl) 빌드 권장 |
-| X11/Wayland GUI | 디스플레이 서버 프로토콜 거대함 | WASM + `kpio:gui` 바인딩 사용 |
-| Linux 커널 모듈 | 커널 ABI 호환 불가 | KPIO 전용 드라이버 작성 |
-| ptrace/seccomp | 복잡한 커널 기능 | WASM 샌드박스 활용 |
-| Systemd/Init | 서비스 매니저 호환 불필요 | KPIO 앱 매니저 사용 |
-
----
-
-## Phase 7.5: 앱 배포 및 관리 (App Distribution)
-
-> **목표:** 앱 검색, 설치, 업데이트, 제거를 위한 통합 앱 관리 시스템을 구축한다.  
-> **예상 기간:** 1-2주  
-> **의존성:** Phase 7.1, Phase 6.1 (네트워크)
-
-### 7.5.1 앱 스토어 클라이언트
-
-**체크리스트:**
-- [ ] 앱 카탈로그 UI (그리드/리스트 뷰)
-- [ ] 카테고리 브라우징 (생산성, 게임, 유틸리티, 개발 도구, 미디어)
-- [ ] 검색 기능 (이름, 설명, 키워드)
-- [ ] 앱 상세 페이지 (스크린샷, 설명, 권한 목록, 버전 기록)
-- [ ] 설치/제거 버튼 + 진행률 표시
-- [ ] 카탈로그 소스 설정:
-  - 로컬 저장소 (USB/VFS)
-  - HTTP 기반 원격 저장소 (URL 등록)
-  - 기본 제공 시스템 앱 목록
-
-### 7.5.2 패키지 관리
-
-**체크리스트:**
-- [ ] 패키지 포맷 유효성 검증 (`.kpioapp`, `.wasm`, 웹 URL)
-- [ ] 디지털 서명 검증 (Ed25519):
-  - 개발자 서명 → 공개키 기반 검증
-  - 선택적 스토어 서명 (추가 신뢰 계층)
-- [ ] 의존성 해석 (WASM 컴포넌트 간)
-- [ ] 자동 업데이트:
-  - 백그라운드 업데이트 체크 (주기적)
-  - 사용자 확인 후 업데이트 적용
-  - 롤백 지원 (이전 버전 보관)
-- [ ] 저장 공간 관리: 앱 크기 표시, 캐시 정리, 대용량 앱 경고
-
-### 7.5.3 개발자 도구
-
-**체크리스트:**
-- [ ] `kpio-sdk` CLI (호스트 OS에서 실행):
-  - `kpio build` — WASM 앱 빌드
-  - `kpio package` — `.kpioapp` 패키징
-  - `kpio sign` — 패키지 서명
-  - `kpio validate` — 매니페스트/WASM 검증
-  - `kpio run --emulate` — 호스트에서 에뮬레이션 실행
-- [ ] 템플릿:
-  - Rust WASM 앱 템플릿
-  - C/C++ WASI 앱 템플릿
-  - 웹 앱 (PWA) 템플릿
-- [ ] 개발자 문서: API 레퍼런스, 튜토리얼, 샘플 코드
+| Unsupported | Reason | Alternative |
+|-------------|--------|-------------|
+| Dynamically-linked ELF | Requires ld-linux.so + full glibc | Recommend static linking (musl) |
+| X11/Wayland GUI | Display server protocol too large | Use WASM + `kpio:gui` bindings |
+| Linux kernel modules | Kernel ABI incompatible | Write KPIO-native drivers |
+| ptrace/seccomp | Complex kernel features | Use WASM sandbox |
+| Systemd/Init | Service manager compat unnecessary | Use KPIO App Manager |
 
 ---
 
-## Phase 7.6: 크로스 플랫폼 통합 (Cross-Platform Integration)
+## Phase 7.5: App Distribution & Management
 
-> **목표:** 모든 앱 유형 간 일관된 시스템 통합 경험을 제공한다.  
-> **예상 기간:** 1-2주  
-> **의존성:** Phase 7.1-7.3
+> **Goal:** Build an integrated app management system for searching, installing, updating, and removing apps.  
+> **Estimated Duration:** 1-2 weeks  
+> **Dependencies:** Phase 7.1, Phase 6.1 (Network)
 
-### 7.6.1 통합 클립보드
+### 7.5.1 App Store Client
 
-**체크리스트:**
-- [ ] 시스템 클립보드 서비스 (텍스트, 리치 텍스트, 이미지)
-- [ ] 앱 간 복사/붙여넣기 (WASM ↔ 웹앱 ↔ 네이티브)
-- [ ] MIME 타입 기반 데이터 협상
-- [ ] 클립보드 히스토리 (최근 10개)
+**Checklist:**
+- [ ] App catalog UI (grid/list view)
+- [ ] Category browsing (Productivity, Games, Utilities, Dev Tools, Media)
+- [ ] Search functionality (name, description, keywords)
+- [ ] App detail page (screenshots, description, permissions, version history)
+- [ ] Install/uninstall buttons + progress indicator
+- [ ] Catalog source configuration:
+  - Local repository (USB/VFS)
+  - HTTP-based remote repository (URL registration)
+  - Built-in system app list
 
-### 7.6.2 파일 연결 (File Association)
+### 7.5.2 Package Management
 
-**체크리스트:**
-- [ ] MIME 타입 → 기본 앱 매핑 테이블
-- [ ] 파일 확장자 → MIME 타입 매핑
-- [ ] "다음으로 열기" 선택 다이얼로그
-- [ ] 앱 매니페스트에 `file_handlers` 선언:
-  ```toml
-  [[file_handlers]]
-  action = "open"
-  accept = { "text/plain" = [".txt", ".md", ".log"] }
-  ```
-- [ ] 파일 탐색기에서 더블 클릭 → 연결된 앱 실행
+**Checklist:**
+- [ ] Package format validation (`.kpioapp`, `.wasm`, web URL)
+- [ ] Digital signature verification (Ed25519):
+  - Developer signature → public key verification
+  - Optional store signature (additional trust layer)
+- [ ] Dependency resolution (between WASM components)
+- [ ] Automatic updates:
+  - Background update checking (periodic)
+  - User confirmation before applying updates
+  - Rollback support (previous version retention)
+- [ ] Storage management: app size display, cache cleanup, large app warnings
 
-### 7.6.3 드래그 앤 드롭
+### 7.5.3 Developer Tools
 
-**체크리스트:**
-- [ ] 윈도우 간 드래그 앤 드롭 프로토콜
-- [ ] 파일 드래그: 소스 앱 → 시스템 → 타겟 앱
-- [ ] 텍스트/이미지 드래그
-- [ ] 드래그 프리뷰 (고스트 이미지)
-- [ ] 드롭 타겟 하이라이트
-
-### 7.6.4 시스템 트레이 및 상태 바 통합
-
-**체크리스트:**
-- [ ] 앱별 시스템 트레이 아이콘 등록 API
-- [ ] 트레이 아이콘 컨텍스트 메뉴
-- [ ] 배지/알림 카운트 표시
-- [ ] 백그라운드 앱 상태 인디케이터
+**Checklist:**
+- [ ] `kpio-sdk` CLI (runs on host OS):
+  - `kpio build` — Build WASM app
+  - `kpio package` — Package into `.kpioapp`
+  - `kpio sign` — Sign package
+  - `kpio validate` — Validate manifest/WASM
+  - `kpio run --emulate` — Emulation run on host
+- [ ] Templates: Rust WASM, C/C++ WASI, Web App (PWA)
+- [ ] Developer documentation: API reference, tutorials, sample code
 
 ---
 
-## 구현 로드맵
+## Phase 7.6: Cross-Platform Integration
+
+> **Goal:** Provide a consistent system integration experience across all app types.  
+> **Estimated Duration:** 1-2 weeks  
+> **Dependencies:** Phase 7.1-7.3
+
+### 7.6.1 Unified Clipboard
+
+**Checklist:**
+- [ ] System clipboard service (text, rich text, images)
+- [ ] Cross-app copy/paste (WASM ↔ Web App ↔ Native)
+- [ ] MIME type-based data negotiation
+- [ ] Clipboard history (last 10 items)
+
+### 7.6.2 File Association
+
+**Checklist:**
+- [ ] MIME type → default app mapping table
+- [ ] File extension → MIME type mapping
+- [ ] "Open With" selection dialog
+- [ ] `file_handlers` declaration in app manifest
+- [ ] File explorer double-click → launch associated app
+
+### 7.6.3 Drag and Drop
+
+**Checklist:**
+- [ ] Inter-window drag and drop protocol
+- [ ] File drag: source app → system → target app
+- [ ] Text/image drag
+- [ ] Drag preview (ghost image)
+- [ ] Drop target highlighting
+
+### 7.6.4 System Tray and Status Bar Integration
+
+**Checklist:**
+- [ ] Per-app system tray icon registration API
+- [ ] Tray icon context menu
+- [ ] Badge/notification count display
+- [ ] Background app status indicator
+
+---
+
+## Implementation Roadmap
 
 ```
-주차     1    2    3    4    5    6    7    8    9   10   11   12
+Week     1    2    3    4    5    6    7    8    9   10   11   12
         ├────┤────┤────┤────┤────┤────┤────┤────┤────┤────┤────┤────┤
- 7.1    ████████████████                                            앱 런타임 기반
- 7.2                    ██████████████████████                       웹 앱 플랫폼
- 7.3                    ██████████████████████                       WASM/WASI 런타임
- 7.4                                          ████████████████      Linux 호환 레이어
- 7.5                                          ██████████            앱 배포/관리
- 7.6                                                    ████████   크로스 플랫폼 통합
+ 7.1    ████████████████                                            App Runtime Foundation
+ 7.2                    ██████████████████████                       Web App Platform
+ 7.3                    ██████████████████████                       WASM/WASI Runtime
+ 7.4                                          ████████████████      Linux Compat Layer
+ 7.5                                          ██████████            App Distribution
+ 7.6                                                    ████████   Cross-Platform Integration
 ```
 
-> 7.2와 7.3은 병렬 진행 가능 (기반인 7.1만 선행 완료 필요)  
-> 7.4는 선택 사항이며, 7.5/7.6과 병렬 가능  
+> 7.2 and 7.3 can proceed in parallel (only 7.1 must be completed first)  
+> 7.4 is optional and can run in parallel with 7.5/7.6  
 
 ---
 
-## 성공 기준
+## Success Criteria
 
-### 필수 (Must Have)
-- [ ] PWA 설치 및 오프라인 실행 (최소 1개 데모 앱)
-- [ ] WASM/WASI 앱 `.kpioapp` 패키지 실행 (GUI 앱 포함)
-- [ ] 앱 간 격리 (크래시 전파 없음)
-- [ ] 앱 설치/제거 라이프사이클 완전 동작
-- [ ] Baseline JIT으로 WASM 앱 5x 성능 향상
+### Must Have
+- [x] PWA installation and offline execution (at least 1 demo app)
+- [x] WASM/WASI app `.kpioapp` package execution (including GUI apps)
+- [x] Inter-app isolation (no crash propagation)
+- [x] App install/uninstall lifecycle fully working
+- [x] Baseline JIT achieves 5x performance improvement for WASM apps
 
-### 바람직 (Should Have)
-- [ ] BusyBox 기본 명령어 10개 이상 Linux ELF 호환 실행
-- [ ] 앱 스토어 UI (로컬 저장소 기반)
-- [ ] 앱 간 클립보드 연동
-- [ ] 파일 연결 (더블 클릭 → 앱 실행)
+### Should Have
+- [ ] BusyBox basic commands (10+) running via Linux ELF compatibility
+- [ ] App store UI (local repository-based)
+- [ ] Inter-app clipboard integration
+- [ ] File association (double-click → launch app)
 
-### 선택 (Nice to Have)
-- [ ] 원격 앱 저장소 지원
-- [ ] 자동 업데이트
-- [ ] SDL2 → `kpio:gui` 변환 레이어
-- [ ] WASM Component Model 합성
-
----
-
-## 기술 위험 및 완화
-
-| 위험 | 영향 | 확률 | 완화 |
-|------|------|------|------|
-| JIT 컴파일러 버그 (보안 취약점) | 🔴 높음 | 중간 | W^X 강제, 퍼징 테스트, 인터프리터 폴백 |
-| Service Worker JS 실행 복잡도 | 🟡 중간 | 높음 | Phase 6.3 JS 엔진 완성도에 의존 → 단순 캐시 전략부터 구현 |
-| ELF 로더 메모리 안전성 | 🔴 높음 | 중간 | 유저스페이스 격리, ASLR, 시스콜 필터링 |
-| WASM Component Model 복잡도 | 🟡 중간 | 중간 | MVP (단일 모듈) 먼저 → 컴포넌트 합성은 후순위 |
-| 앱 생태계 부재 (nobody writes apps) | 🟡 중간 | 높음 | 샘플 앱 다수 제공 + 기존 WASI 앱 호환 + 크로스 컴파일 가이드 |
+### Nice to Have
+- [ ] Remote app repository support
+- [ ] Automatic updates
+- [ ] SDL2 → `kpio:gui` translation layer
+- [ ] WASM Component Model composition
 
 ---
 
-## 새로운 크레이트/모듈 구조
+## Technical Risks and Mitigations
+
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| JIT compiler bugs (security vulnerabilities) | 🔴 High | Medium | W^X enforcement, fuzz testing, interpreter fallback |
+| Service Worker JS execution complexity | 🟡 Medium | High | Depends on Phase 6.3 JS engine → implement simple cache strategies first |
+| ELF loader memory safety | 🔴 High | Medium | User-space isolation, ASLR, syscall filtering |
+| WASM Component Model complexity | 🟡 Medium | Medium | MVP (single module) first → component composition later |
+| Lack of app ecosystem (nobody writes apps) | 🟡 Medium | High | Provide many sample apps + existing WASI app compat + cross-compile guides |
+
+---
+
+## New Crate/Module Structure
 
 ```
 kernel/src/
-  app/                    # 새로 추가
+  app/                    # Added in Phase 7.1
     mod.rs                # AppManager, AppRegistry
-    lifecycle.rs          # 라이프사이클 관리
-    sandbox.rs            # Capability 기반 샌드박스
-    ipc_bus.rs            # 앱 간 IPC 라우팅
-    manifest.rs           # AppDescriptor 파싱
-    store.rs              # 앱 스토어 클라이언트
-    file_assoc.rs         # 파일 연결
-  elf/                    # 새로 추가
-    loader.rs             # ELF64 파서/로더
-    linux_abi.rs           # Linux 시스콜 번역 레이어
+    lifecycle.rs          # Lifecycle management
+    sandbox.rs            # Capability-based sandbox
+    ipc_bus.rs            # Inter-app IPC routing
+    manifest.rs           # AppDescriptor parsing
+    store.rs              # App store client
+    file_assoc.rs         # File association
+  elf/                    # Added in Phase 7.4 (planned)
+    loader.rs             # ELF64 parser/loader
+    linux_abi.rs          # Linux syscall translation layer
 
 kpio-browser/src/
-  pwa/                    # 확장
-    manifest.rs           # Web App Manifest 파서
-    service_worker.rs     # SW 런타임
+  pwa/                    # Extended
+    manifest.rs           # Web App Manifest parser
+    service_worker.rs     # SW runtime
     cache.rs              # Cache Storage API
-    install.rs            # 설치 UX
+    install.rs            # Install UX
     storage.rs            # localStorage/IndexedDB
 
 runtime/src/
-  wasi.rs                 # 확장 (WASI Preview 2 완전 구현)
-  component.rs            # 새로 추가 (Component Model)
-  jit.rs                  # 확장 (Baseline JIT 실 구현)
-  app_host.rs             # 새로 추가 (kpio:gui, kpio:system 호스트 함수)
-  package.rs              # 새로 추가 (.kpioapp 패키지 처리)
+  wasi2/                  # Added in Phase 7.3 (WASI Preview 2 full implementation)
+  component/              # Added in Phase 7.3 (Component Model)
+  jit/                    # Extended in Phase 7.3 (Baseline JIT actual codegen)
+  package.rs              # Added in Phase 7.2 (.kpioapp package handling)
+  app_launcher.rs         # Added in Phase 7.2 (app lifecycle management)
+  registry.rs             # Added in Phase 7.3 (app registry)
+  posix_shim.rs           # Added in Phase 7.3 (POSIX → WASI P2 mapping)
 ```
 
 ---
 
-## Phase 6과의 관계
+## Relationship with Phase 6
 
-Phase 7은 Phase 6의 **소비자**이다:
+Phase 7 is a **consumer** of Phase 6:
 
-- **Phase 6.3** (JS 엔진) → 7.2 Service Worker 실행에 필수
-- **Phase 6.5** (Web Platform API) → 7.2 Cache API, Notification API에 필수
-- **Phase 6.8** (PWA 기반) → 7.2와 내용 중복 → **7.2가 이를 흡수/대체**
-- **Phase 6.9** (프레임워크 호환) → 웹앱 품질 향상에 기여
+- **Phase 6.3** (JS Engine) → Required for 7.2 Service Worker execution
+- **Phase 6.5** (Web Platform API) → Required for 7.2 Cache API, Notification API
+- **Phase 6.8** (PWA Foundation) → Overlaps with 7.2 → **7.2 absorbs/replaces it**
+- **Phase 6.9** (Framework Compatibility) → Contributes to web app quality
 
-Phase 6.3이 완성될 때까지 7.2의 Service Worker는 **캐시 전용 모드** (JS 없이 URL 패턴 매칭 기반)로 동작 가능.
+Until Phase 6.3 is complete, 7.2's Service Worker operates in **cache-only mode** (URL pattern matching without JS).
 
 ---
 
-*이 문서는 KPIO OS의 앱 구동 레이어 설계 명세이다. 세부 구현은 각 서브 페이즈의 체크리스트를 따른다.*
+*This document is the design specification for KPIO OS's App Execution Layer. Detailed implementation follows each sub-phase's checklist.*

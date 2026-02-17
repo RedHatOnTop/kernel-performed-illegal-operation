@@ -18,11 +18,18 @@ This directory contains design and implementation documentation for KPIO.
 - [WebAssembly Runtime](architecture/wasm-runtime.md)
 - [System Call Design](architecture/syscall-design.md)
 
+## Developer Guides
+
+- [WASM App Development with Rust](guides/WASM_APP_RUST.md)
+- [WASM App Development with C/C++](guides/WASM_APP_C_CPP.md)
+- [KPIO App API Reference](guides/KPIO_APP_API_REFERENCE.md)
+- [Local Development Setup](guides/LOCAL_DEVELOPMENT.md)
+
 ## Phase 7: App Execution Layer (Current)
 
-- [Phase 7-1: Web App Platform](phase7/PHASE_7-1_WEB_APP_PLATFORM.md)
 - [Phase 7-2: WASM App Runtime](phase7/PHASE_7-2_WASM_APP_RUNTIME_EN.md)
-- [Phase 7-2: Execution Master](phase7/PHASE_7-2_EXECUTION_MASTER.md)
+- [Phase 7-3: WASI App Runtime Plan](phase7/PHASE_7-3_WASI_APP_RUNTIME_PLAN.md)
+- [Phase 7-4: Linux Binary Compatibility Layer](phase7/PHASE_7-4_LINUX_COMPAT_PLAN.md)
 - [Web App Architecture](phase7/WEB_APP_ARCHITECTURE.md)
 - [Web App Developer Guide](phase7/WEB_APP_DEVELOPER_GUIDE.md)
 
@@ -31,3 +38,5 @@ This directory contains design and implementation documentation for KPIO.
 - [Roadmap](roadmap.md)
 - [Recommendations](RECOMMENDATIONS.md)
 - [Design System](design-system.md)
+- [Quick Start](QUICK_START.md)
+- [User Guide](USER_GUIDE.md)
