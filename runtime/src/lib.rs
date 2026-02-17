@@ -43,6 +43,7 @@ pub mod module;
 pub mod opcodes;
 pub mod package;
 pub mod parser;
+pub mod posix_shim;
 pub mod registry;
 pub mod sandbox;
 pub mod service_worker;
