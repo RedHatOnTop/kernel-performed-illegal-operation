@@ -328,12 +328,13 @@ mod tests {
 
     #[test]
     fn test_user_context() {
-        let ctx = ProcessContext::new_user(0x400000, 0x7FFFFF000, 0x1B, 0x23);
+        // User CS = 0x23 (GDT index 4, RPL 3), User DS = 0x1B (GDT index 3, RPL 3)
+        let ctx = ProcessContext::new_user(0x400000, 0x7FFFFF000, 0x23, 0x1B);
 
         assert_eq!(ctx.rip, 0x400000);
         assert_eq!(ctx.rsp, 0x7FFFFF000);
-        assert_eq!(ctx.cs, 0x1B);
-        assert_eq!(ctx.ss, 0x23);
+        assert_eq!(ctx.cs, 0x23);
+        assert_eq!(ctx.ss, 0x1B);
         assert_ne!(ctx.rflags & 0x200, 0); // IF set
     }
 

@@ -14,11 +14,13 @@ use crate::loader::program::UserProgram;
 /// Kernel stack size (16KB)
 const KERNEL_STACK_SIZE: usize = 16 * 1024;
 
-/// User code segment selector (Ring 3)
-const USER_CS: u16 = 0x1B; // Index 3, RPL 3
+/// User code segment selector (Ring 3) — from GDT
+/// GDT index 4, byte offset 0x20, RPL 3 → 0x23
+const USER_CS: u16 = crate::gdt::USER_CS;
 
-/// User data segment selector (Ring 3)
-const USER_DS: u16 = 0x23; // Index 4, RPL 3
+/// User data segment selector (Ring 3) — from GDT
+/// GDT index 3, byte offset 0x18, RPL 3 → 0x1B
+const USER_DS: u16 = crate::gdt::USER_DS;
 
 /// Process creation error
 #[derive(Debug)]

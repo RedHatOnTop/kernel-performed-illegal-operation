@@ -14,6 +14,7 @@
 pub mod buddy;
 pub mod optimization;
 pub mod slab;
+pub mod user_page_table;
 
 use bootloader_api::info::MemoryRegionKind;
 use spin::Mutex;

@@ -18,6 +18,8 @@
 
 pub mod elf;
 pub mod program;
+pub mod segment_loader;
 
 pub use elf::{Elf64Loader, ElfError, LoadedProgram};
 pub use program::{ProgramState, UserProgram};
+pub use segment_loader::{LoadResult, SegmentLoadError};

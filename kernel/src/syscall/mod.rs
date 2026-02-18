@@ -297,9 +297,13 @@ fn setup_syscall_msr() {
     const LSTAR_MSR: u32 = 0xC0000082;
     const SFMASK_MSR: u32 = 0xC0000084;
 
-    // Kernel CS = 0x08, Kernel SS = 0x10
-    // User CS = 0x1B (0x18 + 3), User SS = 0x23 (0x20 + 3)
-    let star_value: u64 = (0x001B_0008u64) << 32;
+    // GDT Layout:
+    //   [1] Kernel CS = 0x08, [2] Kernel DS = 0x10
+    //   [3] User DS = 0x18 (RPL3 = 0x1B), [4] User CS = 0x20 (RPL3 = 0x23)
+    //
+    // STAR[47:32] = 0x0008 → SYSCALL: CS=0x08, SS=0x10
+    // STAR[63:48] = 0x0010 → SYSRET:  SS=(0x10+8)|3=0x1B, CS=(0x10+16)|3=0x23
+    let star_value: u64 = (0x0010_0008u64) << 32;
 
     unsafe {
         // Set STAR
