@@ -14,7 +14,6 @@
 //! 7. Set TSS RSP0 for Ring 3→0 transitions
 //! 8. Enter userspace via `iretq`
 
-use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -24,7 +23,9 @@ use crate::loader::program::{layout, UserProgram};
 use crate::loader::segment_loader::{self, SegmentLoadError};
 use crate::memory::user_page_table;
 use crate::process::context::ProcessContext;
-use crate::process::table::{Process, ProcessId, Thread, ThreadId, PROCESS_TABLE};
+use crate::process::table::{
+    LinuxMemoryInfo, Process, ProcessId, Thread, ThreadId, MMAP_BASE, PROCESS_TABLE,
+};
 
 /// Kernel stack size for each user process (16 KiB).
 const KERNEL_STACK_SIZE: usize = 16 * 1024;
@@ -192,6 +193,16 @@ pub fn launch_linux_process(
 
     // Step 8: Create Process and Thread
     let mut process = Process::new(name.clone(), parent, cr3);
+
+    // Initialize Linux memory management state
+    let brk_start = load_result.brk_start;
+    process.linux_memory = Some(LinuxMemoryInfo {
+        cr3,
+        brk_start,
+        brk_current: brk_start,
+        vma_list: alloc::vec::Vec::new(),
+        mmap_next_addr: MMAP_BASE,
+    });
 
     let main_thread = Thread {
         tid: ThreadId::new(),

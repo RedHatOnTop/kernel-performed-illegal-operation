@@ -228,8 +228,8 @@ pub fn linux_syscall_dispatch(
     a2: u64,
     a3: u64,
     a4: u64,
-    _a5: u64,
-    _a6: u64,
+    a5: u64,
+    a6: u64,
 ) -> i64 {
     match nr {
         // File I/O
@@ -253,11 +253,11 @@ pub fn linux_syscall_dispatch(
         SYS_GETUID | SYS_GETEUID => 0, // root
         SYS_GETGID | SYS_GETEGID => 0, // root
 
-        // Memory (stubs — implemented in Phase 7-4.3)
+        // Memory management
         SYS_BRK => linux_handlers::sys_brk(a1),
-        SYS_MMAP => -ENOSYS,
-        SYS_MPROTECT => 0, // silently succeed
-        SYS_MUNMAP => 0,   // silently succeed
+        SYS_MMAP => linux_handlers::sys_mmap(a1, a2, a3 as u32, a4 as u32, a5 as i32, a6),
+        SYS_MPROTECT => linux_handlers::sys_mprotect(a1, a2, a3 as u32),
+        SYS_MUNMAP => linux_handlers::sys_munmap(a1, a2),
 
         // Misc
         SYS_UNAME => linux_handlers::sys_uname(a1),

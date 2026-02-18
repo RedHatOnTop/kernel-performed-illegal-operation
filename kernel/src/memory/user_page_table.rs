@@ -14,9 +14,12 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::structures::paging::{
-    FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
+    FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PhysFrame, Size4KiB,
 };
 use x86_64::{PhysAddr, VirtAddr};
+
+// Re-export PageTableFlags for use by syscall handlers
+pub use x86_64::structures::paging::PageTableFlags;
 
 /// Physical memory offset (set during kernel init).
 static PHYS_OFFSET: AtomicU64 = AtomicU64::new(0);

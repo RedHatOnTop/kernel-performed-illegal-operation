@@ -11,6 +11,46 @@ use spin::RwLock;
 use super::context::ProcessContext;
 use crate::loader::program::UserProgram;
 
+// ═══════════════════════════════════════════════════════════════════════
+// Linux memory management structures
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Virtual Memory Area — tracks a mapped region in the process address space.
+#[derive(Debug, Clone)]
+pub struct Vma {
+    /// Start virtual address (page-aligned)
+    pub start: u64,
+    /// End virtual address (exclusive, page-aligned)
+    pub end: u64,
+    /// Protection flags (Linux PROT_READ=1, PROT_WRITE=2, PROT_EXEC=4)
+    pub prot: u32,
+    /// Map flags (Linux MAP_PRIVATE=0x02, MAP_ANONYMOUS=0x20, etc.)
+    pub flags: u32,
+}
+
+/// Linux-specific memory management state per process.
+///
+/// Tracks the program break (brk/sbrk) and memory mapped regions (mmap).
+#[derive(Debug, Clone)]
+pub struct LinuxMemoryInfo {
+    /// Page table root physical address (CR3)
+    pub cr3: u64,
+    /// Initial program break (page-aligned end of loaded segments)
+    pub brk_start: u64,
+    /// Current program break
+    pub brk_current: u64,
+    /// List of mapped virtual memory areas (mmap'd regions)
+    pub vma_list: Vec<Vma>,
+    /// Next mmap hint address (starts at 0x7F00_0000_0000, decrements)
+    pub mmap_next_addr: u64,
+}
+
+/// Starting address for mmap allocations (descends from here).
+pub const MMAP_BASE: u64 = 0x7F00_0000_0000;
+
+/// Maximum heap size (256 MB).
+pub const MAX_HEAP_SIZE: u64 = 256 * 1024 * 1024;
+
 /// Process ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProcessId(pub u64);
@@ -154,6 +194,8 @@ pub struct Process {
     pub uid: u32,
     /// Group ID
     pub gid: u32,
+    /// Linux memory management state (brk, mmap VMAs)
+    pub linux_memory: Option<LinuxMemoryInfo>,
 }
 
 /// File descriptor entry
@@ -210,6 +252,7 @@ impl Process {
             cwd: String::from("/"),
             uid: 0,
             gid: 0,
+            linux_memory: None,
         }
     }
 
@@ -262,6 +305,7 @@ impl Process {
             cwd: String::from("/"),
             uid: 0,
             gid: 0,
+            linux_memory: None,
         }
     }
 
@@ -373,6 +417,17 @@ impl ProcessTable {
         } else {
             None
         }
+    }
+
+    /// Execute a closure with mutable access to a process.
+    ///
+    /// Returns `None` if the process does not exist.
+    pub fn with_process_mut<F, R>(&self, pid: ProcessId, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut Process) -> R,
+    {
+        let mut guard = self.processes.write();
+        guard.get_mut(&pid).map(f)
     }
 
     /// Set the current process for a CPU
