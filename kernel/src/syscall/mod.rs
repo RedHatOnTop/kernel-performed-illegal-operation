@@ -1,9 +1,12 @@
 //! System call handling module.
 //!
-//! This module implements the system call interface for WASM processes.
-//! All system calls follow the capability-based security model.
+//! This module implements the system call interface for WASM processes
+//! (KPIO-native) and Linux binary compatibility (x86_64 ABI).
 
 pub mod handlers;
+pub mod linux;
+pub mod linux_handlers;
+pub mod percpu;
 
 use core::arch::asm;
 
