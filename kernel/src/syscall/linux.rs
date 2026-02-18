@@ -43,8 +43,10 @@ pub const EMFILE: i64 = 24;
 pub const ENOSPC: i64 = 28;
 pub const ESPIPE: i64 = 29;
 pub const EROFS: i64 = 30;
+pub const ENAMETOOLONG: i64 = 36;
 pub const ENOSYS: i64 = 38;
 pub const ENOTEMPTY: i64 = 39;
+pub const ERANGE: i64 = 34;
 
 // ─── Linux syscall numbers (x86_64) ──────────────────────────────────
 
@@ -59,22 +61,34 @@ pub const SYS_MMAP: u64 = 9;
 pub const SYS_MPROTECT: u64 = 10;
 pub const SYS_MUNMAP: u64 = 11;
 pub const SYS_BRK: u64 = 12;
+pub const SYS_RT_SIGACTION: u64 = 13;
+pub const SYS_RT_SIGPROCMASK: u64 = 14;
 pub const SYS_IOCTL: u64 = 16;
+pub const SYS_WRITEV: u64 = 20;
 pub const SYS_ACCESS: u64 = 21;
 pub const SYS_DUP: u64 = 32;
 pub const SYS_DUP2: u64 = 33;
 pub const SYS_GETPID: u64 = 39;
 pub const SYS_EXIT: u64 = 60;
 pub const SYS_UNAME: u64 = 63;
+pub const SYS_GETCWD: u64 = 79;
+pub const SYS_CHDIR: u64 = 80;
+pub const SYS_MKDIR: u64 = 83;
+pub const SYS_UNLINK: u64 = 87;
+pub const SYS_READLINK: u64 = 89;
 pub const SYS_GETUID: u64 = 102;
 pub const SYS_GETGID: u64 = 104;
 pub const SYS_GETEUID: u64 = 107;
 pub const SYS_GETEGID: u64 = 108;
-pub const SYS_ARCH_PRCTL: u64 = 158;
-pub const SYS_OPENAT: u64 = 257;
-pub const SYS_EXIT_GROUP: u64 = 231;
+pub const SYS_GETDENTS64: u64 = 217;
 pub const SYS_SET_TID_ADDRESS: u64 = 218;
+pub const SYS_KILL: u64 = 62;
 pub const SYS_CLOCK_GETTIME: u64 = 228;
+pub const SYS_EXIT_GROUP: u64 = 231;
+pub const SYS_READLINKAT: u64 = 267;
+pub const SYS_ARCH_PRCTL: u64 = 158;
+pub const SYS_SET_ROBUST_LIST: u64 = 273;
+pub const SYS_OPENAT: u64 = 257;
 pub const SYS_GETRANDOM: u64 = 318;
 
 /// AT_FDCWD sentinel value used by `openat`.
@@ -245,6 +259,7 @@ pub fn linux_syscall_dispatch(
         SYS_DUP => linux_handlers::sys_dup(a1 as i32),
         SYS_DUP2 => linux_handlers::sys_dup2(a1 as i32, a2 as i32),
         SYS_IOCTL => linux_handlers::sys_ioctl(a1 as i32, a2, a3),
+        SYS_WRITEV => linux_handlers::sys_writev(a1 as i32, a2, a3 as u32),
 
         // Process
         SYS_EXIT => linux_handlers::sys_exit(a1 as i32),
@@ -252,6 +267,7 @@ pub fn linux_syscall_dispatch(
         SYS_GETPID => linux_handlers::sys_getpid(),
         SYS_GETUID | SYS_GETEUID => 0, // root
         SYS_GETGID | SYS_GETEGID => 0, // root
+        SYS_KILL => linux_handlers::sys_kill(a1 as i32, a2 as i32),
 
         // Memory management
         SYS_BRK => linux_handlers::sys_brk(a1),
@@ -259,10 +275,24 @@ pub fn linux_syscall_dispatch(
         SYS_MPROTECT => linux_handlers::sys_mprotect(a1, a2, a3 as u32),
         SYS_MUNMAP => linux_handlers::sys_munmap(a1, a2),
 
+        // Directory / filesystem
+        SYS_GETCWD => linux_handlers::sys_getcwd(a1, a2),
+        SYS_CHDIR => linux_handlers::sys_chdir(a1),
+        SYS_MKDIR => linux_handlers::sys_mkdir(a1, a2 as u32),
+        SYS_UNLINK => linux_handlers::sys_unlink(a1),
+        SYS_READLINK => linux_handlers::sys_readlink(a1, a2, a3),
+        SYS_READLINKAT => linux_handlers::sys_readlinkat(a1 as i32, a2, a3, a4),
+        SYS_GETDENTS64 => linux_handlers::sys_getdents64(a1 as i32, a2, a3 as u32),
+
+        // Signals
+        SYS_RT_SIGACTION => 0,    // stub — musl init calls this
+        SYS_RT_SIGPROCMASK => 0,  // stub — musl init calls this
+
         // Misc
         SYS_UNAME => linux_handlers::sys_uname(a1),
         SYS_ARCH_PRCTL => linux_handlers::sys_arch_prctl(a1 as i32, a2),
         SYS_SET_TID_ADDRESS => linux_handlers::sys_set_tid_address(a1),
+        SYS_SET_ROBUST_LIST => 0, // stub
         SYS_CLOCK_GETTIME => linux_handlers::sys_clock_gettime(a1 as i32, a2),
         SYS_GETRANDOM => linux_handlers::sys_getrandom(a1, a2, a3 as u32),
 

@@ -133,7 +133,7 @@ pub fn readdir(path: &str) -> Result<Vec<(String, u64)>, VfsError> {
 }
 
 /// Split "/a/b/c" into ("/a/b", "c").
-fn split_path(path: &str) -> (&str, &str) {
+pub fn split_path(path: &str) -> (&str, &str) {
     if let Some(pos) = path.rfind('/') {
         let parent = if pos == 0 { "/" } else { &path[..pos] };
         let name = &path[pos + 1..];

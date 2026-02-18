@@ -19,7 +19,8 @@ use alloc::vec::Vec;
 
 use super::linux::{
     copy_to_user, read_user_string, validate_user_ptr,
-    AT_FDCWD, EACCES, EBADF, EFAULT, EINVAL, EMFILE, ENOENT, ENOSYS, ESPIPE,
+    AT_FDCWD, EACCES, EBADF, EFAULT, EINVAL, EISDIR, EMFILE, ENOENT, ENOSYS, ENOTDIR,
+    ERANGE, ESRCH, ESPIPE, EEXIST,
 };
 use crate::memory::user_page_table;
 use crate::process::table::{
@@ -750,6 +751,18 @@ pub fn sys_ioctl(fd: i32, request: u64, arg: u64) -> i64 {
 pub fn sys_exit(status: i32) -> i64 {
     crate::serial_println!("[KPIO/Linux] Process exit with status {}", status);
 
+    // Mark process as exited in the process table
+    if let Some(pid) = current_pid() {
+        PROCESS_TABLE.with_process_mut(pid, |proc| {
+            proc.set_exited(status);
+            // Close all file descriptors
+            let fds: Vec<u32> = proc.file_descriptors.keys().copied().collect();
+            for fd in fds {
+                proc.remove_fd(fd);
+            }
+        });
+    }
+
     // Write exit code to debug port for QEMU test harness
     use x86_64::instructions::port::Port;
     let exit_code: u32 = if status == 0 { 0x10 } else { 0x11 }; // success=33, fail=35
@@ -1356,6 +1369,493 @@ fn update_fd_offset(pid: ProcessId, fd: u32, new_offset: usize) {
             fde.offset = new_offset as u64;
         }
         PROCESS_TABLE.add(proc);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 7-4.4: writev, directory operations, readlink, getdents64, kill
+// ═══════════════════════════════════════════════════════════════════════
+
+/// `writev(fd, iov, iovcnt)` — write multiple buffers (scatter/gather I/O)
+///
+/// `struct iovec { void *iov_base; size_t iov_len; }`  (each entry 16 bytes)
+pub fn sys_writev(fd: i32, iov_ptr: u64, iovcnt: u32) -> i64 {
+    if iovcnt == 0 {
+        return 0;
+    }
+    if iovcnt > 1024 {
+        return -EINVAL;
+    }
+    // Validate the iovec array pointer: each entry is 16 bytes
+    let total_iov_bytes = (iovcnt as u64) * 16;
+    if validate_user_ptr(iov_ptr, total_iov_bytes).is_err() {
+        return -EFAULT;
+    }
+
+    let mut total_written: i64 = 0;
+
+    for i in 0..iovcnt {
+        let entry_addr = iov_ptr + (i as u64) * 16;
+        // Read iov_base (u64) and iov_len (u64)
+        let mut buf = [0u8; 16];
+        if super::linux::copy_from_user(&mut buf, entry_addr).is_err() {
+            return -EFAULT;
+        }
+        let iov_base = u64::from_le_bytes([buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]]);
+        let iov_len = u64::from_le_bytes([buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]]);
+
+        if iov_len == 0 {
+            continue;
+        }
+
+        // Call sys_write for this chunk
+        let result = sys_write(fd, iov_base, iov_len);
+        if result < 0 {
+            if total_written > 0 {
+                return total_written;
+            }
+            return result;
+        }
+        total_written += result;
+    }
+    total_written
+}
+
+/// `getcwd(buf, size)` — get current working directory
+///
+/// Returns the length of the path (including NUL) on success, or -errno.
+pub fn sys_getcwd(buf_ptr: u64, size: u64) -> i64 {
+    let pid = current_pid();
+    let cwd = if let Some(pid) = pid {
+        PROCESS_TABLE
+            .with_process_mut(pid, |p| p.cwd.clone())
+            .unwrap_or_else(|| String::from("/"))
+    } else {
+        String::from("/")
+    };
+
+    let cwd_bytes = cwd.as_bytes();
+    let needed = cwd_bytes.len() + 1; // include NUL terminator
+
+    if size == 0 {
+        return -EINVAL;
+    }
+    if (size as usize) < needed {
+        return -ERANGE;
+    }
+    if validate_user_ptr(buf_ptr, needed as u64).is_err() {
+        return -EFAULT;
+    }
+
+    // Copy path + NUL to user buffer
+    let mut out = Vec::with_capacity(needed);
+    out.extend_from_slice(cwd_bytes);
+    out.push(0);
+    if copy_to_user(buf_ptr, &out).is_err() {
+        return -EFAULT;
+    }
+
+    needed as i64
+}
+
+/// `chdir(path)` — change working directory
+pub fn sys_chdir(path_ptr: u64) -> i64 {
+    let path = match read_user_string(path_ptr, PATH_MAX) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    if path.is_empty() {
+        return -ENOENT;
+    }
+
+    // Resolve the path — must resolve to an existing directory
+    let resolved = resolve_path(&path);
+    let exists_and_is_dir = crate::terminal::fs::with_fs(|fs| {
+        if let Some(ino) = fs.resolve(&resolved) {
+            if let Some(inode) = fs.get(ino) {
+                return inode.mode.is_dir();
+            }
+        }
+        false
+    });
+
+    if !exists_and_is_dir {
+        return -ENOENT;
+    }
+
+    // Update process cwd
+    if let Some(pid) = current_pid() {
+        PROCESS_TABLE.with_process_mut(pid, |p| {
+            p.cwd = resolved;
+        });
+    }
+    0
+}
+
+/// `mkdir(path, mode)` — create a directory
+pub fn sys_mkdir(path_ptr: u64, _mode: u32) -> i64 {
+    let path = match read_user_string(path_ptr, PATH_MAX) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    if path.is_empty() {
+        return -ENOENT;
+    }
+
+    let resolved = resolve_path(&path);
+    let (parent_path, dir_name) = vfs::split_path(&resolved);
+    if dir_name.is_empty() {
+        return -EINVAL;
+    }
+
+    let result = crate::terminal::fs::with_fs(|fs| {
+        let parent_ino = match fs.resolve(parent_path) {
+            Some(ino) => ino,
+            None => return -ENOENT,
+        };
+        match fs.mkdir(parent_ino, dir_name) {
+            Ok(_) => 0i64,
+            Err(_) => -EEXIST,
+        }
+    });
+
+    result
+}
+
+/// `unlink(path)` — delete a file
+pub fn sys_unlink(path_ptr: u64) -> i64 {
+    let path = match read_user_string(path_ptr, PATH_MAX) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    if path.is_empty() {
+        return -ENOENT;
+    }
+
+    let resolved = resolve_path(&path);
+    let (parent_path, file_name) = vfs::split_path(&resolved);
+    if file_name.is_empty() {
+        return -EINVAL;
+    }
+
+    let result = crate::terminal::fs::with_fs(|fs| {
+        let parent_ino = match fs.resolve(parent_path) {
+            Some(ino) => ino,
+            None => return -ENOENT,
+        };
+        // Check the target exists and is not a directory (use rmdir for dirs)
+        if let Some(target_ino) = fs.lookup(parent_ino, file_name) {
+            if let Some(inode) = fs.get(target_ino) {
+                if inode.mode.is_dir() {
+                    return -EISDIR;
+                }
+            }
+        } else {
+            return -ENOENT;
+        }
+        match fs.remove(parent_ino, file_name) {
+            Ok(_) => 0i64,
+            Err(_) => -ENOENT,
+        }
+    });
+
+    result
+}
+
+/// `readlink(path, buf, bufsiz)` — read value of a symbolic link
+///
+/// Special-cases `/proc/self/exe` to return the current process's binary path.
+pub fn sys_readlink(path_ptr: u64, buf_ptr: u64, bufsiz: u64) -> i64 {
+    let path = match read_user_string(path_ptr, PATH_MAX) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    // Special case: /proc/self/exe → binary path
+    if path == "/proc/self/exe" {
+        let exe_path = b"/bin/app";
+        let copy_len = core::cmp::min(exe_path.len(), bufsiz as usize);
+        if validate_user_ptr(buf_ptr, copy_len as u64).is_err() {
+            return -EFAULT;
+        }
+        if copy_to_user(buf_ptr, &exe_path[..copy_len]).is_err() {
+            return -EFAULT;
+        }
+        return copy_len as i64;
+    }
+
+    // Try to resolve as a symlink in the VFS
+    let resolved = resolve_path(&path);
+    let link_target = crate::terminal::fs::with_fs(|fs| {
+        if let Some(ino) = fs.resolve(&resolved) {
+            if let Some(inode) = fs.get(ino) {
+                if let crate::terminal::fs::InodeContent::Symlink(ref target) = inode.content {
+                    return Some(target.clone());
+                }
+            }
+        }
+        None
+    });
+
+    match link_target {
+        Some(target) => {
+            let target_bytes = target.as_bytes();
+            let copy_len = core::cmp::min(target_bytes.len(), bufsiz as usize);
+            if validate_user_ptr(buf_ptr, copy_len as u64).is_err() {
+                return -EFAULT;
+            }
+            if copy_to_user(buf_ptr, &target_bytes[..copy_len]).is_err() {
+                return -EFAULT;
+            }
+            copy_len as i64
+        }
+        None => -EINVAL,
+    }
+}
+
+/// `readlinkat(dirfd, path, buf, bufsiz)` — readlink relative to dirfd
+pub fn sys_readlinkat(dirfd: i32, path_ptr: u64, buf_ptr: u64, bufsiz: u64) -> i64 {
+    // AT_FDCWD (-100) means "relative to cwd" → delegate to readlink
+    if dirfd == AT_FDCWD as i32 {
+        return sys_readlink(path_ptr, buf_ptr, bufsiz);
+    }
+    // For other dirfd values, treat as readlink with the given path
+    sys_readlink(path_ptr, buf_ptr, bufsiz)
+}
+
+/// Linux `struct linux_dirent64` layout:
+/// ```text
+/// d_ino:    u64  (8 bytes)  — inode number
+/// d_off:    i64  (8 bytes)  — offset to next entry
+/// d_reclen: u16  (2 bytes)  — size of this record
+/// d_type:   u8   (1 byte)   — file type
+/// d_name:   [u8] (variable) — NUL-terminated name
+/// ```
+const DT_UNKNOWN: u8 = 0;
+const DT_DIR: u8 = 4;
+const DT_REG: u8 = 8;
+const DT_LNK: u8 = 10;
+
+/// `getdents64(fd, dirp, count)` — get directory entries
+pub fn sys_getdents64(fd: i32, dirp: u64, count: u32) -> i64 {
+    if count < 24 {
+        // Minimum dirent64 size: 8+8+2+1+1(NUL)+padding = ~20, but realistically 24
+        return -EINVAL;
+    }
+    if validate_user_ptr(dirp, count as u64).is_err() {
+        return -EFAULT;
+    }
+
+    // Look up the file descriptor to find the directory path
+    let pid = current_pid();
+    let (dir_path, current_offset) = if let Some(pid) = pid {
+        PROCESS_TABLE
+            .with_process_mut(pid, |p| {
+                if let Some(fde) = p.get_fd(fd as u32) {
+                    match &fde.resource {
+                        FileResource::File { path } => {
+                            Some((path.clone(), fde.offset))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .unwrap_or_else(|| {
+                // Fallback for kernel context: assume "/" if fd looks like a dir fd
+                (String::from("/"), 0)
+            })
+    } else {
+        (String::from("/"), 0)
+    };
+
+    // Read directory entries from VFS
+    let entries = crate::terminal::fs::with_fs(|fs| {
+        if let Some(ino) = fs.resolve(&dir_path) {
+            fs.readdir_all(ino)
+        } else {
+            None
+        }
+    });
+
+    let entries = match entries {
+        Some(e) => e,
+        None => return -ENOTDIR,
+    };
+
+    // Skip entries we've already returned (tracked by offset)
+    let start_idx = current_offset as usize;
+    if start_idx >= entries.len() {
+        // Already read everything — return 0 (EOF)
+        return 0;
+    }
+
+    let mut buf = Vec::new();
+    let mut entries_written: usize = 0;
+
+    for (idx, (name, ino)) in entries.iter().enumerate().skip(start_idx) {
+        // Determine d_type from inode
+        let d_type = crate::terminal::fs::with_fs(|fs| {
+            if let Some(inode) = fs.get(*ino) {
+                if inode.mode.is_dir() {
+                    DT_DIR
+                } else if inode.mode.is_symlink() {
+                    DT_LNK
+                } else {
+                    DT_REG
+                }
+            } else {
+                DT_UNKNOWN
+            }
+        });
+
+        let name_bytes = name.as_bytes();
+        // d_reclen must be 8-byte aligned
+        let reclen_raw = 8 + 8 + 2 + 1 + name_bytes.len() + 1; // ino + off + reclen + type + name + NUL
+        let reclen = (reclen_raw + 7) & !7; // align to 8
+
+        if buf.len() + reclen > count as usize {
+            break; // buffer full
+        }
+
+        let d_off = (idx + 1) as i64; // offset = next entry index
+
+        // Write d_ino (u64)
+        buf.extend_from_slice(&(*ino as u64).to_le_bytes());
+        // Write d_off (i64)
+        buf.extend_from_slice(&d_off.to_le_bytes());
+        // Write d_reclen (u16)
+        buf.extend_from_slice(&(reclen as u16).to_le_bytes());
+        // Write d_type (u8)
+        buf.push(d_type);
+        // Write d_name (NUL-terminated)
+        buf.extend_from_slice(name_bytes);
+        buf.push(0); // NUL
+
+        // Padding to alignment
+        while buf.len() < (buf.len() + reclen - reclen_raw) {
+            // This doesn't quite work — recompute
+            break;
+        }
+        // Pad to reclen
+        while buf.len() % 8 != 0 || buf.len() < (entries_written * reclen + reclen) {
+            // Simple: just pad to correct total size
+            break;
+        }
+        let target_len = buf.len();
+        let padding_needed = reclen - (target_len - (buf.len() - (8 + 8 + 2 + 1 + name_bytes.len() + 1)));
+        // Simpler approach: we know the current length before this entry
+        let entry_current_len = 8 + 8 + 2 + 1 + name_bytes.len() + 1;
+        for _ in entry_current_len..reclen {
+            buf.push(0);
+        }
+
+        entries_written += 1;
+    }
+
+    if entries_written == 0 {
+        return -EINVAL; // buffer too small for even one entry
+    }
+
+    // Copy to userspace
+    if copy_to_user(dirp, &buf).is_err() {
+        return -EFAULT;
+    }
+
+    // Update the FD offset to track how many entries we've consumed
+    let new_offset = start_idx + entries_written;
+    if let Some(pid) = pid {
+        PROCESS_TABLE.with_process_mut(pid, |p| {
+            if let Some(fde) = p.file_descriptors.get_mut(&(fd as u32)) {
+                fde.offset = new_offset as u64;
+            }
+        });
+    }
+
+    buf.len() as i64
+}
+
+/// `kill(pid, sig)` — send signal to process
+///
+/// Only SIGKILL (9) and SIGTERM (15) actually terminate the target.
+/// Other signals are silently accepted (return 0).
+const SIGKILL: i32 = 9;
+const SIGTERM: i32 = 15;
+
+pub fn sys_kill(pid: i32, sig: i32) -> i64 {
+    crate::serial_println!("[KPIO/Linux] kill(pid={}, sig={})", pid, sig);
+
+    if sig < 0 || sig > 64 {
+        return -EINVAL;
+    }
+
+    // sig == 0 means "check if process exists"
+    if sig == 0 {
+        if pid <= 0 {
+            return 0; // process group — just say OK
+        }
+        let target = ProcessId::from_u64(pid as u64);
+        let exists = PROCESS_TABLE.get(target).is_some();
+        return if exists { 0 } else { -ESRCH };
+    }
+
+    // For negative pid: process group kill — stub: return 0
+    if pid <= 0 {
+        return 0;
+    }
+
+    let target = ProcessId::from_u64(pid as u64);
+
+    // Check target exists
+    let exists = PROCESS_TABLE.get(target).is_some();
+    if !exists {
+        return -ESRCH;
+    }
+
+    // Only SIGKILL and SIGTERM actually terminate
+    if sig == SIGKILL || sig == SIGTERM {
+        PROCESS_TABLE.with_process_mut(target, |p| {
+            p.set_exited(128 + sig);
+            // Close all FDs
+            let fds: alloc::vec::Vec<u32> = p.file_descriptors.keys().copied().collect();
+            for fd_num in fds {
+                p.remove_fd(fd_num);
+            }
+        });
+        crate::serial_println!("[KPIO/Linux] Process {} killed by signal {}", pid, sig);
+    }
+
+    0
+}
+
+/// Resolve a user-supplied path, making it absolute by prepending cwd if relative.
+fn resolve_path(path: &str) -> String {
+    if path.starts_with('/') {
+        // Already absolute
+        return String::from(path);
+    }
+
+    // Get CWD from current process
+    let cwd = if let Some(pid) = current_pid() {
+        PROCESS_TABLE
+            .with_process_mut(pid, |p| p.cwd.clone())
+            .unwrap_or_else(|| String::from("/"))
+    } else {
+        String::from("/")
+    };
+
+    // Join cwd + path
+    if cwd == "/" {
+        let mut result = String::from("/");
+        result.push_str(path);
+        result
+    } else {
+        let mut result = cwd;
+        result.push('/');
+        result.push_str(path);
+        result
     }
 }
 
