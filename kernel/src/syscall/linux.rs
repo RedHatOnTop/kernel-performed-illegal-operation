@@ -43,10 +43,12 @@ pub const EMFILE: i64 = 24;
 pub const ENOSPC: i64 = 28;
 pub const ESPIPE: i64 = 29;
 pub const EROFS: i64 = 30;
+pub const EPIPE: i64 = 32;
+pub const ERANGE: i64 = 34;
 pub const ENAMETOOLONG: i64 = 36;
 pub const ENOSYS: i64 = 38;
 pub const ENOTEMPTY: i64 = 39;
-pub const ERANGE: i64 = 34;
+pub const ENOTTY: i64 = 25;
 
 // ─── Linux syscall numbers (x86_64) ──────────────────────────────────
 
@@ -90,6 +92,17 @@ pub const SYS_ARCH_PRCTL: u64 = 158;
 pub const SYS_SET_ROBUST_LIST: u64 = 273;
 pub const SYS_OPENAT: u64 = 257;
 pub const SYS_GETRANDOM: u64 = 318;
+
+// Phase 7-4.5: Pipe, time, and remaining stubs
+pub const SYS_READV: u64 = 19;
+pub const SYS_PIPE: u64 = 22;
+pub const SYS_NANOSLEEP: u64 = 35;
+pub const SYS_FCNTL: u64 = 72;
+pub const SYS_GETTIMEOFDAY: u64 = 96;
+pub const SYS_MADVISE: u64 = 28;
+pub const SYS_FUTEX: u64 = 202;
+pub const SYS_PRLIMIT64: u64 = 302;
+pub const SYS_PIPE2: u64 = 293;
 
 /// AT_FDCWD sentinel value used by `openat`.
 pub const AT_FDCWD: i32 = -100;
@@ -259,7 +272,11 @@ pub fn linux_syscall_dispatch(
         SYS_DUP => linux_handlers::sys_dup(a1 as i32),
         SYS_DUP2 => linux_handlers::sys_dup2(a1 as i32, a2 as i32),
         SYS_IOCTL => linux_handlers::sys_ioctl(a1 as i32, a2, a3),
+        SYS_READV => linux_handlers::sys_readv(a1 as i32, a2, a3 as u32),
         SYS_WRITEV => linux_handlers::sys_writev(a1 as i32, a2, a3 as u32),
+        SYS_PIPE => linux_handlers::sys_pipe(a1),
+        SYS_PIPE2 => linux_handlers::sys_pipe2(a1, a2 as u32),
+        SYS_FCNTL => linux_handlers::sys_fcntl(a1 as i32, a2 as i32, a3),
 
         // Process
         SYS_EXIT => linux_handlers::sys_exit(a1 as i32),
@@ -274,6 +291,7 @@ pub fn linux_syscall_dispatch(
         SYS_MMAP => linux_handlers::sys_mmap(a1, a2, a3 as u32, a4 as u32, a5 as i32, a6),
         SYS_MPROTECT => linux_handlers::sys_mprotect(a1, a2, a3 as u32),
         SYS_MUNMAP => linux_handlers::sys_munmap(a1, a2),
+        SYS_MADVISE => 0, // advisory only — no-op
 
         // Directory / filesystem
         SYS_GETCWD => linux_handlers::sys_getcwd(a1, a2),
@@ -288,13 +306,19 @@ pub fn linux_syscall_dispatch(
         SYS_RT_SIGACTION => 0,    // stub — musl init calls this
         SYS_RT_SIGPROCMASK => 0,  // stub — musl init calls this
 
+        // Time
+        SYS_GETTIMEOFDAY => linux_handlers::sys_gettimeofday(a1, a2),
+        SYS_NANOSLEEP => linux_handlers::sys_nanosleep(a1, a2),
+        SYS_CLOCK_GETTIME => linux_handlers::sys_clock_gettime(a1 as i32, a2),
+
         // Misc
         SYS_UNAME => linux_handlers::sys_uname(a1),
         SYS_ARCH_PRCTL => linux_handlers::sys_arch_prctl(a1 as i32, a2),
         SYS_SET_TID_ADDRESS => linux_handlers::sys_set_tid_address(a1),
         SYS_SET_ROBUST_LIST => 0, // stub
-        SYS_CLOCK_GETTIME => linux_handlers::sys_clock_gettime(a1 as i32, a2),
         SYS_GETRANDOM => linux_handlers::sys_getrandom(a1, a2, a3 as u32),
+        SYS_FUTEX => linux_handlers::sys_futex(a1, a2 as i32, a3 as u32),
+        SYS_PRLIMIT64 => linux_handlers::sys_prlimit64(a1 as i32, a2 as u32, a3, a4),
 
         // Everything else → ENOSYS
         unknown => {

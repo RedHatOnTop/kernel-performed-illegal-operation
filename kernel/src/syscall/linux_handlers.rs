@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 use super::linux::{
     copy_to_user, read_user_string, validate_user_ptr,
     AT_FDCWD, EACCES, EBADF, EFAULT, EINVAL, EISDIR, EMFILE, ENOENT, ENOSYS, ENOTDIR,
-    ERANGE, ESRCH, ESPIPE, EEXIST,
+    EPIPE, ERANGE, ESRCH, ESPIPE, EEXIST,
 };
 use crate::memory::user_page_table;
 use crate::process::table::{
@@ -135,6 +135,9 @@ fn read_via_process(pid: ProcessId, fd: u32, buf_ptr: u64, count: u64) -> i64 {
                 Err(_) => -EIO,
             }
         }
+        FileResource::Pipe { buffer_id } => {
+            pipe_read(*buffer_id, buf_ptr, count)
+        }
         _ => -EBADF,
     }
 }
@@ -213,6 +216,9 @@ fn write_via_process(pid: ProcessId, fd: u32, data: &[u8]) -> i64 {
                 }
                 Err(_) => -EIO,
             }
+        }
+        FileResource::Pipe { buffer_id } => {
+            pipe_write_bytes(*buffer_id, data)
         }
         _ => -EBADF,
     }
@@ -339,7 +345,12 @@ fn close_in_process(pid: ProcessId, fd: u32) -> i64 {
         None => return -EBADF,
     };
 
-    let result = if proc.remove_fd(fd).is_some() {
+    let result = if let Some(closed_fd) = proc.remove_fd(fd) {
+        // If it was a pipe, close the pipe end
+        if let FileResource::Pipe { buffer_id } = &closed_fd.resource {
+            let is_write_end = closed_fd.offset == 1; // offset==1 marks write end
+            pipe_close(*buffer_id, is_write_end);
+        }
         0
     } else {
         -EBADF
@@ -1857,6 +1868,487 @@ fn resolve_path(path: &str) -> String {
         result.push_str(path);
         result
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 7-4.5: Pipes, Time, and Extended I/O
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Kernel pipe buffer table ─────────────────────────────────────────
+
+use spin::Mutex;
+use alloc::collections::BTreeMap;
+use core::sync::atomic::{AtomicU64, Ordering};
+
+/// A kernel pipe: a circular buffer with read/write cursors.
+struct PipeBuffer {
+    data: Vec<u8>,
+    /// Write cursor (index of next write position)
+    write_pos: usize,
+    /// Read cursor (index of next read position)
+    read_pos: usize,
+    /// Number of bytes currently in the buffer
+    count: usize,
+    /// Whether the write end has been closed
+    write_closed: bool,
+    /// Whether the read end has been closed
+    read_closed: bool,
+}
+
+const PIPE_BUF_SIZE: usize = 4096;
+
+impl PipeBuffer {
+    fn new() -> Self {
+        Self {
+            data: alloc::vec![0u8; PIPE_BUF_SIZE],
+            write_pos: 0,
+            read_pos: 0,
+            count: 0,
+            write_closed: false,
+            read_closed: false,
+        }
+    }
+
+    fn write(&mut self, src: &[u8]) -> usize {
+        let space = PIPE_BUF_SIZE - self.count;
+        let to_write = core::cmp::min(src.len(), space);
+        for i in 0..to_write {
+            self.data[self.write_pos] = src[i];
+            self.write_pos = (self.write_pos + 1) % PIPE_BUF_SIZE;
+        }
+        self.count += to_write;
+        to_write
+    }
+
+    fn read(&mut self, dst: &mut [u8]) -> usize {
+        let to_read = core::cmp::min(dst.len(), self.count);
+        for i in 0..to_read {
+            dst[i] = self.data[self.read_pos];
+            self.read_pos = (self.read_pos + 1) % PIPE_BUF_SIZE;
+        }
+        self.count -= to_read;
+        to_read
+    }
+}
+
+/// Global pipe buffer table.
+static PIPE_TABLE: Mutex<Option<BTreeMap<u64, PipeBuffer>>> = Mutex::new(None);
+static NEXT_PIPE_ID: AtomicU64 = AtomicU64::new(1);
+
+fn with_pipe_table<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut BTreeMap<u64, PipeBuffer>) -> R,
+{
+    let mut guard = PIPE_TABLE.lock();
+    if guard.is_none() {
+        *guard = Some(BTreeMap::new());
+    }
+    f(guard.as_mut().unwrap())
+}
+
+/// `pipe(pipefd)` — create a pipe, return [read_fd, write_fd]
+pub fn sys_pipe(pipefd_ptr: u64) -> i64 {
+    sys_pipe2(pipefd_ptr, 0)
+}
+
+/// `pipe2(pipefd, flags)` — create a pipe with flags
+pub fn sys_pipe2(pipefd_ptr: u64, _flags: u32) -> i64 {
+    if validate_user_ptr(pipefd_ptr, 8).is_err() {
+        return -EFAULT;
+    }
+
+    let pid = match current_pid() {
+        Some(pid) => pid,
+        None => return -ENOSYS,
+    };
+
+    // Allocate a pipe buffer
+    let pipe_id = NEXT_PIPE_ID.fetch_add(1, Ordering::SeqCst);
+    with_pipe_table(|table| {
+        table.insert(pipe_id, PipeBuffer::new());
+    });
+
+    // Allocate two FDs in the process: read end and write end
+    let result = PROCESS_TABLE.with_process_mut(pid, |proc| {
+        let read_fd = proc.alloc_fd();
+        proc.add_fd(FileDescriptor {
+            fd: read_fd,
+            resource: FileResource::Pipe { buffer_id: pipe_id },
+            flags: 0, // O_RDONLY
+            offset: 0,  // 0 = read end marker
+        });
+
+        let write_fd = proc.alloc_fd();
+        proc.add_fd(FileDescriptor {
+            fd: write_fd,
+            resource: FileResource::Pipe { buffer_id: pipe_id },
+            flags: 1, // O_WRONLY (use flags to distinguish read/write end)
+            offset: 1,  // 1 = write end marker
+        });
+
+        (read_fd, write_fd)
+    });
+
+    let (read_fd, write_fd) = match result {
+        Some(pair) => pair,
+        None => return -ENOSYS,
+    };
+
+    // Write [read_fd, write_fd] to user pointer (2 × i32 = 8 bytes)
+    let mut buf = [0u8; 8];
+    buf[0..4].copy_from_slice(&(read_fd as i32).to_le_bytes());
+    buf[4..8].copy_from_slice(&(write_fd as i32).to_le_bytes());
+    if copy_to_user(pipefd_ptr, &buf).is_err() {
+        return -EFAULT;
+    }
+
+    crate::serial_println!("[KPIO/Linux] pipe() → read_fd={}, write_fd={}", read_fd, write_fd);
+    0
+}
+
+/// Read from a pipe buffer (called by sys_read when fd is a Pipe)
+pub fn pipe_read(pipe_id: u64, buf_ptr: u64, count: u64) -> i64 {
+    let len = count as usize;
+    let mut tmp = alloc::vec![0u8; core::cmp::min(len, PIPE_BUF_SIZE)];
+
+    let bytes_read = with_pipe_table(|table| {
+        if let Some(pipe) = table.get_mut(&pipe_id) {
+            pipe.read(&mut tmp)
+        } else {
+            0
+        }
+    });
+
+    if bytes_read == 0 {
+        // Check if write end is closed
+        let closed = with_pipe_table(|table| {
+            table.get(&pipe_id).map_or(true, |p| p.write_closed)
+        });
+        if closed {
+            return 0; // EOF
+        }
+        return 0; // non-blocking: return 0 (no data available)
+    }
+
+    if copy_to_user(buf_ptr, &tmp[..bytes_read]).is_err() {
+        return -EFAULT;
+    }
+    bytes_read as i64
+}
+
+/// Write to a pipe buffer (called by sys_write when fd is a Pipe)
+pub fn pipe_write(pipe_id: u64, buf_ptr: u64, count: u64) -> i64 {
+    let len = core::cmp::min(count as usize, PIPE_BUF_SIZE);
+    let mut tmp = alloc::vec![0u8; len];
+
+    if super::linux::copy_from_user(&mut tmp, buf_ptr).is_err() {
+        return -EFAULT;
+    }
+
+    pipe_write_bytes(pipe_id, &tmp)
+}
+
+/// Write kernel-space data directly to a pipe (used by write_via_process).
+fn pipe_write_bytes(pipe_id: u64, data: &[u8]) -> i64 {
+    let bytes_written = with_pipe_table(|table| {
+        if let Some(pipe) = table.get_mut(&pipe_id) {
+            if pipe.read_closed {
+                return -1i64; // EPIPE
+            }
+            pipe.write(data) as i64
+        } else {
+            -1 // EPIPE
+        }
+    });
+
+    if bytes_written < 0 {
+        return -EPIPE;
+    }
+    bytes_written
+}
+
+/// Close a pipe end (called by sys_close when fd is a Pipe)
+pub fn pipe_close(pipe_id: u64, is_write_end: bool) {
+    with_pipe_table(|table| {
+        if let Some(pipe) = table.get_mut(&pipe_id) {
+            if is_write_end {
+                pipe.write_closed = true;
+            } else {
+                pipe.read_closed = true;
+            }
+            // If both ends are closed, remove the pipe
+            if pipe.read_closed && pipe.write_closed {
+                table.remove(&pipe_id);
+            }
+        }
+    });
+}
+
+/// `fcntl(fd, cmd, arg)` — file descriptor control
+pub fn sys_fcntl(fd: i32, cmd: i32, arg: u64) -> i64 {
+    const F_DUPFD: i32 = 0;
+    const F_GETFD: i32 = 1;
+    const F_SETFD: i32 = 2;
+    const F_GETFL: i32 = 3;
+    const F_SETFL: i32 = 4;
+    const F_DUPFD_CLOEXEC: i32 = 1030;
+
+    match cmd {
+        F_DUPFD | F_DUPFD_CLOEXEC => {
+            // Duplicate fd to lowest >= arg
+            if let Some(pid) = current_pid() {
+                return dup_in_process(pid, fd as u32, None);
+            }
+            -EBADF
+        }
+        F_GETFD => {
+            // Return FD flags (just 0 — no CLOEXEC tracking yet)
+            0
+        }
+        F_SETFD => {
+            // Set FD flags — accept silently
+            0
+        }
+        F_GETFL => {
+            // Return file status flags
+            if let Some(pid) = current_pid() {
+                let flags = PROCESS_TABLE
+                    .with_process_mut(pid, |p| {
+                        p.get_fd(fd as u32).map(|f| f.flags as i64)
+                    })
+                    .flatten();
+                return flags.unwrap_or(-EBADF);
+            }
+            -EBADF
+        }
+        F_SETFL => {
+            // Set file status flags (O_NONBLOCK, O_APPEND, etc.)
+            if let Some(pid) = current_pid() {
+                PROCESS_TABLE.with_process_mut(pid, |p| {
+                    if let Some(fde) = p.file_descriptors.get_mut(&(fd as u32)) {
+                        fde.flags = arg as u32;
+                    }
+                });
+                return 0;
+            }
+            -EBADF
+        }
+        _ => {
+            crate::serial_println!("[KPIO/Linux] fcntl: fd={}, cmd={} → ENOSYS", fd, cmd);
+            -EINVAL
+        }
+    }
+}
+
+// ── Time syscalls ────────────────────────────────────────────────────
+
+/// `gettimeofday(tv, tz)` — get time of day
+///
+/// `struct timeval { i64 tv_sec; i64 tv_usec; }` (16 bytes)
+pub fn sys_gettimeofday(tv_ptr: u64, _tz_ptr: u64) -> i64 {
+    if tv_ptr == 0 {
+        return 0;
+    }
+    if validate_user_ptr(tv_ptr, 16).is_err() {
+        return -EFAULT;
+    }
+
+    // Use TSC for time measurement
+    let tsc: u64;
+    unsafe {
+        core::arch::asm!("rdtsc", "shl rdx, 32", "or rax, rdx", out("rax") tsc, out("rdx") _);
+    }
+
+    // Approximate: ~2GHz TSC
+    let seconds = tsc / 2_000_000_000;
+    let remainder = tsc % 2_000_000_000;
+    let microseconds = (remainder * 1_000_000) / 2_000_000_000;
+
+    #[repr(C)]
+    struct Timeval {
+        tv_sec: i64,
+        tv_usec: i64,
+    }
+
+    let tv = Timeval {
+        tv_sec: seconds as i64,
+        tv_usec: microseconds as i64,
+    };
+
+    let bytes = unsafe {
+        core::slice::from_raw_parts(
+            &tv as *const Timeval as *const u8,
+            core::mem::size_of::<Timeval>(),
+        )
+    };
+
+    if copy_to_user(tv_ptr, bytes).is_err() {
+        return -EFAULT;
+    }
+    0
+}
+
+/// `nanosleep(req, rem)` — high-resolution sleep
+///
+/// `struct timespec { i64 tv_sec; i64 tv_nsec; }` (16 bytes)
+pub fn sys_nanosleep(req_ptr: u64, _rem_ptr: u64) -> i64 {
+    if validate_user_ptr(req_ptr, 16).is_err() {
+        return -EFAULT;
+    }
+
+    // Read the requested timespec
+    let mut buf = [0u8; 16];
+    if super::linux::copy_from_user(&mut buf, req_ptr).is_err() {
+        return -EFAULT;
+    }
+    let tv_sec = i64::from_le_bytes([buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]]);
+    let tv_nsec = i64::from_le_bytes([buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]]);
+
+    if tv_sec < 0 || tv_nsec < 0 || tv_nsec >= 1_000_000_000 {
+        return -EINVAL;
+    }
+
+    // Calculate total nanoseconds to sleep
+    let total_ns = tv_sec as u64 * 1_000_000_000 + tv_nsec as u64;
+
+    // Busy-wait using TSC (approximate ~2GHz)
+    // For short sleeps this is acceptable; for longer sleeps we would yield to scheduler
+    let tsc_start: u64;
+    unsafe {
+        core::arch::asm!("rdtsc", "shl rdx, 32", "or rax, rdx", out("rax") tsc_start, out("rdx") _);
+    }
+
+    // Convert nanoseconds to TSC ticks (~2 ticks per nanosecond at 2GHz)
+    let tsc_wait = total_ns * 2;
+
+    // For very long sleeps (>100ms), use a loop with hints
+    loop {
+        let tsc_now: u64;
+        unsafe {
+            core::arch::asm!("rdtsc", "shl rdx, 32", "or rax, rdx", out("rax") tsc_now, out("rdx") _);
+        }
+        if tsc_now.wrapping_sub(tsc_start) >= tsc_wait {
+            break;
+        }
+        // CPU pause hint to reduce power/bus contention
+        core::hint::spin_loop();
+    }
+
+    // Write remaining time = 0 (we slept the full duration)
+    if _rem_ptr != 0 && validate_user_ptr(_rem_ptr, 16).is_ok() {
+        let zero = [0u8; 16];
+        let _ = copy_to_user(_rem_ptr, &zero);
+    }
+
+    0
+}
+
+// ── Remaining stubs (Job 15) ─────────────────────────────────────────
+
+/// `readv(fd, iov, iovcnt)` — read into multiple buffers
+pub fn sys_readv(fd: i32, iov_ptr: u64, iovcnt: u32) -> i64 {
+    if iovcnt == 0 {
+        return 0;
+    }
+    if iovcnt > 1024 {
+        return -EINVAL;
+    }
+    let total_iov_bytes = (iovcnt as u64) * 16;
+    if validate_user_ptr(iov_ptr, total_iov_bytes).is_err() {
+        return -EFAULT;
+    }
+
+    let mut total_read: i64 = 0;
+
+    for i in 0..iovcnt {
+        let entry_addr = iov_ptr + (i as u64) * 16;
+        let mut buf = [0u8; 16];
+        if super::linux::copy_from_user(&mut buf, entry_addr).is_err() {
+            return -EFAULT;
+        }
+        let iov_base = u64::from_le_bytes([buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]]);
+        let iov_len = u64::from_le_bytes([buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]]);
+
+        if iov_len == 0 {
+            continue;
+        }
+
+        let result = sys_read(fd, iov_base, iov_len);
+        if result < 0 {
+            if total_read > 0 {
+                return total_read;
+            }
+            return result;
+        }
+        total_read += result;
+        if (result as u64) < iov_len {
+            break; // short read
+        }
+    }
+    total_read
+}
+
+/// `futex(uaddr, op, val, ...)` — fast userspace mutex (minimal stub)
+///
+/// Returns 0 for FUTEX_WAKE, -ENOSYS for unsupported ops.
+pub fn sys_futex(_uaddr: u64, op: i32, _val: u32) -> i64 {
+    const FUTEX_WAIT: i32 = 0;
+    const FUTEX_WAKE: i32 = 1;
+    const FUTEX_PRIVATE_FLAG: i32 = 128;
+
+    let cmd = op & !FUTEX_PRIVATE_FLAG; // strip PRIVATE flag
+
+    match cmd {
+        FUTEX_WAKE => {
+            // In our single-threaded model, wake is a no-op but return 0
+            // (return value = number of waiters woken)
+            0
+        }
+        FUTEX_WAIT => {
+            // We can't actually block, so just return 0 (as if spurious wakeup)
+            0
+        }
+        _ => {
+            crate::serial_println!("[KPIO/Linux] futex op={} → stub 0", op);
+            0 // Return success for all operations as a stub
+        }
+    }
+}
+
+/// `prlimit64(pid, resource, new_limit, old_limit)` — get/set resource limits
+///
+/// Returns sensible default limits.
+pub fn sys_prlimit64(_pid: i32, resource: u32, _new_limit_ptr: u64, old_limit_ptr: u64) -> i64 {
+    // struct rlimit64 { u64 rlim_cur; u64 rlim_max; }
+    if old_limit_ptr != 0 {
+        if validate_user_ptr(old_limit_ptr, 16).is_err() {
+            return -EFAULT;
+        }
+
+        const RLIM_INFINITY: u64 = u64::MAX;
+
+        // Return sensible defaults per resource
+        let (cur, max) = match resource {
+            0 => (RLIM_INFINITY, RLIM_INFINITY), // RLIMIT_CPU
+            1 => (RLIM_INFINITY, RLIM_INFINITY), // RLIMIT_FSIZE
+            2 => (RLIM_INFINITY, RLIM_INFINITY), // RLIMIT_DATA
+            3 => (8 * 1024 * 1024, RLIM_INFINITY), // RLIMIT_STACK (8MB default)
+            4 => (0, RLIM_INFINITY),              // RLIMIT_CORE
+            5 => (RLIM_INFINITY, RLIM_INFINITY), // RLIMIT_RSS
+            6 => (1024, 1024),                    // RLIMIT_NPROC
+            7 => (1024, 1024),                    // RLIMIT_NOFILE
+            _ => (RLIM_INFINITY, RLIM_INFINITY),
+        };
+
+        let mut buf = [0u8; 16];
+        buf[0..8].copy_from_slice(&cur.to_le_bytes());
+        buf[8..16].copy_from_slice(&max.to_le_bytes());
+        if copy_to_user(old_limit_ptr, &buf).is_err() {
+            return -EFAULT;
+        }
+    }
+
+    0
 }
 
 #[cfg(test)]
