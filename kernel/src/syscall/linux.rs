@@ -20,6 +20,7 @@
 
 use super::linux_handlers;
 use super::percpu;
+use super::trace;
 
 // ─── Linux errno constants ────────────────────────────────────────────
 /// We return negative errno values from syscall handlers (e.g. -ENOENT).
@@ -249,6 +250,10 @@ extern "C" fn linux_syscall_dispatch_inner(
 /// Dispatch a Linux syscall number to the appropriate handler.
 ///
 /// Returns the syscall result (>=0 for success, negative errno on error).
+///
+/// Integrates with the trace module (Phase 7-4.6) for syscall logging
+/// and statistics. When tracing is enabled, logs entry/exit with args
+/// and return values. Statistics are always collected.
 pub fn linux_syscall_dispatch(
     nr: u64,
     a1: u64,
@@ -258,7 +263,10 @@ pub fn linux_syscall_dispatch(
     a5: u64,
     a6: u64,
 ) -> i64 {
-    match nr {
+    // Phase 7-4.6: Trace entry + record statistics
+    trace::on_syscall_entry(nr, a1, a2, a3, a4, a5, a6);
+
+    let result = match nr {
         // File I/O
         SYS_READ => linux_handlers::sys_read(a1 as i32, a2, a3),
         SYS_WRITE => linux_handlers::sys_write(a1 as i32, a2, a3),
@@ -321,16 +329,16 @@ pub fn linux_syscall_dispatch(
         SYS_PRLIMIT64 => linux_handlers::sys_prlimit64(a1 as i32, a2 as u32, a3, a4),
 
         // Everything else → ENOSYS
-        unknown => {
-            crate::serial_println!(
-                "[KPIO/Linux] Unimplemented syscall #{} (a1={:#x}, a2={:#x})",
-                unknown,
-                a1,
-                a2
-            );
+        _unknown => {
+            trace::trace_unknown_syscall(nr, a1, a2);
             -ENOSYS
         }
-    }
+    };
+
+    // Phase 7-4.6: Trace exit
+    trace::on_syscall_exit(nr, result);
+
+    result
 }
 
 // ─── LSTAR MSR update ────────────────────────────────────────────────
@@ -437,11 +445,13 @@ pub fn copy_from_user(dst: &mut [u8], user_src: u64) -> Result<(), i64> {
 ///
 /// 1. Init per-CPU data + KERNEL_GS_BASE MSR
 /// 2. Install `linux_syscall_entry` in LSTAR
+/// 3. Init trace module (Phase 7-4.6)
 ///
 /// Must be called after GDT/IDT init and heap init.
 pub fn init() {
     percpu::init();
     install_linux_syscall_entry();
+    trace::init(false); // Default: tracing disabled, stats enabled
     crate::serial_println!("[KPIO/Linux] Syscall compatibility layer initialized");
 }
 

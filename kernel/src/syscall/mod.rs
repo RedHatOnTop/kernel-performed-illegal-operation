@@ -7,6 +7,7 @@ pub mod handlers;
 pub mod linux;
 pub mod linux_handlers;
 pub mod percpu;
+pub mod trace;
 
 use core::arch::asm;
 

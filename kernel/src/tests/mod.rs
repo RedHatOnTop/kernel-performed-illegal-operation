@@ -4,6 +4,7 @@
 
 mod basic;
 mod ipc_tests;
+mod linux_compat_tests;
 mod memory_tests;
 mod process_tests;
 mod scheduler_tests;
