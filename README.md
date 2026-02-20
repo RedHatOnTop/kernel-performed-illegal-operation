@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
-**Version:** 2.2.0  
-**Status:** Phase 7-4 Complete ✅  
+**Version:** 2.3.0  
+**Status:** Phase 8 In Progress (8-1 Complete) ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -147,19 +147,13 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 7-4: Linux Binary Compatibility** - ✅ Complete (2026-02-19)
+**Phase 8: Technical Debt Resolution** - 🔄 In Progress (8-1 Complete)
 
-- ✅ ELF64 loader with segment loading, BSS init, PIE support
-- ✅ Linux syscall entry (naked asm: swapgs, stack swap, register save, sysretq)
-- ✅ 47 Linux x86_64 syscalls implemented (file I/O, memory, process, time, pipes)
-- ✅ Per-process page tables, FD tables, memory management (brk/mmap)
-- ✅ Syscall tracing & statistics system for debugging
-- ✅ Static musl/Rust binary compatibility
-- ✅ Comprehensive integration test suite
+- ✅ **8-1: ACPI Physical-to-Virtual Address Translation** — Fixed page fault crash caused by dereferencing physical ACPI addresses (RSDP, XSDT, MADT) without adding `phys_mem_offset`. Kernel now boots through ACPI initialization successfully (6 tables parsed, MADT with APIC info).
 
-**Previous:** Phase 7-3 — WASM/WASI App Runtime ✅ (2026-02-17)
+**Previous:** Phase 7-4 — Linux Binary Compatibility ✅ (2026-02-19)
 
-**Next:** Phase 7-5 — Extended Linux Compatibility (fork/exec, networking)
+**Next:** Phase 8-2 — ACPI `tables()` Unsound Reference Fix
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 

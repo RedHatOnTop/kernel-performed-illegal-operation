@@ -183,6 +183,8 @@ Phase 2: Early Boot (kernel/src/boot/)
     +---> Validate boot info
     +---> Initialize serial console (debug output)
     +---> Parse ACPI tables (RSDP, MADT)
+    |        Note: All ACPI physical addresses must be translated
+    |        to virtual addresses using phys_mem_offset before access.
     +---> Initialize physical memory manager
     +---> Create initial page tables
     +---> Enable paging with new tables

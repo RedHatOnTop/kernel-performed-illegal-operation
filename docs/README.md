@@ -25,7 +25,11 @@ This directory contains design and implementation documentation for KPIO.
 - [KPIO App API Reference](guides/KPIO_APP_API_REFERENCE.md)
 - [Local Development Setup](guides/LOCAL_DEVELOPMENT.md)
 
-## Phase 7: App Execution Layer (Current)
+## Phase 8: Technical Debt Resolution (Current)
+
+- [Phase 8 Plan](../plans/PHASE_8_BUGFIX_PLAN.md)
+
+## Phase 7: App Execution Layer
 
 - [Phase 7-2: WASM App Runtime](phase7/PHASE_7-2_WASM_APP_RUNTIME_EN.md)
 - [Phase 7-3: WASI App Runtime Plan](phase7/PHASE_7-3_WASI_APP_RUNTIME_PLAN.md)

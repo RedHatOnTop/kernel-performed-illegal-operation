@@ -127,8 +127,10 @@ pub struct MadtInterruptOverride {
 
 /// ACPI table manager
 pub struct AcpiTables {
-    /// RSDP location
+    /// RSDP location (physical address)
     rsdp_address: u64,
+    /// Physical memory offset for phys→virt translation
+    phys_mem_offset: u64,
     /// ACPI revision
     revision: u8,
     /// Found tables
@@ -151,14 +153,27 @@ impl AcpiTables {
     pub const fn empty() -> Self {
         Self {
             rsdp_address: 0,
+            phys_mem_offset: 0,
             revision: 0,
             tables: Vec::new(),
         }
     }
 
-    /// Parse ACPI tables from RSDP address
+    /// Convert a physical address to virtual by adding the physical memory offset.
+    #[inline]
+    fn phys_to_virt(&self, phys_addr: u64) -> u64 {
+        phys_addr + self.phys_mem_offset
+    }
+
+    /// Parse ACPI tables from RSDP physical address.
+    ///
+    /// # Safety
+    ///
+    /// `rsdp_addr` must be a valid physical address of an ACPI RSDP structure.
+    /// `phys_mem_offset` must be the offset at which all physical memory is mapped.
     pub unsafe fn parse(rsdp_addr: u64, phys_mem_offset: u64) -> Result<Self, &'static str> {
-        let rsdp = unsafe { &*((rsdp_addr + phys_mem_offset) as *const Rsdp) };
+        let rsdp_virt = rsdp_addr + phys_mem_offset;
+        let rsdp = unsafe { &*(rsdp_virt as *const Rsdp) };
 
         // Verify signature
         if &rsdp.signature != b"RSD PTR " {
@@ -167,7 +182,7 @@ impl AcpiTables {
 
         // Verify checksum
         let checksum: u8 = (0..20)
-            .map(|i| unsafe { *(((rsdp_addr + phys_mem_offset) as *const u8).add(i)) })
+            .map(|i| unsafe { *((rsdp_virt as *const u8).add(i)) })
             .fold(0u8, |acc, b| acc.wrapping_add(b));
 
         if checksum != 0 {
@@ -176,65 +191,69 @@ impl AcpiTables {
 
         let mut acpi = Self {
             rsdp_address: rsdp_addr,
+            phys_mem_offset,
             revision: rsdp.revision,
             tables: Vec::new(),
         };
 
-        // Parse RSDT or XSDT
+        // Parse RSDT or XSDT (addresses from RSDP are physical)
         if rsdp.revision >= 2 && rsdp.xsdt_address != 0 {
-            unsafe { acpi.parse_xsdt(rsdp.xsdt_address, phys_mem_offset)? };
+            unsafe { acpi.parse_xsdt(rsdp.xsdt_address)? };
         } else {
-            unsafe { acpi.parse_rsdt(rsdp.rsdt_address as u64, phys_mem_offset)? };
+            unsafe { acpi.parse_rsdt(rsdp.rsdt_address as u64)? };
         }
 
         Ok(acpi)
     }
 
-    /// Parse RSDT (32-bit pointers)
-    unsafe fn parse_rsdt(&mut self, rsdt_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
-        let header = unsafe { &*((rsdt_addr + phys_mem_offset) as *const AcpiTableHeader) };
+    /// Parse RSDT (32-bit pointers). `rsdt_phys` is a physical address.
+    unsafe fn parse_rsdt(&mut self, rsdt_phys: u64) -> Result<(), &'static str> {
+        let rsdt_virt = self.phys_to_virt(rsdt_phys);
+        let header = unsafe { &*(rsdt_virt as *const AcpiTableHeader) };
 
         if &header.signature != b"RSDT" {
             return Err("Invalid RSDT signature");
         }
 
         let entry_count = (header.length as usize - core::mem::size_of::<AcpiTableHeader>()) / 4;
-        let entries = (rsdt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
+        let entries = (rsdt_virt + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
 
         for i in 0..entry_count {
-            let table_addr = unsafe { *entries.add(i) } as u64;
-            unsafe { self.add_table(table_addr, phys_mem_offset)? };
+            let table_phys = unsafe { *entries.add(i) } as u64;
+            unsafe { self.add_table(table_phys)? };
         }
 
         Ok(())
     }
 
-    /// Parse XSDT (64-bit pointers)
-    unsafe fn parse_xsdt(&mut self, xsdt_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
-        let header = unsafe { &*((xsdt_addr + phys_mem_offset) as *const AcpiTableHeader) };
+    /// Parse XSDT (64-bit pointers). `xsdt_phys` is a physical address.
+    unsafe fn parse_xsdt(&mut self, xsdt_phys: u64) -> Result<(), &'static str> {
+        let xsdt_virt = self.phys_to_virt(xsdt_phys);
+        let header = unsafe { &*(xsdt_virt as *const AcpiTableHeader) };
 
         if &header.signature != b"XSDT" {
             return Err("Invalid XSDT signature");
         }
 
         let entry_count = (header.length as usize - core::mem::size_of::<AcpiTableHeader>()) / 8;
-        let entries = (xsdt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u64;
+        let entries = (xsdt_virt + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u64;
 
         for i in 0..entry_count {
-            let table_addr = unsafe { *entries.add(i) };
-            unsafe { self.add_table(table_addr, phys_mem_offset)? };
+            let table_phys = unsafe { *entries.add(i) };
+            unsafe { self.add_table(table_phys)? };
         }
 
         Ok(())
     }
 
-    /// Add a table to the list
-    unsafe fn add_table(&mut self, table_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
-        let header = unsafe { &*((table_addr + phys_mem_offset) as *const AcpiTableHeader) };
+    /// Add a table to the list. `table_phys` is a physical address.
+    unsafe fn add_table(&mut self, table_phys: u64) -> Result<(), &'static str> {
+        let table_virt = self.phys_to_virt(table_phys);
+        let header = unsafe { &*(table_virt as *const AcpiTableHeader) };
 
         self.tables.push(FoundTable {
             signature: header.signature,
-            address: table_addr,
+            address: table_phys, // store physical address for debugging/logging
             length: header.length,
         });
 
@@ -310,9 +329,15 @@ pub struct InterruptOverride {
 }
 
 impl MadtInfo {
-    /// Parse MADT from table address
-    pub unsafe fn parse(madt_addr: u64, phys_mem_offset: u64) -> Result<Self, &'static str> {
-        let header = unsafe { &*((madt_addr + phys_mem_offset) as *const AcpiTableHeader) };
+    /// Parse MADT from table physical address.
+    ///
+    /// # Safety
+    ///
+    /// `madt_phys` must be a valid physical address of a MADT table.
+    /// `phys_mem_offset` must be the offset at which all physical memory is mapped.
+    pub unsafe fn parse(madt_phys: u64, phys_mem_offset: u64) -> Result<Self, &'static str> {
+        let madt_virt = madt_phys + phys_mem_offset;
+        let header = unsafe { &*(madt_virt as *const AcpiTableHeader) };
 
         if &header.signature != b"APIC" {
             return Err("Invalid MADT signature");
@@ -320,7 +345,7 @@ impl MadtInfo {
 
         // Local APIC address is right after the header
         let local_apic_addr_ptr =
-            (madt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
+            (madt_virt + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
         let local_apic_address = unsafe { *local_apic_addr_ptr } as u64;
 
         // Flags are after local APIC address
@@ -334,8 +359,8 @@ impl MadtInfo {
         };
 
         // Parse entries starting after header + local_apic_addr + flags
-        let entries_start = madt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64 + 8;
-        let entries_end = madt_addr + phys_mem_offset + header.length as u64;
+        let entries_start = madt_virt + core::mem::size_of::<AcpiTableHeader>() as u64 + 8;
+        let entries_end = madt_virt + header.length as u64;
 
         let mut current = entries_start;
         while current < entries_end {
@@ -386,13 +411,21 @@ impl MadtInfo {
 }
 
 /// Global ACPI tables instance
-static ACPI_TABLES: spin::Once<AcpiTables> = spin::Once::new();
+static ACPI_TABLES: spin::Mutex<Option<AcpiTables>> = spin::Mutex::new(None);
 
 /// Global MADT info
-static MADT_INFO: spin::Once<MadtInfo> = spin::Once::new();
+static MADT_INFO: spin::Mutex<Option<MadtInfo>> = spin::Mutex::new(None);
 
 /// Initialize ACPI subsystem with RSDP address from bootloader.
+///
+/// `rsdp_addr` is the physical address of the RSDP.
+/// `phys_mem_offset` is the offset at which bootloader mapped all physical memory.
 pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
+    crate::serial_println!(
+        "[ACPI] RSDP phys={:#x}, phys_mem_offset={:#x}",
+        rsdp_addr,
+        phys_mem_offset
+    );
     let tables = unsafe { AcpiTables::parse(rsdp_addr, phys_mem_offset)? };
 
     // Try to parse MADT if available
@@ -405,7 +438,7 @@ pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'stat
                     info.io_apics.len(),
                     info.overrides.len()
                 );
-                MADT_INFO.call_once(|| info);
+                *MADT_INFO.lock() = Some(info);
             }
             Err(e) => {
                 crate::serial_println!("[ACPI] MADT parse failed: {}", e);
@@ -415,7 +448,7 @@ pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'stat
 
     let table_count = tables.table_count();
     crate::serial_println!("[ACPI] Parsed {} ACPI table(s)", table_count);
-    ACPI_TABLES.call_once(|| tables);
+    *ACPI_TABLES.lock() = Some(tables);
     Ok(())
 }
 
@@ -426,13 +459,14 @@ pub fn init() -> Result<(), &'static str> {
 
 /// Get the number of parsed ACPI tables.
 pub fn table_count() -> usize {
-    ACPI_TABLES.get().map_or(0, |t| t.table_count())
+    ACPI_TABLES.lock().as_ref().map_or(0, |t| t.table_count())
 }
 
 /// Get ACPI table signatures as strings.
 pub fn table_signatures() -> alloc::vec::Vec<alloc::string::String> {
     ACPI_TABLES
-        .get()
+        .lock()
+        .as_ref()
         .map_or(alloc::vec::Vec::new(), |t| {
             t.tables
                 .iter()
@@ -443,15 +477,19 @@ pub fn table_signatures() -> alloc::vec::Vec<alloc::string::String> {
 
 /// Get MADT local APIC count.
 pub fn local_apic_count() -> usize {
-    MADT_INFO.get().map_or(0, |m| m.local_apics.len())
+    MADT_INFO.lock().as_ref().map_or(0, |m| m.local_apics.len())
 }
 
 /// Get MADT I/O APIC count.
 pub fn io_apic_count() -> usize {
-    MADT_INFO.get().map_or(0, |m| m.io_apics.len())
+    MADT_INFO.lock().as_ref().map_or(0, |m| m.io_apics.len())
 }
 
 /// Get ACPI tables reference  
 pub fn tables() -> Option<&'static AcpiTables> {
-    ACPI_TABLES.get()
+    // Safety: Only set once during init
+    unsafe {
+        let ptr = &*ACPI_TABLES.lock() as *const Option<AcpiTables>;
+        (*ptr).as_ref()
+    }
 }

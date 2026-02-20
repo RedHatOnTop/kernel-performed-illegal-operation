@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 4.0.0  
-**Last Updated:** 2026-02-19  
-**Status:** Phase 7-4 Complete ✅
+**Document Version:** 5.0.0  
+**Last Updated:** 2026-02-20  
+**Status:** Phase 8 In Progress (8-1 Complete) ✅
 
 ---
 
@@ -10,7 +10,9 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 7-4 (Linux Binary Compatibility Layer) has been completed as of 2026-02-19. This includes ELF64 loading, 47 Linux syscalls, per-process page tables, syscall tracing, and integration tests. For full details, see [Phase 7-4 Plan](../docs/phase7/PHASE_7-4_LINUX_COMPAT_PLAN.md) and [Linux Compatibility](../docs/architecture/linux-compat.md).
+**Update:** Phase 8 (Technical Debt Resolution) is in progress as of 2026-02-20. Sub-phase 8-1 (ACPI physical-to-virtual address translation fix) has been completed, resolving the critical page fault crash during ACPI initialization. See [Phase 8 Plan](../plans/PHASE_8_BUGFIX_PLAN.md).
+
+**Previous:** Phase 7-4 (Linux Binary Compatibility Layer) has been completed as of 2026-02-19. This includes ELF64 loading, 47 Linux syscalls, per-process page tables, syscall tracing, and integration tests. For full details, see [Phase 7-4 Plan](../docs/phase7/PHASE_7-4_LINUX_COMPAT_PLAN.md) and [Linux Compatibility](../docs/architecture/linux-compat.md).
 
 **Previous:** Phase 7-3 (WASM/WASI App Runtime) was completed as of 2026-02-17. This includes WASI Preview 2, Component Model, JIT compiler, app packaging, and developer documentation. For full implementation details, see [Phase 7-3 Plan](../docs/phase7/PHASE_7-3_WASI_APP_RUNTIME_PLAN.md) and [Phase 7 Master Plan](../plans/PHASE_7_APP_EXECUTION_LAYER_PLAN.md).
 
@@ -520,6 +522,7 @@ Prepare the system for production use with security, stability, and performance 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 5.0.0 | 2026-02-20 | Phase 8 started (8-1: ACPI address translation fix) |
 | 4.0.0 | 2026-02-19 | Phase 7-4 complete (Linux binary compatibility layer) |
 | 3.0.0 | 2026-02-17 | Phase 7-3 complete, roadmap updated through Phase 7 |
 | 2.0.0 | 2026-01-23 | Phase 1 complete, Servo browser strategy added |
