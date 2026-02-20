@@ -386,10 +386,10 @@ impl MadtInfo {
 }
 
 /// Global ACPI tables instance
-static ACPI_TABLES: spin::Mutex<Option<AcpiTables>> = spin::Mutex::new(None);
+static ACPI_TABLES: spin::Once<AcpiTables> = spin::Once::new();
 
 /// Global MADT info
-static MADT_INFO: spin::Mutex<Option<MadtInfo>> = spin::Mutex::new(None);
+static MADT_INFO: spin::Once<MadtInfo> = spin::Once::new();
 
 /// Initialize ACPI subsystem with RSDP address from bootloader.
 pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
@@ -405,7 +405,7 @@ pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'stat
                     info.io_apics.len(),
                     info.overrides.len()
                 );
-                *MADT_INFO.lock() = Some(info);
+                MADT_INFO.call_once(|| info);
             }
             Err(e) => {
                 crate::serial_println!("[ACPI] MADT parse failed: {}", e);
@@ -415,7 +415,7 @@ pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'stat
 
     let table_count = tables.table_count();
     crate::serial_println!("[ACPI] Parsed {} ACPI table(s)", table_count);
-    *ACPI_TABLES.lock() = Some(tables);
+    ACPI_TABLES.call_once(|| tables);
     Ok(())
 }
 
@@ -426,14 +426,13 @@ pub fn init() -> Result<(), &'static str> {
 
 /// Get the number of parsed ACPI tables.
 pub fn table_count() -> usize {
-    ACPI_TABLES.lock().as_ref().map_or(0, |t| t.table_count())
+    ACPI_TABLES.get().map_or(0, |t| t.table_count())
 }
 
 /// Get ACPI table signatures as strings.
 pub fn table_signatures() -> alloc::vec::Vec<alloc::string::String> {
     ACPI_TABLES
-        .lock()
-        .as_ref()
+        .get()
         .map_or(alloc::vec::Vec::new(), |t| {
             t.tables
                 .iter()
@@ -444,19 +443,15 @@ pub fn table_signatures() -> alloc::vec::Vec<alloc::string::String> {
 
 /// Get MADT local APIC count.
 pub fn local_apic_count() -> usize {
-    MADT_INFO.lock().as_ref().map_or(0, |m| m.local_apics.len())
+    MADT_INFO.get().map_or(0, |m| m.local_apics.len())
 }
 
 /// Get MADT I/O APIC count.
 pub fn io_apic_count() -> usize {
-    MADT_INFO.lock().as_ref().map_or(0, |m| m.io_apics.len())
+    MADT_INFO.get().map_or(0, |m| m.io_apics.len())
 }
 
 /// Get ACPI tables reference  
 pub fn tables() -> Option<&'static AcpiTables> {
-    // Safety: Only set once during init
-    unsafe {
-        let ptr = &*ACPI_TABLES.lock() as *const Option<AcpiTables>;
-        (*ptr).as_ref()
-    }
+    ACPI_TABLES.get()
 }
