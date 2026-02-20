@@ -157,8 +157,8 @@ impl AcpiTables {
     }
 
     /// Parse ACPI tables from RSDP address
-    pub unsafe fn parse(rsdp_addr: u64) -> Result<Self, &'static str> {
-        let rsdp = unsafe { &*(rsdp_addr as *const Rsdp) };
+    pub unsafe fn parse(rsdp_addr: u64, phys_mem_offset: u64) -> Result<Self, &'static str> {
+        let rsdp = unsafe { &*((rsdp_addr + phys_mem_offset) as *const Rsdp) };
 
         // Verify signature
         if &rsdp.signature != b"RSD PTR " {
@@ -167,7 +167,7 @@ impl AcpiTables {
 
         // Verify checksum
         let checksum: u8 = (0..20)
-            .map(|i| unsafe { *((rsdp_addr as *const u8).add(i)) })
+            .map(|i| unsafe { *(((rsdp_addr + phys_mem_offset) as *const u8).add(i)) })
             .fold(0u8, |acc, b| acc.wrapping_add(b));
 
         if checksum != 0 {
@@ -182,55 +182,55 @@ impl AcpiTables {
 
         // Parse RSDT or XSDT
         if rsdp.revision >= 2 && rsdp.xsdt_address != 0 {
-            unsafe { acpi.parse_xsdt(rsdp.xsdt_address)? };
+            unsafe { acpi.parse_xsdt(rsdp.xsdt_address, phys_mem_offset)? };
         } else {
-            unsafe { acpi.parse_rsdt(rsdp.rsdt_address as u64)? };
+            unsafe { acpi.parse_rsdt(rsdp.rsdt_address as u64, phys_mem_offset)? };
         }
 
         Ok(acpi)
     }
 
     /// Parse RSDT (32-bit pointers)
-    unsafe fn parse_rsdt(&mut self, rsdt_addr: u64) -> Result<(), &'static str> {
-        let header = unsafe { &*(rsdt_addr as *const AcpiTableHeader) };
+    unsafe fn parse_rsdt(&mut self, rsdt_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
+        let header = unsafe { &*((rsdt_addr + phys_mem_offset) as *const AcpiTableHeader) };
 
         if &header.signature != b"RSDT" {
             return Err("Invalid RSDT signature");
         }
 
         let entry_count = (header.length as usize - core::mem::size_of::<AcpiTableHeader>()) / 4;
-        let entries = (rsdt_addr + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
+        let entries = (rsdt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
 
         for i in 0..entry_count {
             let table_addr = unsafe { *entries.add(i) } as u64;
-            unsafe { self.add_table(table_addr)? };
+            unsafe { self.add_table(table_addr, phys_mem_offset)? };
         }
 
         Ok(())
     }
 
     /// Parse XSDT (64-bit pointers)
-    unsafe fn parse_xsdt(&mut self, xsdt_addr: u64) -> Result<(), &'static str> {
-        let header = unsafe { &*(xsdt_addr as *const AcpiTableHeader) };
+    unsafe fn parse_xsdt(&mut self, xsdt_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
+        let header = unsafe { &*((xsdt_addr + phys_mem_offset) as *const AcpiTableHeader) };
 
         if &header.signature != b"XSDT" {
             return Err("Invalid XSDT signature");
         }
 
         let entry_count = (header.length as usize - core::mem::size_of::<AcpiTableHeader>()) / 8;
-        let entries = (xsdt_addr + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u64;
+        let entries = (xsdt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u64;
 
         for i in 0..entry_count {
             let table_addr = unsafe { *entries.add(i) };
-            unsafe { self.add_table(table_addr)? };
+            unsafe { self.add_table(table_addr, phys_mem_offset)? };
         }
 
         Ok(())
     }
 
     /// Add a table to the list
-    unsafe fn add_table(&mut self, table_addr: u64) -> Result<(), &'static str> {
-        let header = unsafe { &*(table_addr as *const AcpiTableHeader) };
+    unsafe fn add_table(&mut self, table_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
+        let header = unsafe { &*((table_addr + phys_mem_offset) as *const AcpiTableHeader) };
 
         self.tables.push(FoundTable {
             signature: header.signature,
@@ -311,8 +311,8 @@ pub struct InterruptOverride {
 
 impl MadtInfo {
     /// Parse MADT from table address
-    pub unsafe fn parse(madt_addr: u64) -> Result<Self, &'static str> {
-        let header = unsafe { &*(madt_addr as *const AcpiTableHeader) };
+    pub unsafe fn parse(madt_addr: u64, phys_mem_offset: u64) -> Result<Self, &'static str> {
+        let header = unsafe { &*((madt_addr + phys_mem_offset) as *const AcpiTableHeader) };
 
         if &header.signature != b"APIC" {
             return Err("Invalid MADT signature");
@@ -320,7 +320,7 @@ impl MadtInfo {
 
         // Local APIC address is right after the header
         let local_apic_addr_ptr =
-            (madt_addr + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
+            (madt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
         let local_apic_address = unsafe { *local_apic_addr_ptr } as u64;
 
         // Flags are after local APIC address
@@ -334,8 +334,8 @@ impl MadtInfo {
         };
 
         // Parse entries starting after header + local_apic_addr + flags
-        let entries_start = madt_addr + core::mem::size_of::<AcpiTableHeader>() as u64 + 8;
-        let entries_end = madt_addr + header.length as u64;
+        let entries_start = madt_addr + phys_mem_offset + core::mem::size_of::<AcpiTableHeader>() as u64 + 8;
+        let entries_end = madt_addr + phys_mem_offset + header.length as u64;
 
         let mut current = entries_start;
         while current < entries_end {
@@ -392,12 +392,12 @@ static ACPI_TABLES: spin::Mutex<Option<AcpiTables>> = spin::Mutex::new(None);
 static MADT_INFO: spin::Mutex<Option<MadtInfo>> = spin::Mutex::new(None);
 
 /// Initialize ACPI subsystem with RSDP address from bootloader.
-pub fn init_with_rsdp(rsdp_addr: u64) -> Result<(), &'static str> {
-    let tables = unsafe { AcpiTables::parse(rsdp_addr)? };
+pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'static str> {
+    let tables = unsafe { AcpiTables::parse(rsdp_addr, phys_mem_offset)? };
 
     // Try to parse MADT if available
     if let Some(madt_table) = tables.get_madt() {
-        match unsafe { MadtInfo::parse(madt_table.address) } {
+        match unsafe { MadtInfo::parse(madt_table.address, phys_mem_offset) } {
             Ok(info) => {
                 crate::serial_println!(
                     "[ACPI] MADT: {} local APICs, {} I/O APICs, {} overrides",

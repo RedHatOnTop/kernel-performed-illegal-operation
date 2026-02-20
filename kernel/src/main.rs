@@ -168,7 +168,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Phase 7.5: ACPI table parsing
     serial_println!("[KPIO] Initializing ACPI...");
     if let Some(rsdp_addr) = boot_info.rsdp_addr.into_option() {
-        match hw::acpi::init_with_rsdp(rsdp_addr) {
+        match hw::acpi::init_with_rsdp(rsdp_addr, phys_mem_offset) {
             Ok(()) => serial_println!(
                 "[KPIO] ACPI initialized ({} tables)",
                 hw::acpi::table_count()
