@@ -107,12 +107,12 @@ Sound한 API로 변경하여 UB를 제거
 4. `table_count()`, `table_signatures()` 등 헬퍼 함수들도 `Once::get()` 사용으로 수정
 5. `MADT_INFO`도 동일 패턴으로 `spin::Once<MadtInfo>`로 변경
 
-### QG (Quality Gate)
+### QG (Quality Gate) — ✅ ALL PASSED (2026-02-20)
 
-- [ ] `cargo build` 성공
-- [ ] `tables()` 반환 타입이 `Option<&AcpiTables>` (sound lifetime)
-- [ ] `unsafe` 블록이 `tables()` 에서 제거됨
-- [ ] QEMU 부팅 시 기존과 동일 동작 확인
+- [x] `cargo build` 성공
+- [x] `tables()` 반환 타입이 `Option<&AcpiTables>` (sound lifetime) — `ACPI_TABLES.get()` 사용
+- [x] `unsafe` 블록이 `tables()` 에서 제거됨 — 3줄 → 1줄 (`ACPI_TABLES.get()`)
+- [x] QEMU 부팅 시 기존과 동일 동작 확인 (6 tables, MADT parsed, timer running)
 
 ---
 

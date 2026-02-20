@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
 **Version:** 2.3.0  
-**Status:** Phase 8 In Progress (8-1 Complete) ✅  
+**Status:** Phase 8 In Progress (8-2 Complete) ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -147,13 +147,14 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 8: Technical Debt Resolution** - 🔄 In Progress (8-1 Complete)
+**Phase 8: Technical Debt Resolution** - 🔄 In Progress (8-2 Complete)
 
 - ✅ **8-1: ACPI Physical-to-Virtual Address Translation** — Fixed page fault crash caused by dereferencing physical ACPI addresses (RSDP, XSDT, MADT) without adding `phys_mem_offset`. Kernel now boots through ACPI initialization successfully (6 tables parsed, MADT with APIC info).
+- ✅ **8-2: ACPI `tables()` Unsound Reference Fix** — Replaced `spin::Mutex<Option<T>>` with `spin::Once<T>` for `ACPI_TABLES` and `MADT_INFO`. Eliminated `unsafe` block in `tables()` that produced a dangling `&'static` reference after `MutexGuard` drop. All accessors now use sound `Once::get()` API.
 
 **Previous:** Phase 7-4 — Linux Binary Compatibility ✅ (2026-02-19)
 
-**Next:** Phase 8-2 — ACPI `tables()` Unsound Reference Fix
+**Next:** Phase 8-3 — Boot Sequence Reordering
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 

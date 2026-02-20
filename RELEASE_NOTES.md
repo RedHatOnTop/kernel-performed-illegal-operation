@@ -99,6 +99,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [ ] **#003** - JavaScript performance on complex pages needs optimization
 - [ ] **#004** - Network driver may require manual configuration on some hardware
 - [x] **#005** - ~~ACPI page fault crash when parsing RSDP/XSDT/MADT (physical address used without virtual translation)~~ — Fixed in Phase 8-1
+- [x] **#006** - ~~ACPI `tables()` returns dangling `&'static` reference via unsound `MutexGuard` → raw pointer cast~~ — Fixed in Phase 8-2
 
 ---
 
