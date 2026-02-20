@@ -152,12 +152,12 @@ L178: VirtIO block init     ← block만 init, network 안 함
    ```
 4. 단계 번호 및 주석 재조정
 
-### QG (Quality Gate)
+### QG (Quality Gate) — ✅ ALL PASSED (2026-02-20)
 
-- [ ] `cargo build` 성공
-- [ ] QEMU 시리얼 로그에서 PCI enumerate가 net::init() 이전에 출력
-- [ ] VirtIO network probe 로그 출력
-- [ ] `[KPIO] Network stack ready` 가 VirtIO 이후에 출력
+- [x] `cargo build` 성공 (868 warnings, 1개 감소)
+- [x] QEMU 시리얼 로그에서 PCI enumerate가 net::init() 이전에 출력 — `[PCI] Found 6 devices` → `[KPIO] Probing VirtIO` → `[KPIO] Network stack ready`
+- [x] VirtIO network probe 로그 출력 — `[KPIO] Probing VirtIO network devices...`
+- [x] `[KPIO] Network stack ready` 가 VirtIO 이후에 출력 — 확인됨, 타이머까지 정상 부팅
 
 ---
 

@@ -100,6 +100,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [ ] **#004** - Network driver may require manual configuration on some hardware
 - [x] **#005** - ~~ACPI page fault crash when parsing RSDP/XSDT/MADT (physical address used without virtual translation)~~ — Fixed in Phase 8-1
 - [x] **#006** - ~~ACPI `tables()` returns dangling `&'static` reference via unsound `MutexGuard` → raw pointer cast~~ — Fixed in Phase 8-2
+- [x] **#007** - ~~Network stack initialized before PCI/VirtIO enumeration, causing DHCP to fail due to missing NIC~~ — Fixed in Phase 8-3
 
 ---
 

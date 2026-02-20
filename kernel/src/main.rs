@@ -155,11 +155,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     vfs::fd::init();
     serial_println!("[KPIO] VFS initialized (fd table ready)");
 
-    // Phase 6.7: Network stack
-    serial_println!("[KPIO] Initializing network stack...");
-    net::init();
-    serial_println!("[KPIO] Network stack ready (loopback + DNS + HTTP)");
-
     // Phase 7: APIC initialization (Phase 1 feature)
     serial_println!("[KPIO] Initializing APIC...");
     unsafe { interrupts::init_apic(phys_mem_offset) };
@@ -191,7 +186,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         driver::virtio::block::device_count()
     );
 
-    // Phase 9.5: PS/2 Mouse initialization
+    // Phase 9.5: VirtIO network probe
+    serial_println!("[KPIO] Probing VirtIO network devices...");
+    drivers::net::virtio_net::probe();
+
+    // Phase 9.6: Network stack (after PCI + VirtIO so NIC is available)
+    serial_println!("[KPIO] Initializing network stack...");
+    net::init();
+    serial_println!("[KPIO] Network stack ready (loopback + DNS + HTTP)");
+
+    // Phase 9.7: PS/2 Mouse initialization
     serial_println!("[KPIO] Initializing PS/2 mouse...");
     driver::ps2_mouse::init();
 

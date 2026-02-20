@@ -203,9 +203,13 @@ Phase 4: Kernel Init (kernel/src/main.rs)
     |
     +---> Initialize kernel heap
     +---> Initialize scheduler
-    +---> Initialize IPC subsystem
+    +---> Initialize terminal & VFS
+    +---> Initialize APIC (disable legacy PIC)
+    +---> Parse ACPI tables (phys→virt translation)
     +---> Enumerate PCI devices
-    +---> Start essential drivers (timer, keyboard)
+    +---> Initialize VirtIO (block + network probe)
+    +---> Initialize network stack (after NIC discovery)
+    +---> Start essential drivers (timer, keyboard, mouse)
     |
     v
 Phase 5: Runtime Init

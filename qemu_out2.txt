@@ -1,0 +1,123 @@
+c[?7l[2J[0mSeaBIOS (version rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+1EFD1D20+1EF31D20 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...
+                                                                               
+
+
+Booting from Hard Disk...
+ -> SECOND STAGE
+stage 3 loaded at 0x00100000
+stage 4 loaded at 0x00130000
+loading kernel...
+kernel loaded at 0x01000000
+Loading ramdisk...
+No ramdisk found, skipping.
+[E820MemoryRegion { start_addr: 0, len: 9fc00, region_type: 1, acpi_extended_att
+ributes: 0 }, E820MemoryRegion { start_addr: 9fc00, len: 400, region_type: 2, ac
+pi_extended_attributes: 0 }, E820MemoryRegion { start_addr: f0000, len: 10000, r
+egion_type: 2, acpi_extended_attributes: 0 }, E820MemoryRegion { start_addr: 100
+000, len: 1fedf000, region_type: 1, acpi_extended_attributes: 0 }, E820MemoryReg
+ion { start_addr: 1ffdf000, len: 21000, region_type: 2, acpi_extended_attributes
+: 0 }, E820MemoryRegion { start_addr: b0000000, len: 10000000, region_type: 2, a
+cpi_extended_attributes: 0 }, E820MemoryRegion { start_addr: fed1c000, len: 4000
+, region_type: 2, acpi_extended_attributes: 0 }, E820MemoryRegion { start_addr: 
+fffc0000, len: 40000, region_type: 2, acpi_extended_attributes: 0 }, E820MemoryR
+egion { start_addr: fd00000000, len: 300000000, region_type: 2, acpi_extended_at
+tributes: 0 }]
+VESA MODE: 1280x72INFO : Framebuffer info: FrameBufferInfo { byte_len: 2764800, width: 1280, height: 720, pixel_format: Bgr, bytes_per_pixel: 3, stride: 1280 }
+INFO : 4th Stage
+INFO : BiosInfo { stage_4: Region { start: 130000, len: 23cd8 }, kernel: Region { start: 1000000, len: 143c30 }, ramdisk: Region { start: 1144000, len: 0 }, config_file: Region { start: 1144000, len: 0 }, last_used_addr: 1143fff, framebuffer: BiosFramebufferInfo { region: Region { start: fd000000, len: 2a3000 }, width: 500, height: 2d0, bytes_per_pixel: 3, stride: 500, pixel_format: Bgr }, memory_map_addr: e640, memory_map_len: 9 }
+INFO : BIOS boot
+INFO : Elf file loaded at Pointer {
+    addr: 0x0000000001000000,
+    metadata: 1326128,
+}
+INFO : virtual_address_offset: 0x10000000000
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(4), offset: 0, virtual_addr: 0, physical_addr: 0, file_size: 1c9cc, mem_size: 1c9cc, align: 1000 })
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(5), offset: 1c9d0, virtual_addr: 1d9d0, physical_addr: 1d9d0, file_size: fa1f5, mem_size: fa1f5, align: 1000 })
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(6), offset: 116bc8, virtual_addr: 118bc8, physical_addr: 118bc8, file_size: 4a48, mem_size: 5438, align: 1000 })
+INFO : Mapping bss section
+INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), flags: Flags(6), offset: 11b610, virtual_addr: 11e610, physical_addr: 11e610, file_size: b00, mem_size: 6e58, align: 1000 })
+INFO : Mapping bss section
+INFO : Entry point at: 0x100000adf80
+INFO : Creating GDT at PhysAddr(0x116f000)
+INFO : Map framebuffer
+INFO : Map physical memory
+INFO : Allocate bootinfo
+INFO : Create Memory Map
+INFO : Create bootinfo
+INFO : Jumping to kernel entry point at VirtAddr(0x100000adf80)
+Hello, Kernel
+[KPIO] Boot info at: 0x38000000000
+[KPIO] Framebuffer available: 1280x720
+[FB] Drawing boot screen (1280x720, 3 bpp, stride 1280)
+[FB] Boot screen drawn
+[KPIO] Initializing GDT...
+[KPIO] GDT initialized
+[KPIO] Initializing IDT...
+[IDT] Interrupt Descriptor Table loaded
+[KPIO] IDT initialized
+[KPIO] Initializing memory management...
+[KPIO] Warning: Physical memory offset 0x28000000000 is in lower half (< 0xffff800000000000)
+[KPIO] This is valid with bootloader Dynamic mapping
+[KPIO] Physical memory offset validated: 0x28000000000
+[KPIO] Physical memory offset: 0x28000000000
+[KPIO] Page mapper and frame allocator initialized
+[KPIO] Initializing heap...
+[KPIO] Heap initialized
+[KPIO] Initializing scheduler...
+[KPIO] Scheduler initialized
+[KPIO] Initializing process table...
+[KPIO] Process table initialized
+[KPIO] Initializing terminal subsystem...
+[KPIO] Terminal subsystem ready (50+ commands)
+[KPIO] Initializing VFS...
+[KPIO] VFS initialized (fd table ready)
+[KPIO] Initializing network stack...
+[DHCP] Sending DISCOVER...
+[Net] DHCP failed (DHCP timeout waiting for message type 2), using static config (10.0.2.15)
+[Net] Network stack initialized (virtio-net ready)
+[KPIO] Network stack ready (loopback + DNS + HTTP)
+[KPIO] Initializing APIC...
+[PIC] Legacy 8259 PIC disabled
+[APIC] Local APIC initialized at 0xfee00000 (virt: 0x280fee00000)
+[APIC] APIC ID: 0
+[APIC] APIC Version: 0x50014
+[IOAPIC] ID=0, base=0xfec00000, GSI base=0, entries=24
+[IOAPIC] Initialized with default settings
+[APIC] APIC subsystem initialized
+[KPIO] APIC initialized
+[KPIO] Initializing ACPI...
+EXCEPTION: PAGE FAULT
+Accessed Address: Ok(VirtAddr(0xf52e0))
+Error Code: PageFaultErrorCode(0x0)
+InterruptStackFrame {
+    instruction_pointer: VirtAddr(
+        0x100000391bc,
+    ),
+    code_segment: SegmentSelector {
+        index: 1,
+        rpl: Ring0,
+    },
+    cpu_flags: RFlags(
+        RESUME_FLAG | SIGN_FLAG | AUXILIARY_CARRY_FLAG | PARITY_FLAG | CARRY_FLAG | 0x2,
+    ),
+    stack_pointer: VirtAddr(
+        0x18000014830,
+    ),
+    stack_segment: SegmentSelector {
+        index: 2,
+        rpl: Ring0,
+    },
+}
+
+========================================
+KERNEL PANIC
+========================================
+Location: kernel\src\interrupts\mod.rs:264:5
+Message: Unrecoverable page fault
+
+System halted.
+========================================
