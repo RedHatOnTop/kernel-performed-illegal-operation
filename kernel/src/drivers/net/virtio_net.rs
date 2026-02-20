@@ -680,13 +680,28 @@ impl VirtioNetDevice {
     }
 }
 
-/// Probe for VirtIO network devices
+/// Probe for VirtIO network devices on the PCI bus and log results.
+///
+/// Scans for VirtIO NIC devices (vendor 0x1AF4, device 0x1000/0x1041)
+/// using the already-enumerated PCI device list. Full driver init is
+/// deferred to a future phase; this function only performs discovery.
 pub fn probe() {
-    // Would scan PCI for VirtIO devices:
-    // - Vendor ID: 0x1AF4 (Red Hat)
-    // - Device ID: 0x1000 (network - legacy) or 0x1041 (network - modern)
-    //
-    // Or scan MMIO regions for VirtIO MMIO devices
+    let network_devs = crate::driver::pci::find_virtio_network();
+    for dev in &network_devs {
+        crate::serial_println!(
+            "[VirtIO Net] Found NIC at {} (BAR0={:#x})",
+            dev.address,
+            dev.bars[0]
+        );
+    }
+    if network_devs.is_empty() {
+        crate::serial_println!("[VirtIO Net] No VirtIO network devices found");
+    } else {
+        crate::serial_println!(
+            "[VirtIO Net] {} device(s) discovered (driver init deferred)",
+            network_devs.len()
+        );
+    }
 }
 
 /// Initialize VirtIO MMIO network device

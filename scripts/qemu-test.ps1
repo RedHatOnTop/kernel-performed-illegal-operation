@@ -292,6 +292,8 @@ $argParts = @(
     "-monitor none",
     "-serial `"file:$SerialLog`"",
     "-device `"isa-debug-exit,iobase=0xf4,iosize=0x04`"",
+    "-netdev `"user,id=net0`"",
+    "-device `"virtio-net-pci,netdev=net0`"",
     "-no-reboot",
     "-drive `"if=pflash,format=raw,readonly=on,file=$OvmfPath`"",
     "-drive `"format=raw,file=$UefiImage`""

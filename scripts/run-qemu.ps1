@@ -90,7 +90,9 @@ $QemuArgs = @(
     "-machine", "q35",
     "-cpu", "qemu64,+rdrand",
     "-m", $Memory,
-    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04"
+    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
+    "-netdev", "user,id=net0",
+    "-device", "virtio-net-pci,netdev=net0"
 )
 
 # 그래픽 옵션

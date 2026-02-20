@@ -209,12 +209,12 @@ VirtIO NIC 탐지 및 초기화 파이프라인 완성
 3. `scripts/quick-run.ps1` 동일 적용
 4. `scripts/qemu-test.ps1` 동일 적용
 
-### QG (Quality Gate)
+### QG (Quality Gate) — ✅ ALL PASSED (2026-02-20)
 
-- [ ] `cargo build` 성공
-- [ ] QEMU PCI 열거 로그에 `1af4:1000` (VirtIO Net) 표시
-- [ ] `[VirtIO Net] Found device at ...` 로그 출력
-- [ ] 스크립트 3개 모두에 NIC 인자 포함
+- [x] `cargo build` 성공 (867 warnings)
+- [x] QEMU PCI 열거 로그에 `1af4:1000` (VirtIO Net) 표시 — `[00:02.0] 1af4:1000 class=02:00:00 (VirtIO)`
+- [x] `[VirtIO Net] Found NIC at 00:02.0 (BAR0=0x6061)` 로그 출력 확인
+- [x] 스크립트 3개 모두에 NIC 인자 포함 — run-qemu.ps1, quick-run.ps1, qemu-test.ps1
 
 ---
 

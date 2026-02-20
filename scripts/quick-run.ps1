@@ -121,6 +121,8 @@ if ($UefiEfi -and $OvmfPath) {
         "-m", "512M",
         "-serial", "stdio",
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
+        "-netdev", "user,id=net0",
+        "-device", "virtio-net-pci,netdev=net0",
         "-drive", "if=pflash,format=raw,readonly=on,file=$OvmfPath",
         "-drive", "format=raw,file=fat:rw:$EspDir"
     )
@@ -135,6 +137,8 @@ if ($UefiEfi -and $OvmfPath) {
         "-m", "512M",
         "-serial", "stdio",
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
+        "-netdev", "user,id=net0",
+        "-device", "virtio-net-pci,netdev=net0",
         "-kernel", $KernelPath
     )
 }
