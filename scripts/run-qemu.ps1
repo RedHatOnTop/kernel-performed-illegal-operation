@@ -129,11 +129,12 @@ if ($Bios) {
         exit 1
     }
     
+    # QEMU 10.x requires pflash for UEFI firmware (not -bios)
     $QemuArgs += @(
-        "-bios", $OvmfPath,
+        "-drive", "if=pflash,format=raw,readonly=on,file=$OvmfPath",
         "-drive", "format=raw,file=$DiskImage"
     )
-    Write-Host "UEFI 모드로 부팅합니다..."
+    Write-Host "UEFI 모드로 부팅합니다... (pflash)"
 }
 
 Write-Host "디스크 이미지: $DiskImage"

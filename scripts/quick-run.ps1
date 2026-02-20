@@ -121,7 +121,7 @@ if ($UefiEfi -and $OvmfPath) {
         "-m", "512M",
         "-serial", "stdio",
         "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
-        "-bios", $OvmfPath,
+        "-drive", "if=pflash,format=raw,readonly=on,file=$OvmfPath",
         "-drive", "format=raw,file=fat:rw:$EspDir"
     )
 } else {
