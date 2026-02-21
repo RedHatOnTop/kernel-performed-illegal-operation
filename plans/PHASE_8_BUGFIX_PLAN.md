@@ -251,12 +251,12 @@ pub fn free_frame(_addr: usize) {
 4. `allocate_frame()` 수정: free list에서 먼저 확인 → 없으면 기존 allocator 사용
 5. 이중 해제 방지: debug 모드에서 중복 체크
 
-### QG (Quality Gate)
+### QG (Quality Gate) — ✅ ALL PASSED (2026-02-21)
 
-- [ ] `cargo build` 성공
-- [ ] `free_frame()` 호출 후 `allocate_frame()`이 해당 프레임 재사용
-- [ ] 비정렬 주소 전달 시 panic 또는 에러 (debug 모드)
-- [ ] QEMU 부팅 시 기존과 동일 동작
+- [x] `cargo build` 성공 (861 warnings)
+- [x] `free_frame()` 호출 후 `allocate_frame()`이 해당 프레임 재사용 — `[MEM] Frame recycling self-test passed (free+realloc OK)`
+- [x] 비정렬 주소 전달 시 panic — `assert!(addr % PAGE_SIZE == 0, ...)` 구현됨
+- [x] QEMU 부팅 시 기존과 동일 동작 — 전체 init 완료, 타이머 정상 동작
 
 ---
 

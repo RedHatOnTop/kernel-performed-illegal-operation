@@ -102,6 +102,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [x] **#006** - ~~ACPI `tables()` returns dangling `&'static` reference via unsound `MutexGuard` → raw pointer cast~~ — Fixed in Phase 8-2
 - [x] **#007** - ~~Network stack initialized before PCI/VirtIO enumeration, causing DHCP to fail due to missing NIC~~ — Fixed in Phase 8-3
 - [x] **#008** - ~~VirtIO network probe was a no-op stub; QEMU launched without NIC device, so no NIC was ever discovered~~ — Fixed in Phase 8-4
+- [x] **#009** - ~~`free_frame()` was a no-op; physical frames were never returned to the allocator, causing memory leak under sustained allocation~~ — Fixed in Phase 8-5
 
 ---
 

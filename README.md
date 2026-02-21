@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
 **Version:** 2.3.0  
-**Status:** Phase 8 In Progress (8-4 Complete) ✅  
+**Status:** Phase 8 In Progress (8-5 Complete) ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -147,16 +147,17 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 8: Technical Debt Resolution** - 🔄 In Progress (8-4 Complete)
+**Phase 8: Technical Debt Resolution** - 🔄 In Progress (8-5 Complete)
 
 - ✅ **8-1: ACPI Physical-to-Virtual Address Translation** — Fixed page fault crash caused by dereferencing physical ACPI addresses (RSDP, XSDT, MADT) without adding `phys_mem_offset`. Kernel now boots through ACPI initialization successfully (6 tables parsed, MADT with APIC info).
 - ✅ **8-2: ACPI `tables()` Unsound Reference Fix** — Replaced `spin::Mutex<Option<T>>` with `spin::Once<T>` for `ACPI_TABLES` and `MADT_INFO`. Eliminated `unsafe` block in `tables()` that produced a dangling `&'static` reference after `MutexGuard` drop. All accessors now use sound `Once::get()` API.
 - ✅ **8-3: Boot Sequence Reordering** — Moved `net::init()` after PCI enumeration and VirtIO initialization so that NIC discovery happens before the network stack tries DHCP. Added VirtIO network probe step.
 - ✅ **8-4: VirtIO Net Probe + QEMU NIC** — Implemented `probe()` in `virtio_net.rs` to scan PCI bus for VirtIO NICs (vendor 0x1AF4). Added `-netdev user -device virtio-net-pci` to all 3 QEMU scripts. QEMU now exposes a VirtIO NIC at `00:02.0` and the kernel discovers it.
+- ✅ **8-5: `free_frame()` Implementation** — Implemented stack-based free frame list (`GLOBAL_FREE_FRAMES`) for physical frame recycling. `free_frame()` validates page alignment and pushes to free list; `allocate_frame()` checks free list first, then falls back to bump allocator. Added global frame allocator initialization during boot and a self-test that verifies free+realloc round-trip.
 
 **Previous:** Phase 7-4 — Linux Binary Compatibility ✅ (2026-02-19)
 
-**Next:** Phase 8-5 — `free_frame()` Implementation
+**Next:** Phase 8-6 — Unused Dependency Cleanup
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 

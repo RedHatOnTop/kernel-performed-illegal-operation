@@ -134,6 +134,54 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
     serial_println!("[KPIO] Heap initialized");
 
+    // Phase 5.1: Global frame allocator initialization
+    // Reserve a pool of physical frames for slab/buddy/user-page-table allocators.
+    // Scan the bootloader memory map for the largest usable region and hand a
+    // sub-range to the global bump allocator that backs allocate_frame().
+    {
+        let mut best_start: u64 = 0;
+        let mut best_size: u64 = 0;
+        for region in boot_info.memory_regions.iter() {
+            if region.kind == bootloader_api::info::MemoryRegionKind::Usable {
+                let size = region.end - region.start;
+                if size > best_size {
+                    best_start = region.start;
+                    best_size = size;
+                }
+            }
+        }
+        // Use the upper half of the largest usable region so we don't collide
+        // with frames already consumed by BootInfoFrameAllocator.
+        let pool_start = best_start + best_size / 2;
+        let pool_end = best_start + best_size;
+        memory::init_frame_allocator(pool_start, pool_end);
+        serial_println!(
+            "[MEM] Global frame pool: {:#x}..{:#x} ({} KiB)",
+            pool_start,
+            pool_end,
+            (pool_end - pool_start) / 1024
+        );
+    }
+
+    // Phase 5.2: Frame recycling self-test
+    {
+        let before = memory::free_frame_count();
+        let frame = memory::allocate_frame().expect("self-test: allocate_frame failed");
+        memory::free_frame(frame);
+        let after = memory::free_frame_count();
+        assert!(
+            after == before + 1,
+            "free_frame self-test failed: free list did not grow"
+        );
+        // Re-allocate — should return the same frame from the free list
+        let recycled = memory::allocate_frame().expect("self-test: re-allocate failed");
+        assert!(
+            recycled == frame,
+            "free_frame self-test failed: recycled frame mismatch"
+        );
+        serial_println!("[MEM] Frame recycling self-test passed (free+realloc OK)");
+    }
+
     // Phase 6: Scheduler initialization
     serial_println!("[KPIO] Initializing scheduler...");
     scheduler::init();

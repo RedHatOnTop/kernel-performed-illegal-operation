@@ -16,6 +16,7 @@ pub mod optimization;
 pub mod slab;
 pub mod user_page_table;
 
+use alloc::vec::Vec;
 use bootloader_api::info::MemoryRegionKind;
 use spin::Mutex;
 use x86_64::{
@@ -23,8 +24,43 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
+/// Page size constant (4 KiB).
+const PAGE_SIZE: usize = 4096;
+
 /// Global frame allocator for slab and buddy systems.
 static GLOBAL_FRAME_ALLOCATOR: Mutex<Option<GlobalFrameAllocator>> = Mutex::new(None);
+
+/// Stack-based free frame list for reclaiming physical frames.
+static GLOBAL_FREE_FRAMES: Mutex<FreeFrameList> = Mutex::new(FreeFrameList::new());
+
+/// A stack-based list of freed physical frames available for reuse.
+struct FreeFrameList {
+    frames: Vec<usize>,
+}
+
+impl FreeFrameList {
+    /// Create a new empty free frame list.
+    const fn new() -> Self {
+        Self {
+            frames: Vec::new(),
+        }
+    }
+
+    /// Push a freed frame address onto the list.
+    fn push(&mut self, addr: usize) {
+        self.frames.push(addr);
+    }
+
+    /// Pop a frame address from the list, if any.
+    fn pop(&mut self) -> Option<usize> {
+        self.frames.pop()
+    }
+
+    /// Number of frames in the free list.
+    fn len(&self) -> usize {
+        self.frames.len()
+    }
+}
 
 /// Simple global frame allocator.
 struct GlobalFrameAllocator {
@@ -38,7 +74,7 @@ impl GlobalFrameAllocator {
             return None;
         }
         let frame = self.next_frame;
-        self.next_frame += 4096;
+        self.next_frame += PAGE_SIZE as u64;
         Some(frame)
     }
 }
@@ -52,7 +88,16 @@ pub fn init_frame_allocator(start: u64, end: u64) {
 }
 
 /// Allocate a physical frame for slab allocator.
+///
+/// First checks the free list for recycled frames. Falls back to the
+/// bump allocator when no freed frames are available.
 pub fn allocate_frame() -> Option<usize> {
+    // Try recycled frames first
+    if let Some(addr) = GLOBAL_FREE_FRAMES.lock().pop() {
+        return Some(addr);
+    }
+
+    // Fall back to bump allocator
     GLOBAL_FRAME_ALLOCATOR
         .lock()
         .as_mut()?
@@ -60,10 +105,25 @@ pub fn allocate_frame() -> Option<usize> {
         .map(|f| f as usize)
 }
 
-/// Free a physical frame.
-pub fn free_frame(_addr: usize) {
-    // In a real implementation, this would return the frame to the pool
-    // For now, we don't reclaim frames
+/// Free a physical frame, returning it to the free list for reuse.
+///
+/// # Panics
+///
+/// Panics if `addr` is not aligned to [`PAGE_SIZE`] (4 KiB).
+pub fn free_frame(addr: usize) {
+    assert!(
+        addr % PAGE_SIZE == 0,
+        "free_frame: address {:#x} is not page-aligned (must be aligned to {:#x})",
+        addr,
+        PAGE_SIZE
+    );
+
+    GLOBAL_FREE_FRAMES.lock().push(addr);
+}
+
+/// Return the number of frames currently in the free list.
+pub fn free_frame_count() -> usize {
+    GLOBAL_FREE_FRAMES.lock().len()
 }
 
 /// Validate the physical memory offset.
