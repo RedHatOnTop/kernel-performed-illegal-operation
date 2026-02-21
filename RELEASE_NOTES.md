@@ -103,6 +103,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [x] **#007** - ~~Network stack initialized before PCI/VirtIO enumeration, causing DHCP to fail due to missing NIC~~ — Fixed in Phase 8-3
 - [x] **#008** - ~~VirtIO network probe was a no-op stub; QEMU launched without NIC device, so no NIC was ever discovered~~ — Fixed in Phase 8-4
 - [x] **#009** - ~~`free_frame()` was a no-op; physical frames were never returned to the allocator, causing memory leak under sustained allocation~~ — Fixed in Phase 8-5
+- [x] **#010** - ~~`acpi` and `aml` crates declared in `kernel/Cargo.toml` but never imported; `[features] acpi` name collided with crate name~~ — Fixed in Phase 8-6
 
 ---
 

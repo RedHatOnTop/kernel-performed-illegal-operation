@@ -286,11 +286,11 @@ aml = "0.16"
 4. 코드베이스에서 `use acpi::` 또는 `use aml::` 검색하여 참조 없음 확인
 5. `cargo build` 후 의존성 트리 확인
 
-### QG (Quality Gate)
+### QG (Quality Gate) — ✅ ALL PASSED (2026-02-21)
 
-- [ ] `cargo build` 성공
-- [ ] `cargo tree -p kpio-kernel` 에 `acpi`/`aml` 크레이트 미포함
-- [ ] Feature 이름 충돌 없음
+- [x] `cargo build` 성공 (861 warnings)
+- [x] `cargo tree -p kpio-kernel` 에 `acpi`/`aml` 크레이트 미포함 — 빈 출력 확인
+- [x] Feature 이름 충돌 없음 — `acpi = []` → `acpi-tables = []` 로 변경
 
 ---
 
