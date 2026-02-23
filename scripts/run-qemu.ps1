@@ -4,7 +4,9 @@
 
 .DESCRIPTION
     빌드된 커널 이미지를 QEMU에서 실행합니다.
-    UEFI 부팅을 지원하며 디버깅 옵션을 제공합니다.
+    UEFI pflash 부팅이 기본이며 권장됩니다.
+    BIOS 부팅은 bootloader 0.11.14 FAT 파서 오버플로 버그로 인해 debug 빌드에서 panic이 발생합니다.
+    자세한 내용은 docs/known-issues.md 를 참조하세요.
 
 .PARAMETER Debug
     GDB 서버를 활성화하고 시작 시 일시정지합니다.
@@ -131,7 +133,9 @@ if ($Bios) {
         exit 1
     }
     
-    # QEMU 10.x requires pflash for UEFI firmware (not -bios)
+    # QEMU 10.x requires pflash for UEFI firmware (not -bios).
+    # UEFI pflash is the recommended boot method for KPIO OS.
+    # BIOS boot has a known FAT parser overflow in bootloader 0.11.14 — see docs/known-issues.md.
     $QemuArgs += @(
         "-drive", "if=pflash,format=raw,readonly=on,file=$OvmfPath",
         "-drive", "format=raw,file=$DiskImage"

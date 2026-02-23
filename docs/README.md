@@ -6,6 +6,8 @@ This directory contains design and implementation documentation for KPIO.
 
 - [Build Instructions](building.md)
 - [Local Development Guide](guides/LOCAL_DEVELOPMENT.md)
+- [Quick Start](QUICK_START.md)
+- [Known Issues](known-issues.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Architecture

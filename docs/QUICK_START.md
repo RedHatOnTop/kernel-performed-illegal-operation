@@ -56,11 +56,31 @@
 
 ---
 
+## Developer Boot Guide (QEMU)
+
+If you are developing or testing KPIO OS locally with QEMU, **UEFI pflash** is the
+recommended boot method. All run scripts default to UEFI mode.
+
+```powershell
+# Recommended — UEFI pflash boot (default)
+.\scripts\run-qemu.ps1
+
+# Automated testing
+.\scripts\qemu-test.ps1 -Mode boot
+```
+
+> **⚠️ BIOS boot is not recommended.** The external `bootloader` crate (v0.11.14)
+> contains a known FAT parser overflow that causes panics in debug builds.
+> See [Known Issues](known-issues.md) for details.
+
+---
+
 ## 🆘 Need Help?
 
 - Press `F1` for in-app help
 - Visit Settings → About for system info
 - Hold `Shift` during boot for Recovery Mode
+- See [Known Issues](known-issues.md) for boot problems and workarounds
 
 ---
 

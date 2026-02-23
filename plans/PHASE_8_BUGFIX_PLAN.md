@@ -1,6 +1,6 @@
 # Phase 8: Technical Debt Resolution (기술 이슈 수정)
 
-> **상태**: 진행 중 (8-1 ~ 8-7 완료, 8-8 남음)  
+> **상태**: ✅ 완료 (8-1 ~ 8-8 전체 완료, 2026-02-23)  
 > **발견 경위**: Phase 7-4 QEMU 부팅 검증 (commit `1efe2d8`) 과정에서 10개 이슈 식별  
 > **부팅 환경**: QEMU 10.2.0, UEFI pflash, bootloader 0.11.14, nightly-2026-01-01  
 > **부팅 결과**: GDT→IDT→Memory→Heap→Scheduler→Terminal→VFS→Net→APIC 성공, **ACPI에서 page fault로 크래시**
@@ -361,11 +361,11 @@ bootloader-x86_64-bios-0.11.14\...\fat.rs
 2. `docs/QUICK_START.md`에 UEFI pflash가 권장 부팅 방법임을 명시
 3. 스크립트 주석에 UEFI pflash 사용 이유 추가
 
-### QG (Quality Gate)
+### QG (Quality Gate) — ✅ ALL PASSED (2026-02-23)
 
-- [ ] `docs/known-issues.md` 존재
-- [ ] `docs/QUICK_START.md`에 UEFI pflash 권장 사항 포함
-- [ ] BIOS 부트 실패 시 사용자가 문서를 통해 해결책 확인 가능
+- [x] `docs/known-issues.md` 존재 — BIOS FAT overflow 이슈, bootloader 0.11.14 버전, UEFI pflash 우회법 포함
+- [x] `docs/QUICK_START.md`에 UEFI pflash 권장 사항 포함 — Developer Boot Guide 섹션 추가
+- [x] BIOS 부트 실패 시 사용자가 문서를 통해 해결책 확인 가능 — 스크립트 3개에 docs/known-issues.md 참조 주석 추가
 
 ---
 

@@ -7,6 +7,8 @@
     Fully automated terminal-only testing infrastructure.
     
     Boot method: UEFI pflash via edk2 firmware (QEMU 10.x compatible)
+    UEFI pflash is the recommended boot method — BIOS boot has a known FAT parser
+    overflow in bootloader 0.11.14 (see docs/known-issues.md).
     Capture: -display none -serial file: (headless CI mode)
     
     Test modes:
@@ -282,7 +284,9 @@ Start-Sleep -Milliseconds 500
 if (Test-Path $SerialLog) { Remove-Item $SerialLog -Force }
 
 # Build QEMU argument string
-# IMPORTANT: QEMU 10.x requires pflash for UEFI firmware (not -bios)
+# IMPORTANT: QEMU 10.x requires pflash for UEFI firmware (not -bios).
+# UEFI pflash is the recommended boot method for KPIO OS.
+# BIOS boot has a known FAT parser overflow in bootloader 0.11.14 — see docs/known-issues.md.
 # Use -display none + -serial file: for headless CI-compatible capture
 $argParts = @(
     "-machine q35",

@@ -7,7 +7,10 @@
     bootloader 디스크 이미지 대신 QEMU의 직접 커널 로딩 기능을 사용합니다.
     
     주의: 이 방식은 완전한 UEFI 부팅이 아닌 multiboot 프로토콜을 사용합니다.
-    완전한 UEFI 테스트는 run-qemu.ps1을 사용하세요.
+    완전한 UEFI pflash 테스트는 run-qemu.ps1을 사용하세요.
+    
+    BIOS 부팅은 bootloader 0.11.14 FAT 파서 오버플로 버그로 인해 권장되지 않습니다.
+    자세한 내용은 docs/known-issues.md 를 참조하세요.
 
 .PARAMETER Debug
     GDB 서버 활성화
