@@ -224,8 +224,8 @@ Networking is implemented as an isolated user-space service:
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| TCP/IP Stack | smoltcp | Protocol implementation |
-| VirtIO-Net Driver | Custom | Virtualized network interface |
+| TCP/IP Stack | Custom (no_std) | Full TCP/IP protocol implementation |
+| VirtIO-Net Driver | Custom (PIO + MMIO) | Virtualized NIC — PIO via x86_64 Port I/O |
 | E1000 Driver | Custom | Intel Gigabit Ethernet |
 
 See [Networking Document](networking.md) for detailed specifications.

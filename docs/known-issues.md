@@ -67,25 +67,21 @@ If you must test BIOS boot, use a **release** build to skip Rust's overflow chec
 
 ---
 
-## 2. VirtIO Network — PIO Mode Not Fully Implemented
+## 2. ~~VirtIO Network — PIO Mode Not Fully Implemented~~ ✅ RESOLVED
 
 | Field       | Detail                                                                 |
 |-------------|------------------------------------------------------------------------|
-| Severity    | Low (detection works; full driver is a future phase)                   |
+| Severity    | ~~Low~~ → Resolved                                                    |
 | Component   | `kernel/src/drivers/net/virtio_net.rs`                                 |
-| Status      | **Planned** — full PIO-based VirtIO net driver deferred to a future phase |
+| Status      | **Fixed** in Phase 9-1 (2026-02-23)                                   |
 
-### Symptom
+### Resolution
 
-VirtIO network devices are **detected** during PCI enumeration and logged, but the
-driver cannot send or receive packets because the PIO read/write functions are stubs
-(return 0 / no-op).
-
-### Workaround
-
-Network functionality currently uses a static IP fallback (`10.0.2.15`) after DHCP
-timeout. Full VirtIO NIC driver implementation is tracked for a future development
-phase.
+Phase 9-1 implemented real PIO register access using `x86_64::instructions::port::Port`.
+The VirtIO net driver now supports the full legacy PCI init sequence: device reset,
+feature negotiation, MAC address read, virtqueue allocation (descriptor table, available
+ring, used ring), and DRIVER_OK. `probe()` enables PCI bus mastering and calls
+`init_pio()` for each discovered NIC.
 
 ---
 
@@ -95,14 +91,14 @@ phase.
 |-------------|----------------------------------------------------------------|
 | Severity    | Low (cosmetic — adds ~3 s to boot)                             |
 | Component   | `kernel/src/net/dhcp.rs`                                       |
-| Status      | **Expected behavior** until VirtIO net driver is complete      |
+| Status      | **In Progress** — NIC driver now functional (Phase 9-1); NIC registration in NETWORK_MANAGER is Phase 9-2 |
 
 ### Symptom
 
 During boot, the DHCP client sends a DISCOVER packet and waits up to ~3 seconds for a
-reply. If no functional NIC driver is available, the timeout elapses and the kernel
-falls back to a static configuration.
+reply. The NIC is now fully initialized (Phase 9-1), but is not yet registered in
+`NETWORK_MANAGER` during the DHCP window. Full DHCP success is expected after Phase 9-2.
 
 ### Workaround
 
-No action needed. The kernel proceeds normally after the timeout.
+No action needed. The kernel proceeds normally with a static IP fallback (`10.0.2.15`).

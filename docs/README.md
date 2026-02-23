@@ -27,7 +27,11 @@ This directory contains design and implementation documentation for KPIO.
 - [KPIO App API Reference](guides/KPIO_APP_API_REFERENCE.md)
 - [Local Development Setup](guides/LOCAL_DEVELOPMENT.md)
 
-## Phase 8: Technical Debt Resolution (Current)
+## Phase 9: Real I/O — VirtIO Driver Completion (Current)
+
+- [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md)
+
+## Phase 8: Technical Debt Resolution (Complete)
 
 - [Phase 8 Plan](../plans/PHASE_8_BUGFIX_PLAN.md)
 

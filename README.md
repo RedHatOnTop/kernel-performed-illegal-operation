@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
-**Version:** 2.3.0  
-**Status:** Phase 8 In Progress (8-6 Complete) ✅  
+**Version:** 2.4.0  
+**Status:** Phase 9 In Progress (9-1 Complete) ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -43,7 +43,7 @@ The OS adopts a **WASM-Native** architecture, enforcing strict isolation by usin
 | Browser | Servo (Stylo + WebRender) | Full web standards support with OS integration |
 | Graphics | Mesa 3D + Vulkan | GPU acceleration via RADV/ANV/NVK |
 | Compositor | wgpu + Vello | Window management and vector rendering |
-| Network | smoltcp | Standalone TCP/IP stack |
+| Network | Custom TCP/IP + VirtIO PIO | Standalone TCP/IP stack with real NIC I/O |
 | Storage | Custom VFS | Immutable root with FUSE-like WASM modules |
 
 ---
@@ -147,18 +147,13 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 8: Technical Debt Resolution** - 🔄 In Progress (8-6 Complete)
+**Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration** - 🔄 In Progress (9-1 Complete)
 
-- ✅ **8-1: ACPI Physical-to-Virtual Address Translation** — Fixed page fault crash caused by dereferencing physical ACPI addresses (RSDP, XSDT, MADT) without adding `phys_mem_offset`. Kernel now boots through ACPI initialization successfully (6 tables parsed, MADT with APIC info).
-- ✅ **8-2: ACPI `tables()` Unsound Reference Fix** — Replaced `spin::Mutex<Option<T>>` with `spin::Once<T>` for `ACPI_TABLES` and `MADT_INFO`. Eliminated `unsafe` block in `tables()` that produced a dangling `&'static` reference after `MutexGuard` drop. All accessors now use sound `Once::get()` API.
-- ✅ **8-3: Boot Sequence Reordering** — Moved `net::init()` after PCI enumeration and VirtIO initialization so that NIC discovery happens before the network stack tries DHCP. Added VirtIO network probe step.
-- ✅ **8-4: VirtIO Net Probe + QEMU NIC** — Implemented `probe()` in `virtio_net.rs` to scan PCI bus for VirtIO NICs (vendor 0x1AF4). Added `-netdev user -device virtio-net-pci` to all 3 QEMU scripts. QEMU now exposes a VirtIO NIC at `00:02.0` and the kernel discovers it.
-- ✅ **8-5: `free_frame()` Implementation** — Implemented stack-based free frame list (`GLOBAL_FREE_FRAMES`) for physical frame recycling. `free_frame()` validates page alignment and pushes to free list; `allocate_frame()` checks free list first, then falls back to bump allocator. Added global frame allocator initialization during boot and a self-test that verifies free+realloc round-trip.
-- ✅ **8-6: Unused Dependency Cleanup** — Removed `acpi = "5.0"` and `aml = "0.16"` crate dependencies that were declared but never imported (kernel uses its own ACPI parser). Renamed `[features] acpi = []` to `acpi-tables = []` to eliminate crate/feature name collision.
+- ✅ **9-1: VirtIO Net PIO Driver Implementation** — Replaced stub PIO `read8`/`write8`/`read32`/`write32` methods with real `x86_64::instructions::port::Port` I/O. Implemented full PIO init path (reset → ACKNOWLEDGE → DRIVER → feature negotiation → FEATURES_OK → MAC read → virtqueue allocation → DRIVER_OK). Added `pio_reg` constants, `VirtqRings` ring memory tracking, PCI bus mastering, and `probe()` now calls `init_pio()` to fully initialize the NIC on boot. Both MMIO and PIO transport modes are now functional.
 
-**Previous:** Phase 7-4 — Linux Binary Compatibility ✅ (2026-02-19)
+**Previous:** Phase 8 — Technical Debt Resolution ✅ (2026-02-23)
 
-**Next:** Phase 8-7 — Build Warning Management
+**Next:** Phase 9-2 — NIC Registration & DHCP Success
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 

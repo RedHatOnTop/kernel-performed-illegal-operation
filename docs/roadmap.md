@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 5.0.0  
-**Last Updated:** 2026-02-20  
-**Status:** Phase 8 In Progress (8-1 Complete) ✅
+**Document Version:** 6.0.0  
+**Last Updated:** 2026-02-23  
+**Status:** Phase 9 In Progress (9-1 Complete) ✅
 
 ---
 
@@ -10,7 +10,9 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 8 (Technical Debt Resolution) is in progress as of 2026-02-20. Sub-phase 8-1 (ACPI physical-to-virtual address translation fix) has been completed, resolving the critical page fault crash during ACPI initialization. See [Phase 8 Plan](../plans/PHASE_8_BUGFIX_PLAN.md).
+**Update:** Phase 9 (Real I/O — VirtIO Driver Completion & Stack Integration) is in progress as of 2026-02-23. Sub-phase 9-1 (VirtIO Net PIO Driver Implementation) has been completed, replacing stub PIO accessors with real `x86_64::instructions::port::Port` I/O. See [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md).
+
+**Previous:** Phase 8 (Technical Debt Resolution) completed 2026-02-23. See [Phase 8 Plan](../plans/PHASE_8_BUGFIX_PLAN.md).
 
 **Previous:** Phase 7-4 (Linux Binary Compatibility Layer) has been completed as of 2026-02-19. This includes ELF64 loading, 47 Linux syscalls, per-process page tables, syscall tracing, and integration tests. For full details, see [Phase 7-4 Plan](../docs/phase7/PHASE_7-4_LINUX_COMPAT_PLAN.md) and [Linux Compatibility](../docs/architecture/linux-compat.md).
 
@@ -522,6 +524,7 @@ Prepare the system for production use with security, stability, and performance 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.0.0 | 2026-02-23 | Phase 9 started — 9-1 complete (VirtIO Net PIO driver) |
 | 5.0.0 | 2026-02-20 | Phase 8 started (8-1: ACPI address translation fix) |
 | 4.0.0 | 2026-02-19 | Phase 7-4 complete (Linux binary compatibility layer) |
 | 3.0.0 | 2026-02-17 | Phase 7-3 complete, roadmap updated through Phase 7 |

@@ -833,6 +833,38 @@ pub struct DriverStats {
 
 ### 5.2 VirtIO-Net Driver
 
+The VirtIO-Net driver supports two transport modes:
+
+#### 5.2.1 PIO Mode (Legacy PCI Transport) — Implemented in Phase 9-1
+
+The PIO driver uses `x86_64::instructions::port::Port` for register access, following
+the VirtIO 1.0 legacy PCI interface (§4.1.4.8). This is the primary driver for QEMU
+`-device virtio-net-pci`.
+
+```rust
+// kernel/src/drivers/net/virtio_net.rs — PIO register offsets
+mod pio_reg {
+    pub const DEVICE_FEATURES: u16 = 0x00;  // 4 bytes
+    pub const DRIVER_FEATURES: u16 = 0x04;  // 4 bytes
+    pub const QUEUE_ADDRESS: u16   = 0x08;  // 4 bytes (PFN)
+    pub const QUEUE_SIZE: u16      = 0x0C;  // 2 bytes
+    pub const QUEUE_SELECT: u16    = 0x0E;  // 2 bytes
+    pub const QUEUE_NOTIFY: u16    = 0x10;  // 2 bytes
+    pub const DEVICE_STATUS: u16   = 0x12;  // 1 byte
+    pub const ISR_STATUS: u16      = 0x13;  // 1 byte
+    pub const MAC0: u16            = 0x14;  // 6 bytes
+    pub const NET_STATUS: u16      = 0x1A;  // 2 bytes
+}
+```
+
+Init sequence: reset → ACKNOWLEDGE → DRIVER → read features → write features →
+FEATURES_OK → read MAC → allocate virtqueues (desc + avail + used rings) →
+DRIVER_OK. PCI bus mastering and I/O space access are enabled before init.
+
+#### 5.2.2 MMIO Mode (VirtIO MMIO Transport)
+
+The MMIO driver uses memory-mapped registers for platforms that expose VirtIO via MMIO.
+
 ```rust
 // network/src/drivers/virtio.rs
 

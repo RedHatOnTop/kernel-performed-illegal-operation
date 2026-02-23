@@ -1,6 +1,6 @@
 # Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration
 
-> **Status**: Not started  
+> **Status**: In Progress (9-1 Complete)  
 > **Predecessor**: Phase 8 (Technical Debt Resolution) — completed 2026-02-23  
 > **Boot environment**: QEMU 10.2.0, UEFI pflash, bootloader 0.11.14, nightly-2026-01-01  
 > **Goal**: Make VirtIO network and storage actually functional — DHCP succeeds, packets transmit/receive, VFS reads/writes reach disk  
@@ -140,15 +140,38 @@ reference for every pattern needed:
 
 ### QG (Quality Gate)
 
-- [ ] `cargo build --target x86_64-kpio.json` succeeds
-- [ ] PIO `read8`/`write8`/`read32`/`write32` use `x86_64::instructions::port::Port` — no more 0/no-op stubs
-- [ ] `probe()` calls `init_pio()` and logs `[VirtIO Net] NIC initialized successfully` in QEMU serial
-- [ ] VirtIO status register reads `DRIVER_OK` (0x04) after init — logged to serial
-- [ ] MAC address read from device and logged: `[VirtIO Net] MAC: xx:xx:xx:xx:xx:xx`
+- [x] `cargo build --target x86_64-kpio.json` succeeds
+- [x] PIO `read8`/`write8`/`read32`/`write32` use `x86_64::instructions::port::Port` — no more 0/no-op stubs
+- [x] `probe()` calls `init_pio()` and logs `[VirtIO Net] NIC initialized successfully` in QEMU serial
+- [x] VirtIO status register reads `DRIVER_OK` (0x04) after init — logged to serial
+- [x] MAC address read from device and logged: `[VirtIO Net] MAC: xx:xx:xx:xx:xx:xx`
 
 ### Changes After Completion
 
-_(To be filled after sub-phase is implemented)_
+**Completed:** 2026-02-23
+
+Files modified:
+- `kernel/src/drivers/net/virtio_net.rs` — Major rewrite:
+  - Added `use x86_64::instructions::port::Port` import
+  - Added `pio_reg` module with legacy PCI register offsets (DEVICE_FEATURES through NET_STATUS)
+  - Added `device_status` module with VirtIO status constants (ACKNOWLEDGE, DRIVER, DRIVER_OK, FEATURES_OK, FAILED)
+  - Added `VirtqRings` struct to track descriptor table, available ring, and used ring physical addresses
+  - Added `rx_rings`/`tx_rings` fields to `VirtioNetDevice`
+  - Replaced stub PIO branches in `read8`/`write8`/`read32`/`write32` with real `Port::new(port).read()`/`.write()`
+  - Added `read16`/`write16` methods for 16-bit register access
+  - Split `init()` into `init_pio_device()` and `init_mmio_device()`
+  - `init_pio_device()`: full VirtIO legacy PCI init sequence (reset → ACK → DRIVER → features → FEATURES_OK → MAC → virtqueues → DRIVER_OK)
+  - Added `init_virtqueue_pio()`: allocates descriptor table + available ring + used ring, writes PFN to QUEUE_ADDRESS register
+  - `put_avail_rx()`: writes to available ring and notifies device via PIO
+  - `notify_tx()`: writes queue index 1 to QUEUE_NOTIFY via PIO
+  - `ack_interrupt()`: reads ISR_STATUS register (auto-clears on read) via PIO
+  - `transmit()`: writes descriptors to device-visible memory and updates available ring for PIO mode
+  - `receive()`: checks used ring for completed RX descriptors in PIO mode
+  - `rx_available()`: checks used ring index in PIO mode
+  - `poll()`: reads NET_STATUS register for link state in PIO mode
+  - `down()`: resets device via DEVICE_STATUS register in PIO mode
+  - `refill_rx()`: writes updated descriptors to device-visible memory in PIO mode
+  - `probe()`: now enables PCI bus mastering + I/O space, extracts BAR0 I/O base, and calls `init_pio()` for each discovered NIC
 
 ---
 

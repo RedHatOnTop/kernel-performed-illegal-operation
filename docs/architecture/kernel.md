@@ -207,7 +207,8 @@ Phase 4: Kernel Init (kernel/src/main.rs)
     +---> Initialize APIC (disable legacy PIC)
     +---> Parse ACPI tables (phys→virt translation)
     +---> Enumerate PCI devices
-    +---> Initialize VirtIO (block + network probe)
+    +---> Initialize VirtIO block driver
+    +---> Probe & initialize VirtIO NIC (PIO: bus master, BAR0, full init sequence)
     +---> Initialize network stack (after NIC discovery)
     +---> Start essential drivers (timer, keyboard, mouse)
     |

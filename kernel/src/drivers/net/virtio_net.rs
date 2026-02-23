@@ -1,11 +1,17 @@
 //! VirtIO Network Device Driver
 //!
 //! Supports VirtIO network devices in QEMU and other hypervisors.
+//! Implements both MMIO and PIO (legacy) transport modes.
+//!
+//! The PIO mode uses `x86_64::instructions::port::Port` for register access,
+//! following the same proven pattern as the VirtIO block driver
+//! (`kernel/src/driver/virtio/block.rs`).
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ptr;
+use x86_64::instructions::port::Port;
 
 use super::{
     LinkDuplex, LinkSpeed, LinkStatus, MacAddress, NetworkCapabilities, NetworkDevice,
@@ -130,6 +136,18 @@ const QUEUE_SIZE: usize = 128;
 /// RX buffer size
 const RX_BUFFER_SIZE: usize = 2048;
 
+/// Tracks the physical addresses of virtqueue ring memory (PIO mode).
+struct VirtqRings {
+    /// Physical address of descriptor table
+    desc_phys: u64,
+    /// Physical address of available ring
+    avail_phys: u64,
+    /// Physical address of used ring
+    used_phys: u64,
+    /// Queue size reported by device
+    queue_size: u16,
+}
+
 /// MMIO register offsets (VirtIO MMIO transport v1/v2)
 #[allow(dead_code)]
 mod mmio_reg {
@@ -156,6 +174,48 @@ mod mmio_reg {
     pub const QUEUE_USED_LOW: u32 = 0xA0;
     pub const QUEUE_USED_HIGH: u32 = 0xA4;
     pub const CONFIG: u32 = 0x100;
+}
+
+/// PIO (legacy) register offsets for VirtIO PCI transport (VirtIO 1.0 §4.1.4.8)
+#[allow(dead_code)]
+mod pio_reg {
+    /// Device features (4 bytes, read-only)
+    pub const DEVICE_FEATURES: u16 = 0x00;
+    /// Driver (guest) features (4 bytes, read-write)
+    pub const DRIVER_FEATURES: u16 = 0x04;
+    /// Queue address — physical page number (4 bytes)
+    pub const QUEUE_ADDRESS: u16 = 0x08;
+    /// Queue size (2 bytes, read-only)
+    pub const QUEUE_SIZE: u16 = 0x0C;
+    /// Queue select (2 bytes, read-write)
+    pub const QUEUE_SELECT: u16 = 0x0E;
+    /// Queue notify (2 bytes, write-only)
+    pub const QUEUE_NOTIFY: u16 = 0x10;
+    /// Device status (1 byte, read-write)
+    pub const DEVICE_STATUS: u16 = 0x12;
+    /// ISR status (1 byte, read-only)
+    pub const ISR_STATUS: u16 = 0x13;
+    /// MAC address byte 0 (device-specific config starts at 0x14 for net)
+    pub const MAC0: u16 = 0x14;
+    /// Network status (2 bytes, at offset 0x1A)
+    pub const NET_STATUS: u16 = 0x1A;
+}
+
+/// VirtIO device status bits (shared between PIO and MMIO)
+mod device_status {
+    /// Driver has acknowledged the device
+    pub const ACKNOWLEDGE: u8 = 1;
+    /// Driver knows how to drive the device
+    pub const DRIVER: u8 = 2;
+    /// Driver is ready
+    pub const DRIVER_OK: u8 = 4;
+    /// Feature negotiation complete
+    pub const FEATURES_OK: u8 = 8;
+    /// Device has experienced an error and needs reset
+    #[allow(dead_code)]
+    pub const NEEDS_RESET: u8 = 64;
+    /// Something went wrong — device is unusable
+    pub const FAILED: u8 = 128;
 }
 
 /// Virtqueue indices
@@ -198,6 +258,10 @@ pub struct VirtioNetDevice {
     link_status: LinkStatus,
     /// Is up
     is_up: bool,
+    /// PIO-mode RX virtqueue ring addresses
+    rx_rings: Option<VirtqRings>,
+    /// PIO-mode TX virtqueue ring addresses
+    tx_rings: Option<VirtqRings>,
 }
 
 impl VirtioNetDevice {
@@ -247,142 +311,380 @@ impl VirtioNetDevice {
                 duplex: LinkDuplex::Full,
             },
             is_up: false,
+            rx_rings: None,
+            tx_rings: None,
         }
     }
 
-    /// Read 8-bit from device
+    /// Read 8-bit from device register
     fn read8(&self, offset: u32) -> u8 {
         if let Some(mmio) = self.mmio_base {
             unsafe { ptr::read_volatile((mmio + offset as usize) as *const u8) }
         } else {
-            // PIO mode - would use port I/O
-            0
+            let port = self.io_base + offset as u16;
+            unsafe { Port::<u8>::new(port).read() }
         }
     }
 
-    /// Write 8-bit to device
+    /// Write 8-bit to device register
     fn write8(&mut self, offset: u32, val: u8) {
         if let Some(mmio) = self.mmio_base {
             unsafe {
                 ptr::write_volatile((mmio + offset as usize) as *mut u8, val);
             }
+        } else {
+            let port = self.io_base + offset as u16;
+            unsafe { Port::<u8>::new(port).write(val) }
         }
-        // PIO mode would use port I/O
     }
 
-    /// Read 32-bit from device
+    /// Read 16-bit from device register (PIO only, used for queue size etc.)
+    fn read16(&self, offset: u32) -> u16 {
+        if let Some(mmio) = self.mmio_base {
+            unsafe { ptr::read_volatile((mmio + offset as usize) as *const u16) }
+        } else {
+            let port = self.io_base + offset as u16;
+            unsafe { Port::<u16>::new(port).read() }
+        }
+    }
+
+    /// Write 16-bit to device register
+    fn write16(&mut self, offset: u32, val: u16) {
+        if let Some(mmio) = self.mmio_base {
+            unsafe {
+                ptr::write_volatile((mmio + offset as usize) as *mut u16, val);
+            }
+        } else {
+            let port = self.io_base + offset as u16;
+            unsafe { Port::<u16>::new(port).write(val) }
+        }
+    }
+
+    /// Read 32-bit from device register
     fn read32(&self, offset: u32) -> u32 {
         if let Some(mmio) = self.mmio_base {
             unsafe { ptr::read_volatile((mmio + offset as usize) as *const u32) }
         } else {
-            0
+            let port = self.io_base + offset as u16;
+            unsafe { Port::<u32>::new(port).read() }
         }
     }
 
-    /// Write 32-bit to device
+    /// Write 32-bit to device register
     fn write32(&mut self, offset: u32, val: u32) {
         if let Some(mmio) = self.mmio_base {
             unsafe {
                 ptr::write_volatile((mmio + offset as usize) as *mut u32, val);
             }
+        } else {
+            let port = self.io_base + offset as u16;
+            unsafe { Port::<u32>::new(port).write(val) }
         }
     }
 
-    /// Initialize device
+    /// Initialize device (dispatches to MMIO or PIO path)
     pub fn init(&mut self) -> Result<(), NetworkError> {
-        // VirtIO MMIO initialization
         if self.mmio_base.is_some() {
-            // Check magic value (0x74726976)
-            let magic = self.read32(mmio_reg::MAGIC);
-            if magic != 0x74726976 {
-                return Err(NetworkError::DeviceNotFound);
-            }
+            self.init_mmio_device()
+        } else {
+            self.init_pio_device()
+        }
+    }
 
-            // Check version
-            let version = self.read32(mmio_reg::VERSION);
-            if version != 1 && version != 2 {
-                return Err(NetworkError::HardwareError(version));
-            }
+    /// Initialize device via PIO (legacy VirtIO PCI transport).
+    ///
+    /// Follows the same proven sequence as the VirtIO block driver
+    /// (`kernel/src/driver/virtio/block.rs`).
+    fn init_pio_device(&mut self) -> Result<(), NetworkError> {
+        let io = self.io_base;
+        crate::serial_println!("[VirtIO Net] PIO init starting (io_base={:#x})", io);
 
-            // Check device ID (1 = network)
-            let device_id = self.read32(mmio_reg::DEVICE_ID);
-            if device_id != 1 {
-                return Err(NetworkError::DeviceNotFound);
-            }
+        // 1. Reset device
+        self.write8(pio_reg::DEVICE_STATUS as u32, 0);
 
-            // Reset device
-            self.write32(mmio_reg::STATUS, 0);
+        // 2. Set ACKNOWLEDGE status bit
+        self.write8(pio_reg::DEVICE_STATUS as u32, device_status::ACKNOWLEDGE);
 
-            // Set ACKNOWLEDGE status bit
-            self.write32(mmio_reg::STATUS, 1);
+        // 3. Set DRIVER status bit
+        self.write8(
+            pio_reg::DEVICE_STATUS as u32,
+            device_status::ACKNOWLEDGE | device_status::DRIVER,
+        );
 
-            // Set DRIVER status bit
-            self.write32(mmio_reg::STATUS, 3);
+        // 4. Read device features
+        let device_features = self.read32(pio_reg::DEVICE_FEATURES as u32) as u64;
+        crate::serial_println!("[VirtIO Net] Device features: {:#x}", device_features);
 
-            // Read device features
-            self.write32(mmio_reg::DEVICE_FEATURES_SEL, 0);
-            let feat_lo = self.read32(mmio_reg::DEVICE_FEATURES);
-            self.write32(mmio_reg::DEVICE_FEATURES_SEL, 1);
-            let feat_hi = self.read32(mmio_reg::DEVICE_FEATURES);
-            let device_features = (feat_hi as u64) << 32 | (feat_lo as u64);
+        // 5. Select features we want (keep it simple: MAC + STATUS)
+        self.features = device_features
+            & (features::MAC | features::STATUS | features::CSUM | features::GUEST_CSUM);
 
-            // Select features we want (keep it simple: MAC + STATUS)
-            self.features = device_features
-                & (features::MAC | features::STATUS | features::CSUM | features::GUEST_CSUM);
+        // 6. Write driver features
+        self.write32(pio_reg::DRIVER_FEATURES as u32, self.features as u32);
 
-            // Write driver features
-            self.write32(mmio_reg::DRIVER_FEATURES_SEL, 0);
-            self.write32(mmio_reg::DRIVER_FEATURES, self.features as u32);
-            self.write32(mmio_reg::DRIVER_FEATURES_SEL, 1);
-            self.write32(mmio_reg::DRIVER_FEATURES, (self.features >> 32) as u32);
+        // 7. Set FEATURES_OK
+        self.write8(
+            pio_reg::DEVICE_STATUS as u32,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
 
-            // Set FEATURES_OK
-            self.write32(mmio_reg::STATUS, 11);
-
-            // Verify FEATURES_OK was accepted
-            let status = self.read32(mmio_reg::STATUS);
-            if (status & 8) == 0 {
-                self.write32(mmio_reg::STATUS, 128); // FAILED
-                return Err(NetworkError::HardwareError(status));
-            }
-
-            // Read MAC address if supported
-            if (self.features & features::MAC) != 0 {
-                let mut mac = [0u8; 6];
-                for i in 0..6 {
-                    mac[i] = self.read8(mmio_reg::CONFIG + i as u32);
-                }
-                self.mac = MacAddress::new(mac);
-            }
-
-            // ── Initialize RX queue (queue 0) ──
-            self.init_virtqueue(RX_QUEUE)?;
-
-            // Fill RX queue with receive buffers
-            for i in 0..(QUEUE_SIZE.min(self.rx_buffers.len())) {
-                let buf_addr = self.rx_buffers[i].as_ptr() as u64;
-                let buf_len = self.rx_buffers[i].len() as u32;
-                self.rx_desc[i] = VirtqDesc {
-                    addr: buf_addr,
-                    len: buf_len,
-                    flags: VirtqDesc::WRITE, // device writes to this buffer
-                    next: 0,
-                };
-                // Add to available ring via MMIO
-                self.put_avail_rx(i as u16);
-            }
-
-            // ── Initialize TX queue (queue 1) ──
-            self.init_virtqueue(TX_QUEUE)?;
-
-            // Set DRIVER_OK
-            self.write32(mmio_reg::STATUS, 15);
+        // 8. Verify FEATURES_OK was accepted
+        let status = self.read8(pio_reg::DEVICE_STATUS as u32);
+        if (status & device_status::FEATURES_OK) == 0 {
+            crate::serial_println!("[VirtIO Net] Feature negotiation failed (status={:#x})", status);
+            self.write8(pio_reg::DEVICE_STATUS as u32, device_status::FAILED);
+            return Err(NetworkError::HardwareError(status as u32));
         }
 
+        // 9. Read MAC address from device-specific config space (offset 0x14..0x19)
+        if (self.features & features::MAC) != 0 {
+            let mut mac = [0u8; 6];
+            for i in 0..6 {
+                mac[i] = self.read8((pio_reg::MAC0 + i as u16) as u32);
+            }
+            self.mac = MacAddress::new(mac);
+            crate::serial_println!(
+                "[VirtIO Net] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+            );
+        } else {
+            crate::serial_println!("[VirtIO Net] No MAC feature — using zero MAC");
+        }
+
+        // 10. Initialize RX queue (queue 0) via PIO
+        self.init_virtqueue_pio(0)?;
+
+        // Fill RX queue with receive buffers
+        for i in 0..(QUEUE_SIZE.min(self.rx_buffers.len())) {
+            let buf_addr = self.rx_buffers[i].as_ptr() as u64;
+            let buf_len = self.rx_buffers[i].len() as u32;
+            self.rx_desc[i] = VirtqDesc {
+                addr: buf_addr,
+                len: buf_len,
+                flags: VirtqDesc::WRITE, // device writes to this buffer
+                next: 0,
+            };
+        }
+
+        // Write all RX descriptors to the available ring
+        if let Some(ref rings) = self.rx_rings {
+            unsafe {
+                let avail_ptr = rings.avail_phys as *mut u16;
+                for i in 0..QUEUE_SIZE as u16 {
+                    // ring[i] = descriptor index
+                    ptr::write_volatile(avail_ptr.add(2 + i as usize), i);
+                }
+                // Set avail idx = QUEUE_SIZE (all buffers available)
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+                ptr::write_volatile(avail_ptr.add(1), QUEUE_SIZE as u16);
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        self.rx_avail_idx = QUEUE_SIZE as u16;
+
+        // Notify device that RX buffers are available
+        self.write16(pio_reg::QUEUE_NOTIFY as u32, 0);
+
+        // 11. Initialize TX queue (queue 1) via PIO
+        self.init_virtqueue_pio(1)?;
+
+        // 12. Set DRIVER_OK — device is live
+        self.write8(
+            pio_reg::DEVICE_STATUS as u32,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
+        );
+
+        let final_status = self.read8(pio_reg::DEVICE_STATUS as u32);
+        crate::serial_println!(
+            "[VirtIO Net] PIO init complete — status={:#x} (DRIVER_OK={})",
+            final_status,
+            (final_status & device_status::DRIVER_OK) != 0
+        );
+
+        self.is_up = true;
         Ok(())
     }
 
-    /// Initialize a virtqueue (must be called after FEATURES_OK).
+    /// Initialize device via MMIO transport.
+    fn init_mmio_device(&mut self) -> Result<(), NetworkError> {
+        // Check magic value (0x74726976)
+        let magic = self.read32(mmio_reg::MAGIC);
+        if magic != 0x74726976 {
+            return Err(NetworkError::DeviceNotFound);
+        }
+
+        // Check version
+        let version = self.read32(mmio_reg::VERSION);
+        if version != 1 && version != 2 {
+            return Err(NetworkError::HardwareError(version));
+        }
+
+        // Check device ID (1 = network)
+        let device_id = self.read32(mmio_reg::DEVICE_ID);
+        if device_id != 1 {
+            return Err(NetworkError::DeviceNotFound);
+        }
+
+        // Reset device
+        self.write32(mmio_reg::STATUS, 0);
+
+        // Set ACKNOWLEDGE status bit
+        self.write32(mmio_reg::STATUS, 1);
+
+        // Set DRIVER status bit
+        self.write32(mmio_reg::STATUS, 3);
+
+        // Read device features
+        self.write32(mmio_reg::DEVICE_FEATURES_SEL, 0);
+        let feat_lo = self.read32(mmio_reg::DEVICE_FEATURES);
+        self.write32(mmio_reg::DEVICE_FEATURES_SEL, 1);
+        let feat_hi = self.read32(mmio_reg::DEVICE_FEATURES);
+        let device_features = (feat_hi as u64) << 32 | (feat_lo as u64);
+
+        // Select features we want (keep it simple: MAC + STATUS)
+        self.features = device_features
+            & (features::MAC | features::STATUS | features::CSUM | features::GUEST_CSUM);
+
+        // Write driver features
+        self.write32(mmio_reg::DRIVER_FEATURES_SEL, 0);
+        self.write32(mmio_reg::DRIVER_FEATURES, self.features as u32);
+        self.write32(mmio_reg::DRIVER_FEATURES_SEL, 1);
+        self.write32(mmio_reg::DRIVER_FEATURES, (self.features >> 32) as u32);
+
+        // Set FEATURES_OK
+        self.write32(mmio_reg::STATUS, 11);
+
+        // Verify FEATURES_OK was accepted
+        let status = self.read32(mmio_reg::STATUS);
+        if (status & 8) == 0 {
+            self.write32(mmio_reg::STATUS, 128); // FAILED
+            return Err(NetworkError::HardwareError(status));
+        }
+
+        // Read MAC address if supported
+        if (self.features & features::MAC) != 0 {
+            let mut mac = [0u8; 6];
+            for i in 0..6 {
+                mac[i] = self.read8(mmio_reg::CONFIG + i as u32);
+            }
+            self.mac = MacAddress::new(mac);
+        }
+
+        // ── Initialize RX queue (queue 0) ──
+        self.init_virtqueue(RX_QUEUE)?;
+
+        // Fill RX queue with receive buffers
+        for i in 0..(QUEUE_SIZE.min(self.rx_buffers.len())) {
+            let buf_addr = self.rx_buffers[i].as_ptr() as u64;
+            let buf_len = self.rx_buffers[i].len() as u32;
+            self.rx_desc[i] = VirtqDesc {
+                addr: buf_addr,
+                len: buf_len,
+                flags: VirtqDesc::WRITE, // device writes to this buffer
+                next: 0,
+            };
+            // Add to available ring via MMIO
+            self.put_avail_rx(i as u16);
+        }
+
+        // ── Initialize TX queue (queue 1) ──
+        self.init_virtqueue(TX_QUEUE)?;
+
+        // Set DRIVER_OK
+        self.write32(mmio_reg::STATUS, 15);
+
+        self.is_up = true;
+        Ok(())
+    }
+
+    /// Initialize a virtqueue via PIO (legacy VirtIO PCI transport).
+    ///
+    /// Allocates descriptor table, available ring, and used ring in memory,
+    /// then writes the physical page number to the QUEUE_ADDRESS register.
+    /// This follows the same pattern as `kernel/src/driver/virtio/block.rs`.
+    fn init_virtqueue_pio(&mut self, queue_idx: u16) -> Result<(), NetworkError> {
+        // Select queue
+        self.write16(pio_reg::QUEUE_SELECT as u32, queue_idx);
+
+        // Read max queue size from device
+        let max_size = self.read16(pio_reg::QUEUE_SIZE as u32);
+        if max_size == 0 {
+            crate::serial_println!(
+                "[VirtIO Net] Queue {} not available (size=0)",
+                queue_idx
+            );
+            return Err(NetworkError::HardwareError(queue_idx as u32));
+        }
+
+        let qsz = (QUEUE_SIZE as u16).min(max_size);
+        crate::serial_println!(
+            "[VirtIO Net] Queue {} size: {} (max={})",
+            queue_idx, qsz, max_size
+        );
+
+        // Calculate sizes for the three ring areas.
+        // Legacy VirtIO layout (spec §2.4.2):
+        //   desc table:  16 bytes × queue_size
+        //   avail ring:  6 + 2 × queue_size bytes
+        //   (pad to next page boundary)
+        //   used ring:   6 + 8 × queue_size bytes
+        let desc_size = 16 * qsz as usize; // sizeof(VirtqDesc) = 16
+        let avail_size = 6 + 2 * qsz as usize;
+        let _used_size = 6 + 8 * qsz as usize;
+
+        // Allocate physically contiguous memory (simplified: heap allocation).
+        // 4 pages (16 KiB) is plenty for 128-entry queues.
+        let queue_mem = alloc::vec![0u8; 4096 * 4].into_boxed_slice();
+        let queue_ptr = Box::into_raw(queue_mem);
+        let queue_base = queue_ptr as *mut u8 as u64;
+
+        let desc_phys = queue_base;
+        let avail_phys = desc_phys + desc_size as u64;
+        // Used ring must be page-aligned (legacy spec requirement)
+        let used_phys = (avail_phys + avail_size as u64 + 4095) & !4095;
+
+        // Write queue physical page number to device (legacy: pfn = phys_addr >> 12)
+        let mut queue_addr_port: Port<u32> =
+            Port::new(self.io_base + pio_reg::QUEUE_ADDRESS);
+        unsafe { queue_addr_port.write((desc_phys / 4096) as u32) };
+
+        let rings = VirtqRings {
+            desc_phys,
+            avail_phys,
+            used_phys,
+            queue_size: qsz,
+        };
+
+        if queue_idx == 0 {
+            // Copy our pre-allocated descriptor data into the device memory
+            let desc_base = desc_phys as *mut VirtqDesc;
+            for i in 0..qsz as usize {
+                unsafe {
+                    ptr::write_volatile(desc_base.add(i), self.rx_desc[i]);
+                }
+            }
+            self.rx_rings = Some(rings);
+        } else {
+            let desc_base = desc_phys as *mut VirtqDesc;
+            for i in 0..qsz as usize {
+                unsafe {
+                    ptr::write_volatile(desc_base.add(i), self.tx_desc[i]);
+                }
+            }
+            self.tx_rings = Some(rings);
+        }
+
+        crate::serial_println!(
+            "[VirtIO Net] Queue {} configured: desc={:#x} avail={:#x} used={:#x}",
+            queue_idx, desc_phys, avail_phys, used_phys
+        );
+        Ok(())
+    }
+
+    /// Initialize a virtqueue (must be called after FEATURES_OK) — MMIO path.
     fn init_virtqueue(&mut self, queue_idx: u32) -> Result<(), NetworkError> {
         if self.mmio_base.is_none() {
             return Ok(());
@@ -435,11 +737,24 @@ impl VirtioNetDevice {
 
     /// Add an RX buffer index to the available ring.
     fn put_avail_rx(&mut self, desc_idx: u16) {
-        self.rx_avail_idx = self.rx_avail_idx.wrapping_add(1);
-        // Notify device that new RX buffers are available
         if self.mmio_base.is_some() {
+            self.rx_avail_idx = self.rx_avail_idx.wrapping_add(1);
+            // Notify device that new RX buffers are available
             self.write32(mmio_reg::QUEUE_SEL, RX_QUEUE);
             self.write32(mmio_reg::QUEUE_NOTIFY, RX_QUEUE);
+        } else if let Some(ref rings) = self.rx_rings {
+            unsafe {
+                let avail_ptr = rings.avail_phys as *mut u16;
+                let avail_idx = ptr::read_volatile(avail_ptr.add(1));
+                let ring_slot = avail_ptr.add(2 + (avail_idx as usize % rings.queue_size as usize));
+                ptr::write_volatile(ring_slot, desc_idx);
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+                ptr::write_volatile(avail_ptr.add(1), avail_idx.wrapping_add(1));
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            }
+            self.rx_avail_idx = self.rx_avail_idx.wrapping_add(1);
+            // Notify device
+            self.write16(pio_reg::QUEUE_NOTIFY as u32, 0); // queue 0 = RX
         }
     }
 
@@ -448,6 +763,8 @@ impl VirtioNetDevice {
         if self.mmio_base.is_some() {
             self.write32(mmio_reg::QUEUE_SEL, TX_QUEUE);
             self.write32(mmio_reg::QUEUE_NOTIFY, TX_QUEUE);
+        } else {
+            self.write16(pio_reg::QUEUE_NOTIFY as u32, 1); // queue 1 = TX
         }
     }
 
@@ -460,7 +777,8 @@ impl VirtioNetDevice {
             }
             status
         } else {
-            0
+            // PIO: read ISR status register (automatically clears on read)
+            self.read8(pio_reg::ISR_STATUS as u32) as u32
         }
     }
 }
@@ -521,7 +839,9 @@ impl NetworkDevice for VirtioNetDevice {
 
         // Reset device
         if self.mmio_base.is_some() {
-            self.write32(0x70, 0);
+            self.write32(mmio_reg::STATUS, 0);
+        } else {
+            self.write8(pio_reg::DEVICE_STATUS as u32, 0);
         }
 
         self.is_up = false;
@@ -561,13 +881,32 @@ impl NetworkDevice for VirtioNetDevice {
         // Copy payload
         self.tx_buffers[idx][VirtioNetHdr::SIZE..total].copy_from_slice(data);
 
-        // Set up TX descriptor
+        // Set up TX descriptor in our local array
         self.tx_desc[idx] = VirtqDesc {
             addr: self.tx_buffers[idx].as_ptr() as u64,
             len: total as u32,
             flags: 0, // device reads from this buffer
             next: 0,
         };
+
+        // For PIO mode: write descriptor to device memory and update available ring
+        if let Some(ref rings) = self.tx_rings {
+            unsafe {
+                // Write descriptor to device-visible descriptor table
+                let desc_base = rings.desc_phys as *mut VirtqDesc;
+                ptr::write_volatile(desc_base.add(idx), self.tx_desc[idx]);
+
+                // Add to available ring
+                let avail_ptr = rings.avail_phys as *mut u16;
+                let avail_idx = ptr::read_volatile(avail_ptr.add(1));
+                let ring_slot =
+                    avail_ptr.add(2 + (avail_idx as usize % rings.queue_size as usize));
+                ptr::write_volatile(ring_slot, idx as u16);
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+                ptr::write_volatile(avail_ptr.add(1), avail_idx.wrapping_add(1));
+                core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            }
+        }
 
         // Update available ring index
         self.tx_avail_idx = self.tx_avail_idx.wrapping_add(1);
@@ -589,13 +928,47 @@ impl NetworkDevice for VirtioNetDevice {
         // Check for interrupt / completed RX descriptors
         self.ack_interrupt();
 
-        // Check if there are any completed RX descriptors.
-        // In our simplified model, we check each RX descriptor for data.
-        // A real implementation would track the used ring properly.
-        let idx = self.rx_used_idx as usize % QUEUE_SIZE;
+        // PIO mode: check the used ring for completed RX descriptors
+        if let Some(ref rings) = self.rx_rings {
+            let used_idx_ptr = unsafe { (rings.used_phys as *mut u16).add(1) };
+            let current_used = unsafe { ptr::read_volatile(used_idx_ptr) };
 
-        // Look at the RX descriptor — if the device has written data,
-        // the len field will be non-zero and different from the initial value.
+            if current_used == self.rx_used_idx {
+                return Err(NetworkError::RxBufferEmpty);
+            }
+
+            // Read the used ring element:  ring[used_idx % qsz] → (id: u32, len: u32)
+            let used_ring_base = unsafe { (rings.used_phys as *mut u8).add(4) }; // skip flags+idx
+            let elem_offset = (self.rx_used_idx as usize % rings.queue_size as usize) * 8;
+            let elem_ptr = unsafe { used_ring_base.add(elem_offset) };
+            let desc_id = unsafe { ptr::read_volatile(elem_ptr as *const u32) } as usize;
+            let total_len = unsafe { ptr::read_volatile((elem_ptr as *const u32).add(1)) } as usize;
+
+            if total_len <= VirtioNetHdr::SIZE || desc_id >= QUEUE_SIZE {
+                self.refill_rx(desc_id % QUEUE_SIZE);
+                self.rx_used_idx = self.rx_used_idx.wrapping_add(1);
+                return Err(NetworkError::RxBufferEmpty);
+            }
+
+            // Strip VirtioNetHdr
+            let payload_len = total_len - VirtioNetHdr::SIZE;
+            let copy_len = payload_len.min(buffer.len());
+            buffer[..copy_len].copy_from_slice(
+                &self.rx_buffers[desc_id][VirtioNetHdr::SIZE..VirtioNetHdr::SIZE + copy_len],
+            );
+
+            // Refill this RX slot
+            self.refill_rx(desc_id);
+
+            self.rx_used_idx = self.rx_used_idx.wrapping_add(1);
+            self.stats.rx_packets += 1;
+            self.stats.rx_bytes += copy_len as u64;
+
+            return Ok(copy_len);
+        }
+
+        // MMIO fallback: check descriptor directly (original logic)
+        let idx = self.rx_used_idx as usize % QUEUE_SIZE;
         let desc = &self.rx_desc[idx];
         if desc.len == 0 || desc.len as usize == self.rx_buffers[idx].len() {
             return Err(NetworkError::RxBufferEmpty);
@@ -603,7 +976,6 @@ impl NetworkDevice for VirtioNetDevice {
 
         let total_len = desc.len as usize;
         if total_len <= VirtioNetHdr::SIZE {
-            // Reset and refill this descriptor
             self.refill_rx(idx);
             return Err(NetworkError::RxBufferEmpty);
         }
@@ -629,7 +1001,13 @@ impl NetworkDevice for VirtioNetDevice {
         if !self.is_up {
             return false;
         }
-        // Check if the current RX descriptor has been filled by the device.
+        // PIO mode: check used ring
+        if let Some(ref rings) = self.rx_rings {
+            let used_idx_ptr = unsafe { (rings.used_phys as *mut u16).add(1) };
+            let current_used = unsafe { ptr::read_volatile(used_idx_ptr) };
+            return current_used != self.rx_used_idx;
+        }
+        // MMIO fallback: check descriptor directly
         let idx = self.rx_used_idx as usize % QUEUE_SIZE;
         let desc = &self.rx_desc[idx];
         desc.len != 0 && (desc.len as usize) < self.rx_buffers[idx].len()
@@ -653,9 +1031,14 @@ impl NetworkDevice for VirtioNetDevice {
         self.ack_interrupt();
 
         // Check link status if STATUS feature is negotiated
-        if (self.features & features::STATUS) != 0 && self.mmio_base.is_some() {
-            let status = self.read8(mmio_reg::CONFIG + 6); // After MAC in config space
-            self.link_status.up = (status & 1) != 0;
+        if (self.features & features::STATUS) != 0 {
+            if self.mmio_base.is_some() {
+                let status = self.read8(mmio_reg::CONFIG + 6); // After MAC in config space
+                self.link_status.up = (status & 1) != 0;
+            } else {
+                let status = self.read16(pio_reg::NET_STATUS as u32);
+                self.link_status.up = (status & 1) != 0;
+            }
         }
         Ok(())
     }
@@ -675,32 +1058,61 @@ impl VirtioNetDevice {
             flags: VirtqDesc::WRITE,
             next: 0,
         };
+        // Write updated descriptor to device-visible memory (PIO mode)
+        if let Some(ref rings) = self.rx_rings {
+            unsafe {
+                let desc_base = rings.desc_phys as *mut VirtqDesc;
+                ptr::write_volatile(desc_base.add(idx), self.rx_desc[idx]);
+            }
+        }
         // Notify device of refilled RX buffer
         self.put_avail_rx(idx as u16);
     }
 }
 
-/// Probe for VirtIO network devices on the PCI bus and log results.
+/// Probe for VirtIO network devices on the PCI bus, initialize each one,
+/// and register them in the `NETWORK_MANAGER`.
 ///
-/// Scans for VirtIO NIC devices (vendor 0x1AF4, device 0x1000/0x1041)
-/// using the already-enumerated PCI device list. Full driver init is
-/// deferred to a future phase; this function only performs discovery.
+/// For each discovered device the function:
+/// 1. Enables PCI bus mastering and I/O space access
+/// 2. Extracts the I/O base from BAR0
+/// 3. Calls `init_pio()` which performs the full VirtIO legacy init sequence
 pub fn probe() {
     let network_devs = crate::driver::pci::find_virtio_network();
-    for dev in &network_devs {
-        crate::serial_println!(
-            "[VirtIO Net] Found NIC at {} (BAR0={:#x})",
-            dev.address,
-            dev.bars[0]
-        );
-    }
     if network_devs.is_empty() {
         crate::serial_println!("[VirtIO Net] No VirtIO network devices found");
-    } else {
+        return;
+    }
+
+    crate::serial_println!(
+        "[VirtIO Net] {} device(s) discovered — initializing",
+        network_devs.len()
+    );
+
+    for dev in &network_devs {
+        // Enable PCI bus mastering and I/O space (required for DMA + port access)
+        crate::driver::pci::enable_bus_master(dev.address);
+        crate::driver::pci::enable_io_space(dev.address);
+
+        let bar0 = dev.bars[0];
+        if (bar0 & 0x1) == 0 {
+            crate::serial_println!(
+                "[VirtIO Net] Device at {} has memory-mapped BAR0 — skipping (PIO only)",
+                dev.address
+            );
+            continue;
+        }
+        let io_base = (bar0 & 0xFFFC) as u16;
         crate::serial_println!(
-            "[VirtIO Net] {} device(s) discovered (driver init deferred)",
-            network_devs.len()
+            "[VirtIO Net] Found NIC at {} (IO base={:#x})",
+            dev.address,
+            io_base
         );
+
+        match init_pio(io_base) {
+            Ok(()) => crate::serial_println!("[VirtIO Net] NIC initialized successfully"),
+            Err(e) => crate::serial_println!("[VirtIO Net] NIC init failed: {:?}", e),
+        }
     }
 }
 

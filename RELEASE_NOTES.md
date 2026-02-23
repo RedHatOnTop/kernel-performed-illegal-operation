@@ -29,7 +29,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - **Full TCP/IP network stack** for online browsing (see below)
 
 ### Network Stack (NEW)
-- **VirtIO-net driver** — real packet TX/RX over MMIO virtqueues
+- **VirtIO-net driver** — real packet TX/RX over both MMIO virtqueues and PIO (legacy PCI transport)
 - **Ethernet** — IEEE 802.3 frame parse/build
 - **ARP** — address resolution with cache (RFC 826)
 - **IPv4** — packet construction, internet checksum, ICMP echo, subnet routing
@@ -105,6 +105,8 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [x] **#009** - ~~`free_frame()` was a no-op; physical frames were never returned to the allocator, causing memory leak under sustained allocation~~ — Fixed in Phase 8-5
 - [x] **#010** - ~~`acpi` and `aml` crates declared in `kernel/Cargo.toml` but never imported; `[features] acpi` name collided with crate name~~ — Fixed in Phase 8-6
 - [x] **#011** - ~~~869 build warnings (dead_code, unused_imports, unused_variables, etc.) obscuring real issues; no workspace-level lint policy~~ — Fixed in Phase 8-7
+- [x] **#012** - ~~VirtIO Net PIO `read8`/`write8`/`read32`/`write32` returned 0 / no-op — NIC initialization impossible via PIO transport~~ — Fixed in Phase 9-1
+- [x] **#013** - ~~`probe()` discovered VirtIO NIC but did not call `init_pio()` — NIC was never initialized~~ — Fixed in Phase 9-1
 
 ---
 
