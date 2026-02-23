@@ -13,3 +13,6 @@ crate-type = ["rlib"]
 
 [features]
 default = []
+
+[lints]
+workspace = true

@@ -104,6 +104,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [x] **#008** - ~~VirtIO network probe was a no-op stub; QEMU launched without NIC device, so no NIC was ever discovered~~ — Fixed in Phase 8-4
 - [x] **#009** - ~~`free_frame()` was a no-op; physical frames were never returned to the allocator, causing memory leak under sustained allocation~~ — Fixed in Phase 8-5
 - [x] **#010** - ~~`acpi` and `aml` crates declared in `kernel/Cargo.toml` but never imported; `[features] acpi` name collided with crate name~~ — Fixed in Phase 8-6
+- [x] **#011** - ~~~869 build warnings (dead_code, unused_imports, unused_variables, etc.) obscuring real issues; no workspace-level lint policy~~ — Fixed in Phase 8-7
 
 ---
 

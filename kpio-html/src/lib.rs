@@ -4,7 +4,6 @@
 //! It implements a subset of the HTML5 parsing algorithm suitable for no_std environments.
 
 #![no_std]
-#![allow(dead_code)]
 
 extern crate alloc;
 

@@ -27,3 +27,6 @@ servo-integration = []
 gpu = []
 network = []
 audio = []
+
+[lints]
+workspace = true

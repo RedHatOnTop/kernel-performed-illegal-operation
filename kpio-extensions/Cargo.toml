@@ -15,3 +15,6 @@ hashbrown = "0.14"
 [features]
 default = []
 std = []
+
+[lints]
+workspace = true

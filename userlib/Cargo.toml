@@ -13,3 +13,6 @@ crate-type = ["rlib"]
 [features]
 default = []
 std = []  # When we have full std implementation
+
+[lints]
+workspace = true

@@ -214,6 +214,29 @@ pub fn read_file(path: &Path) -> Vec<u8> {
 }
 ```
 
+### Lint Policy
+
+The workspace uses a centralized lint configuration in the root `Cargo.toml` under
+`[workspace.lints.rust]`. Each crate inherits these settings via `[lints] workspace = true`
+in its own `Cargo.toml`.
+
+**Currently suppressed** (development stage — stubs and placeholders are expected):
+- `dead_code`, `unused_imports`, `unused_variables`, `unused_mut`
+- `unused_assignments`, `unreachable_code`, `unreachable_patterns`
+- `non_snake_case`
+
+**Never suppressed** (safety / correctness):
+- `unused_must_use` — ignoring `Result` values can hide errors
+- `static_mut_refs` — creating references to mutable statics is unsound
+- `ambiguous_glob_reexports` — can cause unexpected name resolution
+
+**Enforced via `#![deny(...)]`**:
+- `unsafe_op_in_unsafe_fn` — every unsafe operation must be inside an explicit
+  `unsafe` block, even within an `unsafe fn`
+
+> These lints will be progressively tightened as the codebase matures. Do not add
+> new crate-level `#![allow(...)]` attributes — use the workspace configuration instead.
+
 ---
 
 ## Commit Guidelines

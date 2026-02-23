@@ -17,3 +17,6 @@ hashbrown = "0.14"
 default = []
 std = []
 miri = []
+
+[lints]
+workspace = true

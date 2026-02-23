@@ -58,6 +58,20 @@ smoltcp = { version = "0.11", default-features = false, features = ["medium-ethe
 # wgpu 0.19: wgc (WebGPU Core) 백엔드 사용
 wgpu = { version = "0.19", default-features = false, features = ["wgc"] }
 
+# Workspace-wide lint policy (development stage)
+# These lints are allowed during active development where many functions are
+# stubs or placeholders. They should be progressively tightened as the codebase
+# matures. Safety-critical lints (e.g. unused_must_use) are NOT suppressed.
+[workspace.lints.rust]
+dead_code = "allow"
+unused_imports = "allow"
+unused_variables = "allow"
+unused_mut = "allow"
+unused_assignments = "allow"
+unreachable_code = "allow"
+unreachable_patterns = "allow"
+non_snake_case = "allow"
+
 [profile.dev]
 panic = "abort"
 

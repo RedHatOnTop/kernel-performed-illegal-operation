@@ -16,3 +16,6 @@ userlib = { path = "../../userlib" }
 panic = "abort"
 lto = true
 opt-level = "s"
+
+[lints]
+workspace = true

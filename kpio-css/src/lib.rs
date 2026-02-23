@@ -4,7 +4,6 @@
 //! for the KPIO browser engine. It's designed to work in no_std environments.
 
 #![no_std]
-#![allow(dead_code)]
 
 extern crate alloc;
 

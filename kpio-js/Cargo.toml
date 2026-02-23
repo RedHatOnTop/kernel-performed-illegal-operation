@@ -12,3 +12,6 @@ libm = "0.2"
 [features]
 default = []
 std = []
+
+[lints]
+workspace = true

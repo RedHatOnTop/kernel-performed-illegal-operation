@@ -15,3 +15,6 @@ servo-types = { path = "../servo-types" }
 [features]
 default = []
 std = []
+
+[lints]
+workspace = true

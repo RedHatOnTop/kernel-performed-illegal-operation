@@ -23,3 +23,6 @@ fat32 = []
 ntfs = []
 # Enable all filesystem drivers
 all-fs = ["ext4", "fat32", "ntfs"]
+
+[lints]
+workspace = true

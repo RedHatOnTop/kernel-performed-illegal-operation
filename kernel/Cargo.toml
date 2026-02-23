@@ -54,3 +54,6 @@ smp = []
 [[bin]]
 name = "kernel"
 path = "src/main.rs"
+
+[lints]
+workspace = true
