@@ -116,6 +116,17 @@ cargo bootimage --release
 cargo run --release
 ```
 
+### Phase 9-3 storage integration check
+
+```powershell
+# Create FAT32 test disk image with HELLO.TXT
+.\scripts\create-test-disk.ps1
+
+# Run QEMU with additional test disk attached
+.\scripts\qemu-test.ps1 -Mode custom -TestDisk .\tests\e2e\test-disk.img `
+    -Expect "[VFS] Mounted FAT filesystem","[VFS] Self-test: read"
+```
+
 ---
 
 ## Detailed Build Instructions

@@ -373,3 +373,11 @@ pub fn list_mounts() -> Vec<vfs::MountInfo> {
 pub fn statfs(path: &str) -> Result<vfs::FsStats, StorageError> {
     vfs::statfs(path)
 }
+
+/// Register an externally provided block device implementation.
+pub fn register_block_device(
+    _name: &str,
+    device: &'static dyn driver::BlockDevice,
+) -> Result<usize, StorageError> {
+    driver::register_device(device)
+}

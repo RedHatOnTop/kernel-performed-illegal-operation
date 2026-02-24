@@ -545,3 +545,21 @@ pub fn device_info() -> Vec<(usize, u64, u64)> {
         .map(|(i, dev)| (i, dev.capacity(), dev.capacity_bytes() / (1024 * 1024)))
         .collect()
 }
+
+/// Read one 512-byte sector from a VirtIO block device.
+pub fn read_sector(device_index: usize, sector: u64, buffer: &mut [u8; BLOCK_SIZE]) -> bool {
+    let mut devices = VIRTIO_BLOCK_DEVICES.lock();
+    match devices.get_mut(device_index) {
+        Some(dev) => dev.read_sector(sector, buffer).is_ok(),
+        None => false,
+    }
+}
+
+/// Write one 512-byte sector to a VirtIO block device.
+pub fn write_sector(device_index: usize, sector: u64, buffer: &[u8; BLOCK_SIZE]) -> bool {
+    let mut devices = VIRTIO_BLOCK_DEVICES.lock();
+    match devices.get_mut(device_index) {
+        Some(dev) => dev.write_sector(sector, buffer).is_ok(),
+        None => false,
+    }
+}

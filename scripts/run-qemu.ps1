@@ -30,7 +30,8 @@ param(
     [switch]$Debug,
     [switch]$NoGraphic,
     [switch]$Bios,
-    [string]$Memory = "512M"
+    [string]$Memory = "512M",
+    [string]$TestDisk = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -141,6 +142,14 @@ if ($Bios) {
         "-drive", "format=raw,file=$DiskImage"
     )
     Write-Host "UEFI 모드로 부팅합니다... (pflash)"
+}
+
+if ($TestDisk -and (Test-Path $TestDisk)) {
+    $QemuArgs += @(
+        "-drive", "file=$TestDisk,format=raw,if=none,id=testdisk",
+        "-device", "virtio-blk-pci,drive=testdisk"
+    )
+    Write-Host "테스트 디스크 연결: $TestDisk"
 }
 
 Write-Host "디스크 이미지: $DiskImage"

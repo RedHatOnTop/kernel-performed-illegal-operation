@@ -970,6 +970,7 @@ dependencies = [
  "pc-keyboard",
  "pic8259",
  "spin",
+ "storage",
  "uart_16550",
  "virtio-drivers",
  "wasmi",

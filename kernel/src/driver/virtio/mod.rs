@@ -16,4 +16,5 @@
 //! - VirtIO Specification 1.1+
 
 pub mod block;
+pub mod block_adapter;
 pub mod queue;

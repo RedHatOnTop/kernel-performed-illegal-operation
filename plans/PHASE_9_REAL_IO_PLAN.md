@@ -291,6 +291,8 @@ Files modified:
 
 ## Sub-phase 9-3: VFS ↔ Block Driver Integration
 
+> **Status**: In Progress (implementation merged, QG blocked by VirtIO read timeout)
+
 ### Goal
 
 Connect the storage crate's VFS layer to the kernel's existing VirtIO block driver so
@@ -370,7 +372,7 @@ platform-agnostic design.
 
 ### QG (Quality Gate)
 
-- [ ] `cargo build` succeeds
+- [x] `cargo build` succeeds
 - [ ] QEMU serial shows `[VFS] Mounted FAT filesystem on virtio-blk0` (or similar)
 - [ ] `[VFS] Self-test: read N bytes from hello.txt` — confirms end-to-end read path
 - [ ] `vfs::readdir("/mnt/test/")` returns the expected file list
@@ -378,7 +380,21 @@ platform-agnostic design.
 
 ### Changes After Completion
 
-_(To be filled after sub-phase is implemented)_
+Implemented on branch (not fully QG-complete yet):
+
+- `kernel/src/driver/virtio/block_adapter.rs` added (`KernelBlockAdapter`) to bridge kernel VirtIO block device to `storage::driver::BlockDevice`.
+- `kernel/src/driver/virtio/block.rs` exported helper functions to read/write sectors by device index.
+- `storage/src/vfs.rs` now routes `mount/open/read/write/readdir/stat/statfs/...` through mounted `Filesystem` instances instead of TODO stubs.
+- `storage/src/fs/fat32.rs` replaced with a minimal read-focused FAT32 implementation (BPB parse, FAT chain traversal, directory iteration, `open/read/readdir/lookup`).
+- Boot path integration added in `kernel/src/main.rs` to register adapter, mount FAT, and run a self-test read.
+- Test workflow scripts added/updated:
+    - `scripts/create-test-disk.ps1`
+    - `scripts/run-qemu.ps1` (`-TestDisk`)
+    - `scripts/qemu-test.ps1` (`-TestDisk`)
+
+Current blocker (open):
+
+- QEMU runtime shows `[VirtIO-Blk] Read timeout (sector 0)` during mount path, causing `[VFS] Mount failed ... IoError`.
 
 ---
 

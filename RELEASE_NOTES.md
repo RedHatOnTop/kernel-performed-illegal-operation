@@ -109,6 +109,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [x] **#011** - ~~~869 build warnings (dead_code, unused_imports, unused_variables, etc.) obscuring real issues; no workspace-level lint policy~~ — Fixed in Phase 8-7
 - [x] **#012** - ~~VirtIO Net PIO `read8`/`write8`/`read32`/`write32` returned 0 / no-op — NIC initialization impossible via PIO transport~~ — Fixed in Phase 9-1
 - [x] **#013** - ~~`probe()` discovered VirtIO NIC but did not call `init_pio()` — NIC was never initialized~~ — Fixed in Phase 9-1
+- [ ] **#014** - Phase 9-3 storage integration blocker: `VirtIO-Blk` read timeout on sector 0 during FAT mount (`[VFS] Mount failed ... IoError`) — Open
 
 ---
 

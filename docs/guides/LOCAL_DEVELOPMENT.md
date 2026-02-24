@@ -146,6 +146,19 @@ Kernel tests run via QEMU in `#[cfg(test)]` mode:
 .\scripts\quick-run.ps1
 ```
 
+### Phase 9-3 VFS test workflow (VirtIO block + FAT)
+
+```powershell
+# 1) Create a FAT32 test image with HELLO.TXT
+.\scripts\create-test-disk.ps1
+
+# 2) Run QEMU test with extra VirtIO block disk attached
+.\scripts\qemu-test.ps1 -Mode custom -TestDisk .\tests\e2e\test-disk.img `
+    -Expect "[VFS] Mounted FAT filesystem","[VFS] Self-test: read"
+```
+
+If the mount path fails with `[VirtIO-Blk] Read timeout (sector 0)`, see `docs/known-issues.md` (Phase 9-3 blocker section).
+
 ## Troubleshooting
 
 ### QEMU is not found

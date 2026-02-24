@@ -67,6 +67,11 @@ recommended boot method. All run scripts default to UEFI mode.
 
 # Automated testing
 .\scripts\qemu-test.ps1 -Mode boot
+
+# Phase 9-3 storage integration test (optional)
+.\scripts\create-test-disk.ps1
+.\scripts\qemu-test.ps1 -Mode custom -TestDisk .\tests\e2e\test-disk.img `
+	-Expect "[VFS] Mounted FAT filesystem","[VFS] Self-test: read"
 ```
 
 > **⚠️ BIOS boot is not recommended.** The external `bootloader` crate (v0.11.14)

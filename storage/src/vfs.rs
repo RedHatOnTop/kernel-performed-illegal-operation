@@ -21,6 +21,8 @@ pub const MAX_NAME_LEN: usize = 255;
 
 /// Global mount table.
 static MOUNT_TABLE: RwLock<MountTable> = RwLock::new(MountTable::new());
+static FILESYSTEM_TABLE: RwLock<[Option<&'static dyn Filesystem>; MAX_MOUNTS]> =
+    RwLock::new([None; MAX_MOUNTS]);
 
 /// Mount information.
 #[derive(Clone, Copy)]
@@ -246,6 +248,28 @@ pub struct VfsHandle {
     pub flags: OpenFlags,
 }
 
+fn relative_path<'a>(mount: &MountInfo, path: &'a str) -> &'a str {
+    let mount_point = mount.mount_point_str();
+    if mount_point == "/" {
+        return path;
+    }
+
+    if let Some(stripped) = path.strip_prefix(mount_point) {
+        if stripped.is_empty() {
+            "/"
+        } else {
+            stripped
+        }
+    } else {
+        path
+    }
+}
+
+fn get_filesystem(mount_idx: usize) -> Result<&'static dyn Filesystem, StorageError> {
+    let table = FILESYSTEM_TABLE.read();
+    table[mount_idx].ok_or(StorageError::InvalidFilesystem)
+}
+
 /// File handle table.
 static FILE_HANDLES: RwLock<FileHandleTable> = RwLock::new(FileHandleTable::new());
 
@@ -359,7 +383,19 @@ pub fn mount(
     info.flags = flags;
     info.active = true;
 
+    let device_idx = crate::driver::find_device(device).ok_or(StorageError::DeviceNotFound)?;
+    let block_device = crate::driver::get_device(device_idx).ok_or(StorageError::DeviceNotFound)?;
+
+    let fs: &'static dyn Filesystem = match crate::fs::FilesystemType::from_str(fs_type) {
+        crate::fs::FilesystemType::Fat32 => {
+            let fat = crate::fs::fat32::Fat32Filesystem::mount(block_device)?;
+            Box::leak(Box::new(fat))
+        }
+        _ => return Err(StorageError::Unsupported),
+    };
+
     table.mounts[slot] = info;
+    FILESYSTEM_TABLE.write()[slot] = Some(fs);
 
     Ok(())
 }
@@ -368,7 +404,7 @@ pub fn mount(
 pub fn unmount(mount_point: &str) -> Result<(), StorageError> {
     let mut table = MOUNT_TABLE.write();
 
-    for mount in table.mounts.iter_mut() {
+    for (idx, mount) in table.mounts.iter_mut().enumerate() {
         if mount.active && mount.mount_point_str() == mount_point {
             // Don't allow unmounting root
             if mount_point == "/" {
@@ -376,6 +412,7 @@ pub fn unmount(mount_point: &str) -> Result<(), StorageError> {
             }
 
             mount.active = false;
+            FILESYSTEM_TABLE.write()[idx] = None;
             return Ok(());
         }
     }
@@ -392,10 +429,14 @@ pub fn list_mounts() -> Vec<MountInfo> {
 /// Get filesystem statistics for a path.
 pub fn statfs(path: &str) -> Result<FsStats, StorageError> {
     let table = MOUNT_TABLE.read();
-    let _idx = table.find_mount(path).ok_or(StorageError::FileNotFound)?;
+    let idx = table.find_mount(path).ok_or(StorageError::FileNotFound)?;
+    let mount = table.mounts[idx];
+    drop(table);
 
-    // TODO: Call into actual filesystem implementation
-    Ok(FsStats::default())
+    let fs = get_filesystem(idx)?;
+    let mut stats = fs.statfs()?;
+    stats.flags = mount.flags;
+    Ok(stats)
 }
 
 /// Open a file.
@@ -411,12 +452,16 @@ pub fn open(path: &str, flags: OpenFlags) -> Result<u32, StorageError> {
 
     let table = MOUNT_TABLE.read();
     let mount_idx = table.find_mount(path).ok_or(StorageError::FileNotFound)?;
+    let mount = table.mounts[mount_idx];
     drop(table);
+
+    let fs = get_filesystem(mount_idx)?;
+    let fs_handle = fs.open(relative_path(&mount, path), flags)?;
 
     // Create VFS handle
     let handle = VfsHandle {
         mount_idx,
-        fs_handle: 0, // TODO: Get from filesystem
+        fs_handle,
         offset: 0,
         flags,
     };
@@ -428,7 +473,11 @@ pub fn open(path: &str, flags: OpenFlags) -> Result<u32, StorageError> {
 /// Close a file.
 pub fn close(fd: u32) -> Result<(), StorageError> {
     let mut handles = FILE_HANDLES.write();
-    handles.free(fd).ok_or(StorageError::InvalidFd)?;
+    let handle = handles.free(fd).ok_or(StorageError::InvalidFd)?;
+    drop(handles);
+
+    let fs = get_filesystem(handle.mount_idx)?;
+    fs.close(handle.fs_handle)?;
     Ok(())
 }
 
@@ -441,8 +490,8 @@ pub fn read(fd: u32, buffer: &mut [u8]) -> Result<usize, StorageError> {
         return Err(StorageError::PermissionDenied);
     }
 
-    // TODO: Call into filesystem
-    let bytes_read = 0;
+    let fs = get_filesystem(handle.mount_idx)?;
+    let bytes_read = fs.read(handle.fs_handle, handle.offset, buffer)?;
     handle.offset += bytes_read as u64;
 
     Ok(bytes_read)
@@ -457,8 +506,8 @@ pub fn write(fd: u32, data: &[u8]) -> Result<usize, StorageError> {
         return Err(StorageError::PermissionDenied);
     }
 
-    // TODO: Call into filesystem
-    let bytes_written = data.len();
+    let fs = get_filesystem(handle.mount_idx)?;
+    let bytes_written = fs.write(handle.fs_handle, handle.offset, data)?;
     handle.offset += bytes_written as u64;
 
     Ok(bytes_written)
@@ -504,10 +553,12 @@ pub fn stat(path: &str) -> Result<FileMetadata, StorageError> {
     }
 
     let table = MOUNT_TABLE.read();
-    let _mount_idx = table.find_mount(path).ok_or(StorageError::FileNotFound)?;
+    let mount_idx = table.find_mount(path).ok_or(StorageError::FileNotFound)?;
+    let mount = table.mounts[mount_idx];
+    drop(table);
 
-    // TODO: Call into filesystem
-    Ok(FileMetadata::default())
+    let fs = get_filesystem(mount_idx)?;
+    fs.lookup(relative_path(&mount, path))
 }
 
 /// Read a directory.
@@ -517,10 +568,12 @@ pub fn readdir(path: &str) -> Result<Vec<DirEntry>, StorageError> {
     }
 
     let table = MOUNT_TABLE.read();
-    let _mount_idx = table.find_mount(path).ok_or(StorageError::FileNotFound)?;
+    let mount_idx = table.find_mount(path).ok_or(StorageError::FileNotFound)?;
+    let mount = table.mounts[mount_idx];
+    drop(table);
 
-    // TODO: Call into filesystem
-    Ok(Vec::new())
+    let fs = get_filesystem(mount_idx)?;
+    fs.readdir(relative_path(&mount, path), 0)
 }
 
 /// Create a directory.
@@ -537,10 +590,8 @@ pub fn mkdir(path: &str, mode: u16) -> Result<(), StorageError> {
         return Err(StorageError::ReadOnly);
     }
 
-    // TODO: Call into filesystem
-    let _ = mode;
-
-    Ok(())
+    let fs = get_filesystem(mount_idx)?;
+    fs.mkdir(relative_path(mount, path), mode)
 }
 
 /// Remove a file.
@@ -557,8 +608,8 @@ pub fn unlink(path: &str) -> Result<(), StorageError> {
         return Err(StorageError::ReadOnly);
     }
 
-    // TODO: Call into filesystem
-    Ok(())
+    let fs = get_filesystem(mount_idx)?;
+    fs.unlink(relative_path(mount, path))
 }
 
 /// Remove a directory.
@@ -575,8 +626,8 @@ pub fn rmdir(path: &str) -> Result<(), StorageError> {
         return Err(StorageError::ReadOnly);
     }
 
-    // TODO: Call into filesystem
-    Ok(())
+    let fs = get_filesystem(mount_idx)?;
+    fs.rmdir(relative_path(mount, path))
 }
 
 /// Rename a file or directory.
@@ -606,12 +657,21 @@ pub fn rename(old_path: &str, new_path: &str) -> Result<(), StorageError> {
         return Err(StorageError::ReadOnly);
     }
 
-    // TODO: Call into filesystem
-    Ok(())
+    let fs = get_filesystem(old_mount)?;
+    fs.rename(relative_path(mount, old_path), relative_path(mount, new_path))
 }
 
 /// Sync all filesystems.
 pub fn sync_all() -> Result<(), StorageError> {
-    // TODO: Iterate through all mounted filesystems and sync them
+    let mounts = MOUNT_TABLE.read();
+    let fs_table = FILESYSTEM_TABLE.read();
+    for (idx, mount) in mounts.mounts.iter().enumerate() {
+        if !mount.active {
+            continue;
+        }
+        if let Some(fs) = fs_table[idx] {
+            fs.sync()?;
+        }
+    }
     Ok(())
 }

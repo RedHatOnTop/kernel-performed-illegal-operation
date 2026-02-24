@@ -107,7 +107,36 @@ correct DMA address translation, fixed the virtqueue size to match the device's 
 
 ---
 
-## 3. ACPI Misaligned Pointer Panic
+## 4. Phase 9-3 Blocker — VirtIO-Blk Read Timeout During FAT Mount
+
+| Field       | Detail                                                                 |
+|-------------|------------------------------------------------------------------------|
+| Severity    | High (blocks 9-3 QG full pass)                                         |
+| Component   | `kernel/src/driver/virtio/block.rs` + storage mount path              |
+| Status      | **Open** (2026-02-24)                                                  |
+
+### Symptom
+
+During early storage self-test, the kernel prints:
+
+```
+[VirtIO-Blk] Read timeout (sector 0)
+[VFS] Mount failed for virtio-blk0: IoError
+```
+
+### Impact
+
+- FAT mount cannot complete in QEMU for the current 9-3 bridge path.
+- `vfs::open/read/readdir` cannot be validated end-to-end on real disk yet.
+
+### Current Workaround
+
+- Keep networking validation (9-2) as the primary runtime gate.
+- Use `scripts/create-test-disk.ps1` and `-TestDisk` flow to reproduce while iterating on VirtIO block queue reliability.
+
+---
+
+## 5. ACPI Misaligned Pointer Panic
 
 | Field       | Detail                                                                 |
 |-------------|------------------------------------------------------------------------|

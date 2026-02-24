@@ -224,6 +224,66 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         driver::virtio::block::device_count()
     );
 
+    // Phase 9-3: Bridge kernel VirtIO block device to storage VFS
+    if driver::virtio::block::device_count() > 0 {
+        let storage_dev_idx = driver::virtio::block::device_count().saturating_sub(1);
+        let adapter = alloc::boxed::Box::leak(alloc::boxed::Box::new(
+            driver::virtio::block_adapter::KernelBlockAdapter::new(storage_dev_idx),
+        ));
+        let device_name = if storage_dev_idx == 0 {
+            "virtio-blk0"
+        } else {
+            "virtio-blk1"
+        };
+
+        let _ = storage::vfs::init();
+        match storage::register_block_device(device_name, adapter) {
+            Ok(_) => {
+                match storage::mount(
+                    device_name,
+                    "/mnt/test",
+                    "fat32",
+                    storage::MountFlags::READ_ONLY,
+                ) {
+                    Ok(()) => {
+                        serial_println!("[VFS] Mounted FAT filesystem on {} at /mnt/test", device_name);
+
+                        match storage::vfs::open("/mnt/test/HELLO.TXT", storage::OpenFlags::READ) {
+                            Ok(fd) => {
+                                let mut buf = [0u8; 512];
+                                match storage::vfs::read(fd, &mut buf) {
+                                    Ok(n) => {
+                                        serial_println!(
+                                            "[VFS] Self-test: read {} bytes from HELLO.TXT",
+                                            n
+                                        );
+                                    }
+                                    Err(e) => {
+                                        serial_println!(
+                                            "[VFS] Self-test read failed for HELLO.TXT: {:?}",
+                                            e
+                                        );
+                                    }
+                                }
+                                let _ = storage::vfs::close(fd);
+                            }
+                            Err(e) => {
+                                serial_println!(
+                                    "[VFS] Self-test open failed for HELLO.TXT: {:?}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => serial_println!("[VFS] Mount failed for {}: {:?}", device_name, e),
+                }
+            }
+            Err(e) => {
+                serial_println!("[VFS] Block adapter registration failed: {:?}", e);
+            }
+        }
+    }
+
     // Phase 9.5: VirtIO network probe
     serial_println!("[KPIO] Probing VirtIO network devices...");
     drivers::net::virtio_net::probe();

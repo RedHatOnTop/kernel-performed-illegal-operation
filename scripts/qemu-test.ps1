@@ -60,7 +60,8 @@ param(
     [switch]$NoImage,
     [string[]]$Expect = @(),
     [switch]$Verbose,
-    [switch]$KeepLog
+    [switch]$KeepLog,
+    [string]$TestDisk = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -302,6 +303,12 @@ $argParts = @(
     "-drive `"if=pflash,format=raw,readonly=on,file=$OvmfPath`"",
     "-drive `"format=raw,file=$UefiImage`""
 )
+
+if ($TestDisk -and (Test-Path $TestDisk)) {
+    $argParts += "-drive `"file=$TestDisk,format=raw,if=none,id=testdisk`""
+    $argParts += "-device `"virtio-blk-pci,drive=testdisk`""
+    Write-Detail "Attached test disk: $TestDisk"
+}
 $QemuArgString = $argParts -join " "
 
 Write-Detail "QEMU: $QemuExe"

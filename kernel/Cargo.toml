@@ -40,6 +40,9 @@ wasmi = { version = "0.31", default-features = false }
 # Math functions for no_std
 libm = "0.2"
 
+# Storage subsystem bridge (Phase 9-3)
+storage = { path = "../storage" }
+
 [dev-dependencies]
 
 [features]

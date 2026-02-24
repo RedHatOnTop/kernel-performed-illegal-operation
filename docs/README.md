@@ -32,6 +32,8 @@ This directory contains design and implementation documentation for KPIO.
 - [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md)
 - **9-1**: VirtIO Net PIO Driver — Complete ✅
 - **9-2**: Network Stack Wiring (NIC Registration & DHCP) — Complete ✅
+- **9-3**: VFS ↔ Block Driver Integration — In Progress 🔄
+- Test workflow: `scripts/create-test-disk.ps1` + `scripts/qemu-test.ps1 -TestDisk tests/e2e/test-disk.img`
 
 ## Phase 8: Technical Debt Resolution (Complete)
 

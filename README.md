@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
 **Version:** 2.5.0  
-**Status:** Phase 9 In Progress (9-1, 9-2 Complete) ✅  
+**Status:** Phase 9 In Progress (9-1, 9-2 Complete, 9-3 In Progress) ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -147,13 +147,15 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration** - 🔄 In Progress (9-1 Complete)
+**Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration** - 🔄 In Progress (9-1, 9-2 Complete; 9-3 actively integrating)
 
 - ✅ **9-1: VirtIO Net PIO Driver Implementation** — Replaced stub PIO `read8`/`write8`/`read32`/`write32` methods with real `x86_64::instructions::port::Port` I/O. Implemented full PIO init path (reset → ACKNOWLEDGE → DRIVER → feature negotiation → FEATURES_OK → MAC read → virtqueue allocation → DRIVER_OK). Added `pio_reg` constants, `VirtqRings` ring memory tracking, PCI bus mastering, and `probe()` now calls `init_pio()` to fully initialize the NIC on boot. Both MMIO and PIO transport modes are now functional.
+- ✅ **9-2: Network Stack Wiring (NIC Registration + DHCP)** — NIC registration in `NETWORK_MANAGER` and DHCP handshake over real VirtIO NIC are completed and verified in QEMU (`10.0.2.15` lease acquisition).
+- 🔄 **9-3: VFS ↔ Block Driver Integration** — Kernel-side `KernelBlockAdapter` and storage-side FAT32/VFS read path were implemented; test-disk workflow was added (`scripts/create-test-disk.ps1`, `-TestDisk` in QEMU scripts). Current blocker: VirtIO block sector read timeout on mount path in QEMU (`[VirtIO-Blk] Read timeout (sector 0)`) prevents full QG pass.
 
 **Previous:** Phase 8 — Technical Debt Resolution ✅ (2026-02-23)
 
-**Next:** Phase 9-2 — NIC Registration & DHCP Success
+**Next:** Finish 9-3 block read reliability and complete 9-4 (WASI2 real network).
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 
