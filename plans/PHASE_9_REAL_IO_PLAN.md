@@ -1,6 +1,6 @@
 # Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration
 
-> **Status**: In Progress (9-1, 9-2, 9-3, 9-4 Complete)  
+> **Status**: Complete (9-1, 9-2, 9-3, 9-4, 9-5 all done) ✅  
 > **Predecessor**: Phase 8 (Technical Debt Resolution) — completed 2026-02-23  
 > **Boot environment**: QEMU 10.2.0, UEFI pflash, bootloader 0.11.14, nightly-2026-01-01  
 > **Goal**: Make VirtIO network and storage actually functional — DHCP succeeds, packets transmit/receive, VFS reads/writes reach disk  
@@ -569,14 +569,36 @@ integration milestone.
 
 ### QG (Quality Gate)
 
-- [ ] `.\scripts\qemu-test.ps1 -Mode io` runs without manual intervention
-- [ ] All `$IoChecks` patterns found in serial log
-- [ ] Test completes in under 60 seconds
-- [ ] Exit code 0 (success) from test script
+- [x] `.\scripts\qemu-test.ps1 -Mode io` runs without manual intervention
+- [x] All `$IoChecks` patterns found in serial log
+- [x] Test completes in under 60 seconds
+- [x] Exit code 0 (success) from test script
 
 ### Changes After Completion
 
-_(To be filled after sub-phase is implemented)_
+**Completed:** 2026-02-24
+
+Files modified/added:
+- `scripts/qemu-test.ps1` — Added `io` test mode with `$IoChecks` array (VirtIO NIC init,
+  DHCP success, Packet TX, VFS mount, VFS read, E2E integration). Regex pattern matching
+  support added (`IsRegex` flag). Auto-attaches `tests/e2e/test-disk.img` when mode is `io`.
+  Updated synopsis and examples with `io` mode.
+- `kernel/src/main.rs` — Added Phase 9-5 E2E integration self-test block after WASM runtime
+  init. Checks NIC initialization, DHCP lease (IP ≠ 0.0.0.0), VFS mount state, file read
+  verification, and TX packet counter. Logs `[E2E] Integration test PASSED` or
+  `[E2E] Integration test FAILED: <reason>`.
+- `kernel/src/drivers/net/virtio_net.rs` — Added `is_initialized()` (checks `NETWORK_MANAGER`
+  device count) and `tx_packet_count()` (sums `stats().tx_packets` across all registered
+  NICs) public helper functions.
+- `kernel/src/net/ipv4.rs` — Added `get_ip() -> [u8; 4]` to expose the current IP address
+  as a raw byte array for the E2E self-test.
+- `storage/src/vfs.rs` — Added `is_mounted(mount_point: &str) -> bool` to query the mount
+  table without side effects.
+- `tests/e2e/http-server.py` — New: Simple Python HTTP server for host-side integration
+  testing. Endpoints: `/test` (JSON), `/health` (plaintext), `/echo` (POST echo).
+- `docs/guides/LOCAL_DEVELOPMENT.md` — Added Phase 9-5 section documenting `io` test mode,
+  serial check patterns, and host HTTP server usage. Updated script list table.
+- All documentation updated — See docs update commit for full list.
 
 ---
 

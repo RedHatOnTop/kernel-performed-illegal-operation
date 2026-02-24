@@ -1,8 +1,8 @@
 # System Architecture Overview
 
-**Document Version:** 1.0.0  
-**Last Updated:** 2026-01-21  
-**Status:** Initial Draft
+**Document Version:** 1.1.0  
+**Last Updated:** 2026-02-24  
+**Status:** Phase 9 complete (Real I/O: VirtIO, DHCP, VFS, WASI2, E2E test)
 
 ---
 

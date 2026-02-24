@@ -1,8 +1,8 @@
 # WebAssembly Runtime Design Document
 
-**Document Version:** 2.1.0  
-**Last Updated:** 2026-02-15  
-**Status:** Historical design draft (partially reflects implementation; refer to latest code and Phase 7 docs)
+**Document Version:** 2.2.0  
+**Last Updated:** 2026-02-24  
+**Status:** Implemented (WASI P2 HTTP/sockets backed by real kernel network stack since Phase 9-4)
 
 > **Consistency Note:** This document contains early/mid-stage design drafts and may not fully align with the current codebase.
 > For the current implementation status, refer to `runtime/src/*` and `docs/phase7/PHASE_7-2_WASM_APP_RUNTIME_EN.md`.

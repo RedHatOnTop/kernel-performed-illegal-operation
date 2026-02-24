@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
-**Version:** 2.6.0  
-**Status:** Phase 9 In Progress (9-1, 9-2, 9-3, 9-4 Complete) ✅  
+**Version:** 2.7.0  
+**Status:** Phase 9 Complete ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -147,16 +147,17 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration** - 🔄 In Progress (9-1 through 9-4 Complete; 9-5 remaining)
+**Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration** - ✅ Complete
 
 - ✅ **9-1: VirtIO Net PIO Driver Implementation** — Real PIO register access via `x86_64::instructions::port::Port`. Full VirtIO legacy PCI init sequence, virtqueue allocation, PCI bus mastering.
 - ✅ **9-2: Network Stack Wiring (NIC Registration + DHCP)** — NIC registration in `NETWORK_MANAGER`, DHCP lease acquisition (`10.0.2.15`) verified in QEMU.
 - ✅ **9-3: VFS ↔ Block Driver Integration** — `KernelBlockAdapter` bridges kernel VirtIO block driver to storage VFS. FAT32 read-only filesystem, boot-time self-test.
 - ✅ **9-4: WASI2 Real Network Integration** — WASI2 HTTP and TCP sockets are now backed by the kernel's real TCP/IP stack when built with `--features kernel`. DNS resolution uses the kernel's wire-format UDP resolver. Mock fallback preserved for non-kernel test builds.
+- ✅ **9-5: End-to-End Integration Test** — Automated QEMU `io` test mode validates full I/O path: NIC init → DHCP → packet TX/RX → VFS mount → disk read. Boot-time E2E self-test logs `[E2E] Integration test PASSED`.
 
 **Previous:** Phase 8 — Technical Debt Resolution ✅ (2026-02-23)
 
-**Next:** Complete 9-5 (End-to-End Integration Test).
+**Next:** Phase 2 (Servo-Based Browser Integration) — see roadmap.
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 

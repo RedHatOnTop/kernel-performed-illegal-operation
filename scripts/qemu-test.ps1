@@ -15,6 +15,7 @@
       boot    - Verify kernel boot + core init (default)
       smoke   - Boot + all subsystem initialization verification
       linux   - Phase 7-4 Linux compatibility layer verification
+      io      - End-to-end I/O integration (VirtIO NIC + block + VFS)
       full    - All verification combined
       custom  - Check strings specified with -Expect
 
@@ -46,13 +47,15 @@
     .\scripts\qemu-test.ps1                          # Default boot test
     .\scripts\qemu-test.ps1 -Mode smoke              # Smoke test
     .\scripts\qemu-test.ps1 -Mode linux              # Linux compat verification
+    .\scripts\qemu-test.ps1 -Mode io                 # Full I/O integration test
+    .\scripts\qemu-test.ps1 -Mode io -Verbose        # I/O test with serial log
     .\scripts\qemu-test.ps1 -Mode full -Verbose      # Full verification (verbose)
     .\scripts\qemu-test.ps1 -Mode custom -Expect "GDT initialized","IDT initialized"
     .\scripts\qemu-test.ps1 -NoBuild -NoImage -Mode boot  # Quick retest
 #>
 
 param(
-    [ValidateSet("boot", "smoke", "linux", "full", "custom")]
+    [ValidateSet("boot", "smoke", "linux", "full", "io", "custom")]
     [string]$Mode = "boot",
     [int]$Timeout = 45,
     [switch]$Release,
@@ -132,6 +135,16 @@ $SmokeChecks = $BootChecks + @(
 $LinuxChecks = $SmokeChecks + @(
     @{ Pattern = "Unrecoverable page fault";   Label = "Known ACPI fault (expected)"; ExpectFound = $true },
     @{ Pattern = "System halted";              Label = "Proper halt after fault" }
+)
+
+# I/O integration checks: end-to-end VirtIO NIC + block verification (Phase 9-5)
+$IoChecks = $SmokeChecks + @(
+    @{ Pattern = "NIC initialized successfully";  Label = "VirtIO NIC init" },
+    @{ Pattern = "Lease acquired";                Label = "DHCP success" },
+    @{ Pattern = "VirtIO Net.*TX:";               Label = "Packet TX"; IsRegex = $true },
+    @{ Pattern = "VFS.*Mounted";                  Label = "VFS mount"; IsRegex = $true },
+    @{ Pattern = "Self-test.*read.*bytes";         Label = "VFS read"; IsRegex = $true },
+    @{ Pattern = "E2E.*PASSED";                   Label = "E2E integration test"; IsRegex = $true }
 )
 
 # ============================================================
@@ -304,6 +317,17 @@ $argParts = @(
     "-drive `"format=raw,file=$UefiImage`""
 )
 
+# Auto-attach test disk in io mode if not explicitly specified
+if ($Mode -eq "io" -and -not $TestDisk) {
+    $DefaultTestDisk = Join-Path $ProjectRoot "tests\e2e\test-disk.img"
+    if (Test-Path $DefaultTestDisk) {
+        $TestDisk = $DefaultTestDisk
+        Write-Detail "Auto-attaching test disk for io mode: $TestDisk"
+    } else {
+        Write-Info "Test disk not found at $DefaultTestDisk — run .\scripts\create-test-disk.ps1 first"
+    }
+}
+
 if ($TestDisk -and (Test-Path $TestDisk)) {
     $argParts += "-drive `"file=$TestDisk,format=raw,if=none,id=testdisk`""
     $argParts += "-device `"virtio-blk-pci,drive=testdisk`""
@@ -401,6 +425,7 @@ $checks = switch ($Mode) {
     "smoke"  { $SmokeChecks }
     "linux"  { $LinuxChecks }
     "full"   { $LinuxChecks }
+    "io"     { $IoChecks }
     "custom" {
         $Expect | ForEach-Object {
             @{ Pattern = $_; Label = "Custom: $_" }
@@ -416,8 +441,13 @@ $results = @()
 foreach ($check in $checks) {
     $pattern = $check.Pattern
     $label = $check.Label
+    $isRegex = if ($check.ContainsKey("IsRegex")) { $check.IsRegex } else { $false }
 
-    $found = $SerialContent.Contains($pattern)
+    if ($isRegex) {
+        $found = $SerialContent -match $pattern
+    } else {
+        $found = $SerialContent.Contains($pattern)
+    }
     $pass = $found
 
     if ($pass) {

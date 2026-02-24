@@ -71,6 +71,8 @@ To automatically validate and install all tools:
 | `quick-run.ps1` | Build + run immediately (convenience) |
 | `run-tests.ps1` | Verify test builds |
 | `create-uefi-image.ps1` | Create the ESP directory layout |
+| `create-test-disk.ps1` | Create a FAT32 test disk image for VFS testing |
+| `qemu-test.ps1` | Automated QEMU boot/smoke/io test runner |
 
 ## Quick Start
 
@@ -176,6 +178,38 @@ When `--features kernel` is enabled, `wasi2::http::handle()` calls the kernel's
 real HTTP client, `TcpSocket::connect()` performs a real TCP 3-way handshake
 through the VirtIO NIC, and `resolve_addresses()` uses the kernel's DNS resolver
 (host table → cache → wire query over UDP).
+
+### Phase 9-5: End-to-End I/O Integration Test
+
+The `io` test mode validates the full I/O path in a single QEMU run:
+boot → VirtIO NIC init → DHCP → network TX/RX → VFS mount → disk read.
+
+```powershell
+# 1) Create the FAT32 test disk (requires WSL with dosfstools + mtools)
+.\scripts\create-test-disk.ps1
+
+# 2) Run the full I/O integration test
+.\scripts\qemu-test.ps1 -Mode io
+
+# 3) Run with verbose serial log output
+.\scripts\qemu-test.ps1 -Mode io -Verbose
+
+# 4) Optionally start the host-side HTTP server for HTTP integration
+#    (in a separate terminal — the guest can reach it at http://10.0.2.2:8080)
+python tests/e2e/http-server.py --port 8080
+```
+
+The `io` mode automatically attaches `tests/e2e/test-disk.img` if present and
+checks serial output for the following patterns:
+
+| Check | Serial pattern |
+|-------|---------------|
+| VirtIO NIC init | `NIC initialized successfully` |
+| DHCP success | `Lease acquired` |
+| Packet TX | `VirtIO Net.*TX:` |
+| VFS mount | `VFS.*Mounted` |
+| VFS read | `Self-test.*read.*bytes` |
+| E2E integration | `E2E.*PASSED` |
 
 ## Troubleshooting
 

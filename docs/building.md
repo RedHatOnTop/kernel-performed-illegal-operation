@@ -127,6 +127,18 @@ cargo run --release
     -Expect "[VFS] Mounted FAT filesystem","[VFS] Self-test: read"
 ```
 
+### Phase 9-5 full I/O integration test
+
+```powershell
+# Run the end-to-end I/O integration test (auto-attaches test disk)
+.\scripts\qemu-test.ps1 -Mode io
+
+# With verbose serial output
+.\scripts\qemu-test.ps1 -Mode io -Verbose
+```
+
+This validates VirtIO NIC init, DHCP, packet TX/RX, VFS mount, and disk read in a single automated run.
+
 ---
 
 ## Detailed Build Instructions

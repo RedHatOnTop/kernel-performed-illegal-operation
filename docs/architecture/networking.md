@@ -1,8 +1,8 @@
 # Networking Subsystem Design Document
 
-**Document Version:** 2.2.0  
+**Document Version:** 2.4.0  
 **Last Updated:** 2026-02-24  
-**Status:** Implemented (VirtIO PIO + DHCP verified on QEMU; WASI2 real network integration complete)
+**Status:** Implemented (VirtIO PIO + DHCP verified on QEMU; WASI2 real network integration complete; E2E integration test passing)
 
 ---
 

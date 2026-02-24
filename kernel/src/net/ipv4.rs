@@ -65,6 +65,13 @@ pub fn config() -> IpConfig {
     *IP_CONFIG.lock()
 }
 
+/// Get the current IP address as a 4-byte array (e.g. [10, 0, 2, 15]).
+/// Returns [0, 0, 0, 0] if no address has been configured.
+pub fn get_ip() -> [u8; 4] {
+    let cfg = IP_CONFIG.lock();
+    cfg.ip.0
+}
+
 /// Set IP config (e.g. after DHCP or manual configuration).
 pub fn set_config(cfg: IpConfig) {
     *IP_CONFIG.lock() = cfg;

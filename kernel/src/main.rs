@@ -356,6 +356,100 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         Err(e) => serial_println!("[KPIO] WASM runtime test failed: {}", e),
     }
 
+    // Phase 9-5: End-to-End Integration Self-Test
+    // Validates the full I/O path: NIC init → DHCP → VFS mount → read.
+    // Results are logged so the qemu-test.ps1 -Mode io can verify them.
+    {
+        serial_println!("[E2E] Running integration self-test...");
+        let mut e2e_pass = true;
+        let mut e2e_fail_reason: Option<&str> = None;
+
+        // Check 1: VirtIO NIC was initialized (probe logged success earlier)
+        let nic_ok = drivers::net::virtio_net::is_initialized();
+        if nic_ok {
+            serial_println!("[E2E] NIC initialized: OK");
+        } else {
+            serial_println!("[E2E] NIC initialized: FAIL (no VirtIO NIC found)");
+            e2e_pass = false;
+            e2e_fail_reason = Some("NIC not initialized");
+        }
+
+        // Check 2: DHCP acquired an IP (network stack has non-zero IP)
+        let ip = net::ipv4::get_ip();
+        if ip != [0, 0, 0, 0] {
+            serial_println!("[E2E] DHCP lease: OK (IP {}.{}.{}.{})", ip[0], ip[1], ip[2], ip[3]);
+        } else {
+            serial_println!("[E2E] DHCP lease: FAIL (no IP acquired)");
+            e2e_pass = false;
+            if e2e_fail_reason.is_none() {
+                e2e_fail_reason = Some("DHCP did not acquire IP");
+            }
+        }
+
+        // Check 3: VFS has a mounted filesystem
+        let vfs_ok = storage::vfs::is_mounted("/mnt/test");
+        if vfs_ok {
+            serial_println!("[E2E] VFS mount: OK");
+        } else {
+            serial_println!("[E2E] VFS mount: SKIP (no test disk attached)");
+            // Not a hard failure — test disk is optional
+        }
+
+        // Check 4: If VFS is mounted, verify read path
+        if vfs_ok {
+            match storage::vfs::open("/mnt/test/HELLO.TXT", storage::OpenFlags::READ) {
+                Ok(fd) => {
+                    let mut buf = [0u8; 512];
+                    match storage::vfs::read(fd, &mut buf) {
+                        Ok(n) if n > 0 => {
+                            serial_println!("[E2E] VFS read: OK ({} bytes)", n);
+                        }
+                        Ok(_) => {
+                            serial_println!("[E2E] VFS read: FAIL (0 bytes)");
+                            e2e_pass = false;
+                            if e2e_fail_reason.is_none() {
+                                e2e_fail_reason = Some("VFS read returned 0 bytes");
+                            }
+                        }
+                        Err(e) => {
+                            serial_println!("[E2E] VFS read: FAIL ({:?})", e);
+                            e2e_pass = false;
+                            if e2e_fail_reason.is_none() {
+                                e2e_fail_reason = Some("VFS read error");
+                            }
+                        }
+                    }
+                    let _ = storage::vfs::close(fd);
+                }
+                Err(e) => {
+                    serial_println!("[E2E] VFS read: FAIL (open {:?})", e);
+                    e2e_pass = false;
+                    if e2e_fail_reason.is_none() {
+                        e2e_fail_reason = Some("VFS open error");
+                    }
+                }
+            }
+        }
+
+        // Check 5: Network TX counter (packets were transmitted during DHCP)
+        let tx_count = drivers::net::virtio_net::tx_packet_count();
+        if tx_count > 0 {
+            serial_println!("[E2E] Network TX: OK ({} packets)", tx_count);
+        } else {
+            serial_println!("[E2E] Network TX: WARN (0 packets)");
+        }
+
+        // Final verdict
+        if e2e_pass {
+            serial_println!("[E2E] Integration test PASSED");
+        } else {
+            serial_println!(
+                "[E2E] Integration test FAILED: {}",
+                e2e_fail_reason.unwrap_or("unknown")
+            );
+        }
+    }
+
     // Phase 11: Initialize Boot Animation BEFORE enabling interrupts
     if !fb_ptr.is_null() {
         // Initialize boot animation first

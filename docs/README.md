@@ -27,15 +27,17 @@ This directory contains design and implementation documentation for KPIO.
 - [KPIO App API Reference](guides/KPIO_APP_API_REFERENCE.md)
 - [Local Development Setup](guides/LOCAL_DEVELOPMENT.md)
 
-## Phase 9: Real I/O — VirtIO Driver Completion (Current)
+## Phase 9: Real I/O — VirtIO Driver Completion (Complete ✅)
 
 - [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md)
 - **9-1**: VirtIO Net PIO Driver — Complete ✅
 - **9-2**: Network Stack Wiring (NIC Registration & DHCP) — Complete ✅
 - **9-3**: VFS ↔ Block Driver Integration — Complete ✅
 - **9-4**: WASI2 Real Network Integration — Complete ✅
-- **9-5**: End-to-End Integration Test — Not Started
-- Test workflow: `scripts/create-test-disk.ps1` + `scripts/qemu-test.ps1 -TestDisk tests/e2e/test-disk.img`
+- **9-5**: End-to-End Integration Test — Complete ✅
+- I/O integration test: `.\scripts\qemu-test.ps1 -Mode io`
+- Test disk creation: `.\scripts\create-test-disk.ps1`
+- Host HTTP server for testing: `python tests/e2e/http-server.py`
 
 ## Phase 8: Technical Debt Resolution (Complete)
 

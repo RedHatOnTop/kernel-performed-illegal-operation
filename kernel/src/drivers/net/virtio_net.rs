@@ -1197,3 +1197,19 @@ pub fn init_pio(io_base: u16) -> Result<(), NetworkError> {
 
     Ok(())
 }
+
+/// Returns `true` if at least one VirtIO NIC has been initialized and
+/// registered in the `NETWORK_MANAGER`.
+pub fn is_initialized() -> bool {
+    NETWORK_MANAGER.lock().device_count() > 0
+}
+
+/// Returns the cumulative TX packet count across all registered NICs.
+pub fn tx_packet_count() -> u64 {
+    let mgr = NETWORK_MANAGER.lock();
+    let mut total = 0u64;
+    for dev in mgr.enumerate() {
+        total += dev.stats().tx_packets;
+    }
+    total
+}

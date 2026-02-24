@@ -342,6 +342,17 @@ pub fn init() -> Result<(), StorageError> {
     Ok(())
 }
 
+/// Returns `true` if a filesystem is currently mounted at `mount_point`.
+pub fn is_mounted(mount_point: &str) -> bool {
+    let table = MOUNT_TABLE.read();
+    for mount in table.mounts.iter() {
+        if mount.active && mount.mount_point_str() == mount_point {
+            return true;
+        }
+    }
+    false
+}
+
 /// Mount a filesystem.
 pub fn mount(
     device: &str,

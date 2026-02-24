@@ -1,8 +1,8 @@
 # Storage Subsystem Design Document
 
-**Document Version:** 1.0.0  
-**Last Updated:** 2026-01-21  
-**Status:** Initial Draft
+**Document Version:** 1.1.0  
+**Last Updated:** 2026-02-24  
+**Status:** Implemented (VirtIO block + FAT32 read-only VFS working; E2E integration test verified)
 
 ---
 

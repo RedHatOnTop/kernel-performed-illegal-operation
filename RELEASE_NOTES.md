@@ -39,6 +39,12 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - **FAT32** — read-only filesystem: BPB parse, FAT chain traversal, directory listing, file read
 - **VFS** — mount table, file handle table, open/read/close/readdir/stat dispatch through `Filesystem` trait
 - Boot-time self-test: mounts FAT32 disk, reads HELLO.TXT, lists directory, validates error paths
+
+### End-to-End I/O Integration Test (NEW)
+- **`qemu-test.ps1 -Mode io`** — automated QEMU test validates full I/O path: NIC init → DHCP → packet TX/RX → VFS mount → disk read
+- Boot-time E2E self-test checks NIC state, DHCP lease, VFS mount, file read, TX counter
+- Logs `[E2E] Integration test PASSED` on success
+- Host-side HTTP test server (`tests/e2e/http-server.py`) for advanced integration testing
 - **Ethernet** — IEEE 802.3 frame parse/build
 - **ARP** — address resolution with cache (RFC 826)
 - **IPv4** — packet construction, internet checksum, ICMP echo, subnet routing
@@ -116,7 +122,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - [x] **#011** - ~~~869 build warnings (dead_code, unused_imports, unused_variables, etc.) obscuring real issues; no workspace-level lint policy~~ — Fixed in Phase 8-7
 - [x] **#012** - ~~VirtIO Net PIO `read8`/`write8`/`read32`/`write32` returned 0 / no-op — NIC initialization impossible via PIO transport~~ — Fixed in Phase 9-1
 - [x] **#013** - ~~`probe()` discovered VirtIO NIC but did not call `init_pio()` — NIC was never initialized~~ — Fixed in Phase 9-1
-- [ ] **#014** - Phase 9-3 storage integration blocker: `VirtIO-Blk` read timeout on sector 0 during FAT mount (`[VFS] Mount failed ... IoError`) — Open
+- [x] **#014** - ~~Phase 9-3 storage integration blocker: `VirtIO-Blk` read timeout on sector 0 during FAT mount~~ — Fixed in Phase 9-3 DMA fix
 
 ---
 
