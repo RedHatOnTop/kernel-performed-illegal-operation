@@ -77,7 +77,7 @@ runtime/src/
     opcodes.rs          # ✅ Opcode definitions
     sandbox.rs          # ✅ Resource limiting (CPU/memory/FD)
     wasi.rs             # ✅ WASI Preview 1 (full, in-memory VFS)
-    wasi2/              # ✅ WASI Preview 2 (streams, clocks, random, CLI, sockets)
+    wasi2/              # ✅ WASI Preview 2 (streams, clocks, random, CLI, real sockets & HTTP)
     host.rs             # ✅ Host functions (wasi + kpio/gpu/gui/system/net)
     host_gui.rs         # ✅ KPIO GUI API bindings
     host_system.rs      # ✅ KPIO System API bindings
@@ -116,8 +116,8 @@ runtime/
             clocks.rs       # Monotonic + wall clock
             random.rs       # CSPRNG random
             cli.rs          # Args, env, exit, stdout/stderr
-            sockets.rs      # TCP/UDP sockets
-            http.rs         # HTTP outgoing handler
+            sockets.rs      # TCP/UDP sockets (real kernel network with `kernel` feature)
+            http.rs         # HTTP outgoing handler (real HTTP with `kernel` feature)
         host.rs             # WASI + KPIO host function bindings
         host_gui.rs         # kpio:gui host (create-window, draw-*)
         host_system.rs      # kpio:system host (time, hostname, notify)

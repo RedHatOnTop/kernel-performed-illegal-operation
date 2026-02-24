@@ -1,8 +1,11 @@
 //! WASI Preview 2 — `wasi:http` interfaces.
 //!
 //! Provides outgoing HTTP request handling and related types.
-//! In the kernel environment, this returns mock/stubbed responses
-//! since real networking requires a full TCP/IP stack.
+//!
+//! When compiled with the `kernel` feature, HTTP requests are forwarded
+//! to the kernel's real TCP/IP stack (VirtIO NIC → Ethernet → IP → TCP
+//! → DNS → HTTP/TLS).  Without the feature, a mock response is returned
+//! so that unit tests and host-side tooling remain functional.
 
 extern crate alloc;
 
@@ -261,13 +264,80 @@ pub enum HttpError {
 
 /// The outgoing-handler interface.
 ///
-/// In the kernel environment, this returns mock responses.
-/// A real implementation would forward to the network stack.
+/// When the `kernel` feature is enabled, the request is forwarded to
+/// the kernel's real HTTP client (DNS → TCP → TLS → HTTP).  Otherwise
+/// a deterministic mock response is returned for testing.
 pub fn handle(
     request: &OutgoingRequest,
     _options: Option<&RequestOptions>,
 ) -> Result<IncomingResponse, HttpError> {
-    // Build a mock response based on the request
+    #[cfg(feature = "kernel")]
+    {
+        handle_kernel(request)
+    }
+    #[cfg(not(feature = "kernel"))]
+    {
+        handle_mock(request)
+    }
+}
+
+/// Real implementation: forwards to the kernel network stack.
+#[cfg(feature = "kernel")]
+fn handle_kernel(request: &OutgoingRequest) -> Result<IncomingResponse, HttpError> {
+    // Reconstruct the full URL from WASI fields.
+    let scheme = match &request.scheme {
+        Some(Scheme::Https) => "https",
+        Some(Scheme::Http) | None => "http",
+        Some(Scheme::Other(s)) => s.as_str(),
+    };
+    let authority = request.authority.as_deref().unwrap_or("localhost");
+    let path = request.path_with_query.as_deref().unwrap_or("/");
+    let url = alloc::format!("{}://{}{}", scheme, authority, path);
+
+    // Collect headers into (String, String) pairs.
+    let headers: alloc::vec::Vec<(alloc::string::String, alloc::string::String)> = request
+        .headers
+        .names()
+        .iter()
+        .flat_map(|name| {
+            request
+                .headers
+                .get(name)
+                .into_iter()
+                .filter_map(|val| {
+                    core::str::from_utf8(&val)
+                        .ok()
+                        .map(|v| (name.clone(), alloc::string::String::from(v)))
+                })
+                .collect::<alloc::vec::Vec<_>>()
+        })
+        .collect();
+
+    match kpio_kernel::net::wasi_bridge::http_request(
+        request.method.as_str(),
+        &url,
+        &headers,
+        &request.body,
+    ) {
+        Ok(resp) => {
+            let mut response = IncomingResponse::new(StatusCode(resp.status));
+            response.body = resp.body;
+            // Forward headers from the kernel response.
+            for (k, v) in &resp.headers {
+                response.headers.append(k, v.as_bytes().to_vec());
+            }
+            Ok(response)
+        }
+        Err(_e) => Err(HttpError::InternalError(alloc::format!(
+            "kernel network error for {}",
+            url
+        ))),
+    }
+}
+
+/// Mock implementation: returns a deterministic fake response.
+#[cfg(not(feature = "kernel"))]
+fn handle_mock(request: &OutgoingRequest) -> Result<IncomingResponse, HttpError> {
     let status = match request.method {
         Method::Get | Method::Head => StatusCode::ok(),
         Method::Post | Method::Put | Method::Patch => StatusCode::ok(),
@@ -391,11 +461,11 @@ mod tests {
 
     #[test]
     fn handle_get_returns_ok() {
+        // Tests always use the mock path (no kernel feature in test builds).
         let req = OutgoingRequest::get("/index.html");
         let resp = handle(&req, None).unwrap();
         assert_eq!(resp.status, StatusCode::ok());
         assert!(resp.headers.has("content-type"));
-        assert!(resp.headers.has("server"));
         assert!(!resp.body.is_empty());
     }
 

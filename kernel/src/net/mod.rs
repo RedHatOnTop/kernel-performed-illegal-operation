@@ -18,6 +18,7 @@ pub mod tcp;
 pub mod tls;
 pub mod tls13;
 pub mod udp;
+pub mod wasi_bridge;
 pub mod websocket;
 pub mod x509;
 

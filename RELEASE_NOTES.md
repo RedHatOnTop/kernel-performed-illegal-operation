@@ -32,6 +32,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - **VirtIO-net driver** — real packet TX/RX over both MMIO virtqueues and PIO (legacy PCI transport)
 - **DHCP** — automatic IP acquisition from QEMU SLIRP (`10.0.2.15/24`, gw `10.0.2.2`, dns `10.0.2.3`)
 - **DMA** — `virt_to_phys()` 4-level page table walk for correct VirtIO descriptor addresses (net + block)
+- **WASI2 Real Network** — WASI Preview 2 HTTP and TCP sockets backed by the kernel's real TCP/IP stack (via `kernel::net::wasi_bridge`); DNS resolution uses wire-format UDP queries instead of hardcoded stubs; mock fallback preserved for unit testing without kernel
 
 ### Storage (NEW)
 - **VirtIO-blk driver** — page-aligned queue, `virt_to_phys()` DMA translation, read/write sectors

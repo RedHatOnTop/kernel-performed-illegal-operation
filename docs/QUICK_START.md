@@ -72,6 +72,9 @@ recommended boot method. All run scripts default to UEFI mode.
 .\scripts\create-test-disk.ps1
 .\scripts\qemu-test.ps1 -Mode custom -TestDisk .\tests\e2e\test-disk.img `
 	-Expect "[VFS] Mounted FAT filesystem","[VFS] Self-test: read"
+
+# Phase 9-4 WASI2 real network build (optional)
+cargo build -p kpio-runtime --features kernel
 ```
 
 > **⚠️ BIOS boot is not recommended.** The external `bootloader` crate (v0.11.14)

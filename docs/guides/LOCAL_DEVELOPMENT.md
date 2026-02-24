@@ -159,6 +159,24 @@ Kernel tests run via QEMU in `#[cfg(test)]` mode:
 
 If the mount path fails with `[VirtIO-Blk] Read timeout (sector 0)`, see `docs/known-issues.md` (Phase 9-3 blocker section).
 
+### Phase 9-4: WASI2 Real Network
+
+The runtime's WASI2 HTTP and socket modules can be built with or without real
+kernel network backing:
+
+```powershell
+# Build the runtime with real kernel network support
+cargo build -p kpio-runtime --features kernel
+
+# Build the runtime with mock/loopback network (for unit testing)
+cargo build -p kpio-runtime
+```
+
+When `--features kernel` is enabled, `wasi2::http::handle()` calls the kernel's
+real HTTP client, `TcpSocket::connect()` performs a real TCP 3-way handshake
+through the VirtIO NIC, and `resolve_addresses()` uses the kernel's DNS resolver
+(host table → cache → wire query over UDP).
+
 ## Troubleshooting
 
 ### QEMU is not found

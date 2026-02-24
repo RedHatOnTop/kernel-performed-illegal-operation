@@ -314,17 +314,22 @@ WASM applications invoke kernel services through the WASI-compatible syscall lay
 ### 4.4 Network Packet Flow
 
 ```
-+----------------+     +----------------+     +----------------+
-|  Application   | --> |  Network Svc   | --> |  NIC Driver    |
-|   (WASM)       |     |  (smoltcp)     |     |  (VirtIO)      |
-+----------------+     +----------------+     +----------------+
-        ^                      |                      |
-        |                      v                      v
-        |              +----------------+     +----------------+
-        |              |   TCP/IP       |     |   Hardware     |
-        +------------- |   Processing   | <-- |   Interrupt    |
-                       +----------------+     +----------------+
++----------------+     +------------------+     +----------------+
+|  Application   | --> |  WASI2 / Bridge  | --> |  Kernel TCP/IP |
+|   (WASM)       |     |  (wasi_bridge)   |     |  Stack         |
++----------------+     +------------------+     +-------+--------+
+        ^                                               |
+        |                                               v
+        |                                       +-------+--------+
+        |                                       |  VirtIO NIC    |
+        +-------------------------------------- |  (PIO Driver)  |
+                                                +----------------+
 ```
+
+> When built with `--features kernel`, WASM apps call `wasi2::http` or
+> `wasi2::sockets` which forward through `kernel::net::wasi_bridge` to
+> the real TCP/IP stack and VirtIO NIC.  Without the feature, an
+> in-memory loopback simulation is used for deterministic testing.
 
 ---
 

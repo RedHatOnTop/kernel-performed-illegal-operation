@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
-**Version:** 2.5.0  
-**Status:** Phase 9 In Progress (9-1, 9-2 Complete, 9-3 In Progress) ✅  
+**Version:** 2.6.0  
+**Status:** Phase 9 In Progress (9-1, 9-2, 9-3, 9-4 Complete) ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -43,7 +43,7 @@ The OS adopts a **WASM-Native** architecture, enforcing strict isolation by usin
 | Browser | Servo (Stylo + WebRender) | Full web standards support with OS integration |
 | Graphics | Mesa 3D + Vulkan | GPU acceleration via RADV/ANV/NVK |
 | Compositor | wgpu + Vello | Window management and vector rendering |
-| Network | Custom TCP/IP + VirtIO PIO | Standalone TCP/IP stack with real NIC I/O; DHCP-acquired addressing |
+| Network | Custom TCP/IP + VirtIO PIO | Standalone TCP/IP stack with real NIC I/O; DHCP-acquired addressing; WASI2 real sockets |
 | Storage | Custom VFS | Immutable root with FUSE-like WASM modules |
 
 ---
@@ -91,7 +91,7 @@ kernel-performed-illegal-operation/
             component/          # WASM Component Model (canonical ABI)
             jit/                # JIT compiler (IR + x86_64 codegen)
             wasi.rs             # WASI Preview 1
-            wasi2/              # WASI Preview 2 (streams, clocks, random, sockets)
+            wasi2/              # WASI Preview 2 (streams, clocks, random, real sockets & HTTP)
             wit/                # WIT parser and type system
             package.rs          # .kpioapp package format
             app_launcher.rs     # App lifecycle management
@@ -147,15 +147,16 @@ cargo run --package tools -- run-qemu
 
 ## Current Status
 
-**Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration** - 🔄 In Progress (9-1, 9-2 Complete; 9-3 actively integrating)
+**Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration** - 🔄 In Progress (9-1 through 9-4 Complete; 9-5 remaining)
 
-- ✅ **9-1: VirtIO Net PIO Driver Implementation** — Replaced stub PIO `read8`/`write8`/`read32`/`write32` methods with real `x86_64::instructions::port::Port` I/O. Implemented full PIO init path (reset → ACKNOWLEDGE → DRIVER → feature negotiation → FEATURES_OK → MAC read → virtqueue allocation → DRIVER_OK). Added `pio_reg` constants, `VirtqRings` ring memory tracking, PCI bus mastering, and `probe()` now calls `init_pio()` to fully initialize the NIC on boot. Both MMIO and PIO transport modes are now functional.
-- ✅ **9-2: Network Stack Wiring (NIC Registration + DHCP)** — NIC registration in `NETWORK_MANAGER` and DHCP handshake over real VirtIO NIC are completed and verified in QEMU (`10.0.2.15` lease acquisition).
-- 🔄 **9-3: VFS ↔ Block Driver Integration** — Kernel-side `KernelBlockAdapter` and storage-side FAT32/VFS read path were implemented; test-disk workflow was added (`scripts/create-test-disk.ps1`, `-TestDisk` in QEMU scripts). Current blocker: VirtIO block sector read timeout on mount path in QEMU (`[VirtIO-Blk] Read timeout (sector 0)`) prevents full QG pass.
+- ✅ **9-1: VirtIO Net PIO Driver Implementation** — Real PIO register access via `x86_64::instructions::port::Port`. Full VirtIO legacy PCI init sequence, virtqueue allocation, PCI bus mastering.
+- ✅ **9-2: Network Stack Wiring (NIC Registration + DHCP)** — NIC registration in `NETWORK_MANAGER`, DHCP lease acquisition (`10.0.2.15`) verified in QEMU.
+- ✅ **9-3: VFS ↔ Block Driver Integration** — `KernelBlockAdapter` bridges kernel VirtIO block driver to storage VFS. FAT32 read-only filesystem, boot-time self-test.
+- ✅ **9-4: WASI2 Real Network Integration** — WASI2 HTTP and TCP sockets are now backed by the kernel's real TCP/IP stack when built with `--features kernel`. DNS resolution uses the kernel's wire-format UDP resolver. Mock fallback preserved for non-kernel test builds.
 
 **Previous:** Phase 8 — Technical Debt Resolution ✅ (2026-02-23)
 
-**Next:** Finish 9-3 block read reliability and complete 9-4 (WASI2 real network).
+**Next:** Complete 9-5 (End-to-End Integration Test).
 
 See [Development Roadmap](docs/roadmap.md) for detailed progress tracking.
 

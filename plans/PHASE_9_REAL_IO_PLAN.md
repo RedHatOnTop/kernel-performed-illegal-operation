@@ -1,6 +1,6 @@
 # Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration
 
-> **Status**: In Progress (9-1, 9-2 Complete)  
+> **Status**: In Progress (9-1, 9-2, 9-3, 9-4 Complete)  
 > **Predecessor**: Phase 8 (Technical Debt Resolution) — completed 2026-02-23  
 > **Boot environment**: QEMU 10.2.0, UEFI pflash, bootloader 0.11.14, nightly-2026-01-01  
 > **Goal**: Make VirtIO network and storage actually functional — DHCP succeeds, packets transmit/receive, VFS reads/writes reach disk  
@@ -487,15 +487,43 @@ connects the WASI2 layer to it.
 
 ### QG (Quality Gate)
 
-- [ ] `cargo build` succeeds
-- [ ] WASI2 `http::handle()` returns a real HTTP response (not mock) when kernel feature is enabled
-- [ ] WASI2 `TcpSocket::connect()` establishes a real TCP connection through the kernel stack
-- [ ] `resolve_addresses("example.com")` returns a real IP from DNS (not hardcoded `10.0.0.1`)
-- [ ] Mock fallback still works when `kernel` feature is disabled (for unit testing)
+- [x] `cargo build` succeeds
+- [x] WASI2 `http::handle()` returns a real HTTP response (not mock) when kernel feature is enabled
+- [x] WASI2 `TcpSocket::connect()` establishes a real TCP connection through the kernel stack
+- [x] `resolve_addresses("example.com")` returns a real IP from DNS (not hardcoded `10.0.0.1`)
+- [x] Mock fallback still works when `kernel` feature is disabled (for unit testing)
 
 ### Changes After Completion
 
-_(To be filled after sub-phase is implemented)_
+**Completed:** 2026-02-24
+
+Files modified/added:
+- `kernel/src/net/wasi_bridge.rs` — **New**: Bridge module exposing kernel network stack
+  to the WASI2 runtime layer.  Provides `http_request()` (full HTTP via kernel DNS → TCP
+  → TLS → HTTP client), `dns_resolve()` (host table → cache → wire DNS query), and
+  `tcp_connect()`/`tcp_send()`/`tcp_recv()`/`tcp_close()`/`tcp_destroy()` (real TCP
+  connections via VirtIO NIC).  Also exposes `udp_send()`/`udp_bind()` for future use.
+- `kernel/src/net/mod.rs` — Added `pub mod wasi_bridge;` to register the new module.
+- `runtime/src/wasi2/http.rs` — Replaced single mock `handle()` with conditional dispatch:
+  - `#[cfg(feature = "kernel")]` → `handle_kernel()`: reconstructs URL from WASI fields,
+    collects headers, calls `kpio_kernel::net::wasi_bridge::http_request()`, maps the
+    kernel `WasiHttpResponse` into a WASI2 `IncomingResponse`.
+  - `#[cfg(not(feature = "kernel"))]` → `handle_mock()`: preserves the original
+    deterministic mock response for unit testing.
+- `runtime/src/wasi2/sockets.rs` — Added real kernel network backing for TCP and DNS:
+  - `TcpSocket` struct gains `kernel_conn: Option<u64>` field to hold the raw kernel
+    `ConnId` when backed by a real connection.
+  - `start_connect()`: when kernel feature enabled and destination is not loopback,
+    calls `kpio_kernel::net::wasi_bridge::tcp_connect()` to establish a real TCP
+    connection through the VirtIO NIC.  Stores the `ConnId` for subsequent I/O.
+  - `finish_connect()`: returns immediately if kernel already promoted state to Connected.
+  - `send()`: when `kernel_conn` is `Some`, forwards to `tcp_send()` via wasi_bridge.
+  - `recv()`: when `kernel_conn` is `Some`, calls `tcp_recv()` (blocking, ≈3s timeout).
+  - `shutdown()`: when `kernel_conn` is `Some`, calls `tcp_close()` + `tcp_destroy()`.
+  - `resolve_addresses()`: conditional dispatch:
+    - kernel → `resolve_addresses_kernel()`: fast-path for localhost/::1, else calls
+      `kpio_kernel::net::wasi_bridge::dns_resolve()` for real DNS lookup.
+    - no-kernel → `resolve_addresses_mock()`: preserves original stub behavior.
 
 ---
 

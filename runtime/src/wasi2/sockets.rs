@@ -1,8 +1,12 @@
 //! WASI Preview 2 — `wasi:sockets` interfaces.
 //!
 //! Provides TCP and UDP socket resources and an IP name-lookup
-//! service.  In the kernel environment these operate over an
-//! in-memory loopback simulation so that tests are deterministic.
+//! service.
+//!
+//! When compiled with the `kernel` feature, TCP connections and DNS
+//! lookups go through the kernel's real network stack (VirtIO NIC).
+//! Without the feature, an in-memory loopback simulation is used so
+//! that unit tests remain deterministic.
 
 extern crate alloc;
 
@@ -122,6 +126,11 @@ pub enum TcpState {
 }
 
 /// An in-memory TCP socket.
+///
+/// When the `kernel` feature is enabled and the socket connects to a
+/// non-loopback address, `kernel_conn` holds the raw `ConnId` from
+/// the kernel TCP stack so that `send()`/`recv()` go through the real
+/// VirtIO NIC.
 #[derive(Debug, Clone)]
 pub struct TcpSocket {
     pub id: u32,
@@ -135,6 +144,9 @@ pub struct TcpSocket {
     pub send_buffer: Vec<u8>,
     /// Accepted connections waiting in the backlog.
     pub accept_queue: Vec<u32>,
+    /// Kernel TCP connection handle (raw `ConnId` value).
+    /// `Some(id)` when backed by a real kernel connection.
+    pub kernel_conn: Option<u64>,
 }
 
 impl TcpSocket {
@@ -148,6 +160,7 @@ impl TcpSocket {
             recv_buffer: Vec::new(),
             send_buffer: Vec::new(),
             accept_queue: Vec::new(),
+            kernel_conn: None,
         }
     }
 
@@ -180,12 +193,44 @@ impl TcpSocket {
         if address.address.family() != self.family {
             return Err(SocketError::InvalidArgument);
         }
-        self.remote_address = Some(address);
+        self.remote_address = Some(address.clone());
         self.state = TcpState::ConnectStarted;
+
+        // When the kernel feature is enabled and the destination is not
+        // loopback, establish a real TCP connection via the kernel stack.
+        #[cfg(feature = "kernel")]
+        {
+            if let IpAddress::Ipv4(a, b, c, d) = &address.address {
+                let ip = [*a, *b, *c, *d];
+                let is_loopback = ip[0] == 127;
+                if !is_loopback {
+                    match kpio_kernel::net::wasi_bridge::tcp_connect(ip, address.port) {
+                        Ok(handle) => {
+                            self.kernel_conn = Some(handle.conn_id.0);
+                            self.state = TcpState::Connected;
+                            // Intentionally skip destroy — handle is consumed
+                            // by storing the conn_id; the kernel owns the
+                            // connection until we explicitly close it.
+                            core::mem::forget(handle);
+                        }
+                        Err(_) => {
+                            self.state = TcpState::Closed;
+                            return Err(SocketError::ConnectionRefused);
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
     pub fn finish_connect(&mut self) -> Result<(), SocketError> {
+        // If the kernel already promoted us to Connected in start_connect,
+        // just return success.
+        if self.state == TcpState::Connected {
+            return Ok(());
+        }
         if self.state != TcpState::ConnectStarted {
             return Err(SocketError::NotConnected);
         }
@@ -220,6 +265,17 @@ impl TcpSocket {
         if self.state != TcpState::Connected {
             return Err(SocketError::NotConnected);
         }
+        // Kernel-backed connection: forward to real TCP stack.
+        #[cfg(feature = "kernel")]
+        if let Some(conn_id) = self.kernel_conn {
+            let handle = kpio_kernel::net::wasi_bridge::TcpHandle {
+                conn_id: kpio_kernel::net::tcp::ConnId(conn_id),
+            };
+            let result = kpio_kernel::net::wasi_bridge::tcp_send(&handle, data);
+            core::mem::forget(handle);
+            return result.map_err(|_| SocketError::ConnectionReset);
+        }
+        // Loopback fallback.
         self.send_buffer.extend_from_slice(data);
         Ok(data.len())
     }
@@ -228,6 +284,22 @@ impl TcpSocket {
         if self.state != TcpState::Connected {
             return Err(SocketError::NotConnected);
         }
+        // Kernel-backed connection: receive from real TCP stack.
+        #[cfg(feature = "kernel")]
+        if let Some(conn_id) = self.kernel_conn {
+            let handle = kpio_kernel::net::wasi_bridge::TcpHandle {
+                conn_id: kpio_kernel::net::tcp::ConnId(conn_id),
+            };
+            let mut buf = alloc::vec![0u8; max_len];
+            let result = kpio_kernel::net::wasi_bridge::tcp_recv(&handle, &mut buf);
+            core::mem::forget(handle);
+            return match result {
+                Ok(0) => Err(SocketError::WouldBlock),
+                Ok(n) => Ok(buf[..n].to_vec()),
+                Err(_) => Err(SocketError::WouldBlock),
+            };
+        }
+        // Loopback fallback.
         if self.recv_buffer.is_empty() {
             return Err(SocketError::WouldBlock);
         }
@@ -240,6 +312,15 @@ impl TcpSocket {
     pub fn shutdown(&mut self, _how: ShutdownType) -> Result<(), SocketError> {
         if self.state != TcpState::Connected {
             return Err(SocketError::NotConnected);
+        }
+        // Kernel-backed: close the real TCP connection.
+        #[cfg(feature = "kernel")]
+        if let Some(conn_id) = self.kernel_conn.take() {
+            let handle = kpio_kernel::net::wasi_bridge::TcpHandle {
+                conn_id: kpio_kernel::net::tcp::ConnId(conn_id),
+            };
+            let _ = kpio_kernel::net::wasi_bridge::tcp_close(&handle);
+            kpio_kernel::net::wasi_bridge::tcp_destroy(handle);
         }
         self.state = TcpState::Closed;
         Ok(())
@@ -366,14 +447,76 @@ impl ResolveAddressStream {
     }
 }
 
-/// Resolve hostnames to IP addresses (in-memory stub).
+/// Resolve hostnames to IP addresses.
+///
+/// With the `kernel` feature: performs a real DNS lookup (host table →
+/// cache → wire query over UDP through the VirtIO NIC).
+/// Without the feature: returns deterministic stubs for testing.
 pub fn resolve_addresses(name: &str) -> Result<ResolveAddressStream, SocketError> {
+    if name.is_empty() {
+        return Err(SocketError::InvalidArgument);
+    }
+
+    #[cfg(feature = "kernel")]
+    {
+        resolve_addresses_kernel(name)
+    }
+    #[cfg(not(feature = "kernel"))]
+    {
+        resolve_addresses_mock(name)
+    }
+}
+
+/// Real DNS resolver backed by the kernel network stack.
+#[cfg(feature = "kernel")]
+fn resolve_addresses_kernel(name: &str) -> Result<ResolveAddressStream, SocketError> {
+    // Fast-path well-known names without hitting the kernel.
+    match name {
+        "localhost" | "127.0.0.1" => {
+            return Ok(ResolveAddressStream {
+                addresses: vec![IpAddress::localhost_v4()],
+                index: 0,
+            });
+        }
+        "::1" => {
+            return Ok(ResolveAddressStream {
+                addresses: vec![IpAddress::Ipv6([0, 0, 0, 0, 0, 0, 0, 1])],
+                index: 0,
+            });
+        }
+        _ => {}
+    }
+
+    match kpio_kernel::net::wasi_bridge::dns_resolve(name) {
+        Ok(addrs) => {
+            let addresses: Vec<IpAddress> = addrs
+                .iter()
+                .map(|octets| IpAddress::Ipv4(octets[0], octets[1], octets[2], octets[3]))
+                .collect();
+            if addresses.is_empty() {
+                Err(SocketError::Unknown(alloc::format!("DNS: no results for {}", name)))
+            } else {
+                Ok(ResolveAddressStream {
+                    addresses,
+                    index: 0,
+                })
+            }
+        }
+        Err(_) => Err(SocketError::Unknown(alloc::format!(
+            "DNS resolution failed for {}",
+            name
+        ))),
+    }
+}
+
+/// Stub resolver for testing (no kernel).
+#[cfg(not(feature = "kernel"))]
+fn resolve_addresses_mock(name: &str) -> Result<ResolveAddressStream, SocketError> {
     let addresses = match name {
         "localhost" | "127.0.0.1" => vec![IpAddress::localhost_v4()],
         "::1" => vec![IpAddress::Ipv6([0, 0, 0, 0, 0, 0, 0, 1])],
-        "" => return Err(SocketError::InvalidArgument),
         _ => {
-            // For unknown hosts in a kernel env, return a deterministic fake
+            // For unknown hosts, return a deterministic fake
             vec![IpAddress::Ipv4(10, 0, 0, 1)]
         }
     };

@@ -1,8 +1,8 @@
 # Networking Subsystem Design Document
 
-**Document Version:** 2.1.0  
+**Document Version:** 2.2.0  
 **Last Updated:** 2026-02-24  
-**Status:** Implemented (VirtIO PIO + DHCP verified on QEMU)
+**Status:** Implemented (VirtIO PIO + DHCP verified on QEMU; WASI2 real network integration complete)
 
 ---
 
@@ -191,6 +191,19 @@ Initial driver support targets:
                                  |    Hardware      |
                                  +------------------+
 ```
+
+> **Phase 9-4 Update:** When built with `--features kernel`, the WASI2
+> layer in the runtime crate bypasses the IPC path and calls the kernel
+> network stack directly via `kernel::net::wasi_bridge`.  This gives
+> WASM apps real TCP connections, DNS resolution, and HTTP requests
+> through the VirtIO NIC:
+>
+> ```
+> WASM App → wasi2::sockets / wasi2::http
+>          → kpio_kernel::net::wasi_bridge
+>          → kernel TCP/UDP/DNS/HTTP
+>          → VirtIO NIC → QEMU SLIRP → Internet
+> ```
 
 ---
 
