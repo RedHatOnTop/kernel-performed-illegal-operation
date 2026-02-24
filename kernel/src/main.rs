@@ -248,6 +248,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                     Ok(()) => {
                         serial_println!("[VFS] Mounted FAT filesystem on {} at /mnt/test", device_name);
 
+                        // Self-test 1: read a file
                         match storage::vfs::open("/mnt/test/HELLO.TXT", storage::OpenFlags::READ) {
                             Ok(fd) => {
                                 let mut buf = [0u8; 512];
@@ -272,6 +273,38 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                                     "[VFS] Self-test open failed for HELLO.TXT: {:?}",
                                     e
                                 );
+                            }
+                        }
+
+                        // Self-test 2: readdir
+                        match storage::vfs::readdir("/mnt/test/") {
+                            Ok(entries) => {
+                                serial_println!(
+                                    "[VFS] readdir /mnt/test/: {} entries",
+                                    entries.len()
+                                );
+                                for entry in &entries {
+                                    let name = core::str::from_utf8(
+                                        &entry.name[..entry.name_len],
+                                    )
+                                    .unwrap_or("?");
+                                    serial_println!("  - {} ({:?})", name, entry.file_type);
+                                }
+                            }
+                            Err(e) => {
+                                serial_println!(
+                                    "[VFS] readdir /mnt/test/ failed: {:?}", e
+                                );
+                            }
+                        }
+
+                        // Self-test 3: invalid path (must not panic)
+                        match storage::vfs::open("/mnt/test/NOFILE.TXT", storage::OpenFlags::READ) {
+                            Ok(fd) => {
+                                let _ = storage::vfs::close(fd);
+                            }
+                            Err(_) => {
+                                serial_println!("[VFS] Self-test: NOFILE.TXT correctly not found");
                             }
                         }
                     }

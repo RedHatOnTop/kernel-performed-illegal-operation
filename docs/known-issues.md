@@ -107,32 +107,32 @@ correct DMA address translation, fixed the virtqueue size to match the device's 
 
 ---
 
-## 4. Phase 9-3 Blocker — VirtIO-Blk Read Timeout During FAT Mount
+## 4. ~~Phase 9-3 Blocker — VirtIO-Blk Read Timeout During FAT Mount~~ ✅ RESOLVED
 
 | Field       | Detail                                                                 |
 |-------------|------------------------------------------------------------------------|
-| Severity    | High (blocks 9-3 QG full pass)                                         |
+| Severity    | ~~High~~ → Resolved                                                     |
 | Component   | `kernel/src/driver/virtio/block.rs` + storage mount path              |
-| Status      | **Open** (2026-02-24)                                                  |
+| Status      | **Fixed** in Phase 9-3 DMA fix (2026-02-24)                            |
 
-### Symptom
+### Resolution
 
-During early storage self-test, the kernel prints:
+The VirtIO block driver was using **virtual** addresses where **physical** DMA
+addresses are required. Three fixes applied (mirroring the 9-2 net driver fix):
 
+1. Queue memory allocated with page-aligned `Layout` (`alloc_zeroed` with 4096 alignment)
+2. Queue PFN written to `QUEUE_ADDRESS` register using `virt_to_phys()` translation
+3. All descriptor buffer addresses (header, data, status) translated via `virt_to_phys()`
+
+Boot now shows:
 ```
-[VirtIO-Blk] Read timeout (sector 0)
-[VFS] Mount failed for virtio-blk0: IoError
+[VirtIO-Blk] Queue mem virt=0x444444447000 phys=0xa000 pfn=0xa
+[VFS] Mounted FAT filesystem on virtio-blk0 at /mnt/test
+[VFS] Self-test: read 36 bytes from HELLO.TXT
+[VFS] readdir /mnt/test/: 1 entries
+  - HELLO.TXT (Regular)
+[VFS] Self-test: NOFILE.TXT correctly not found
 ```
-
-### Impact
-
-- FAT mount cannot complete in QEMU for the current 9-3 bridge path.
-- `vfs::open/read/readdir` cannot be validated end-to-end on real disk yet.
-
-### Current Workaround
-
-- Keep networking validation (9-2) as the primary runtime gate.
-- Use `scripts/create-test-disk.ps1` and `-TestDisk` flow to reproduce while iterating on VirtIO block queue reliability.
 
 ---
 

@@ -138,12 +138,18 @@ pub struct VirtioBlock {
     capacity: u64,
     /// Queue size.
     queue_size: u16,
-    /// Descriptor table (physical address).
+    /// Descriptor table — physical address (for DMA / device).
     desc_phys: u64,
-    /// Available ring (physical address).
+    /// Descriptor table — virtual address (for CPU access).
+    desc_virt: u64,
+    /// Available ring — physical address.
     avail_phys: u64,
-    /// Used ring (physical address).
+    /// Available ring — virtual address.
+    avail_virt: u64,
+    /// Used ring — physical address.
     used_phys: u64,
+    /// Used ring — virtual address.
+    used_virt: u64,
     /// Request header buffer.
     header_buf: Box<BlockRequestHeader>,
     /// Status buffer.
@@ -222,26 +228,45 @@ impl VirtioBlock {
 
         crate::serial_println!("[VirtIO-Blk] Queue size: {}", queue_size);
 
-        // Allocate queue memory (simplified - use kernel heap)
-        // In a real driver, this would be physically contiguous memory
+        // Queue memory layout (VirtIO legacy spec §2.6.2):
+        //   Descriptor table:  16 bytes × queue_size
+        //   Available ring:    6 + 2 × queue_size bytes
+        //   (pad to next page boundary)
+        //   Used ring:         6 + 8 × queue_size bytes
         let desc_size = core::mem::size_of::<super::queue::VirtqDesc>() * queue_size as usize;
-        let avail_size = 6 + 2 * queue_size as usize; // flags + idx + ring + used_event
-        let used_size = 6 + 8 * queue_size as usize; // flags + idx + ring + avail_event
+        let avail_size = 6 + 2 * queue_size as usize;
+        let _used_size = 6 + 8 * queue_size as usize;
 
-        // For simplicity, allocate a large buffer
-        // Real implementation needs physically contiguous pages
-        let queue_mem = alloc::vec![0u8; 4096 * 4].into_boxed_slice();
-        let queue_ptr = Box::into_raw(queue_mem);
-        let queue_base = queue_ptr as *mut u8 as u64;
+        // Allocate page-aligned memory so the PFN calculation is correct.
+        let layout = alloc::alloc::Layout::from_size_align(4096 * 4, 4096)
+            .expect("[VirtIO-Blk] Layout error");
+        let queue_virt = unsafe { alloc::alloc::alloc_zeroed(layout) } as u64;
+        if queue_virt == 0 {
+            crate::serial_println!("[VirtIO-Blk] Queue allocation failed");
+            Self::write_status_raw(io_base, device_status::FAILED);
+            return None;
+        }
 
-        // Note: This is simplified - real driver needs proper page alignment
-        let desc_phys = queue_base;
+        // Translate virtual → physical for DMA.
+        let queue_phys = crate::memory::virt_to_phys(queue_virt)
+            .expect("[VirtIO-Blk] virt_to_phys failed for queue memory");
+
+        let desc_virt = queue_virt;
+        let desc_phys = queue_phys;
+        let avail_virt = desc_virt + desc_size as u64;
         let avail_phys = desc_phys + desc_size as u64;
-        let used_phys = (avail_phys + avail_size as u64 + 4095) & !4095; // Page-align used ring
+        // Used ring must start on a page boundary (legacy spec).
+        let used_virt = (avail_virt + avail_size as u64 + 4095) & !4095;
+        let used_phys = (avail_phys + avail_size as u64 + 4095) & !4095;
 
-        // Tell device the queue address (legacy: page number)
+        // Tell device the queue address — PHYSICAL page frame number.
         let mut queue_addr: Port<u32> = Port::new(io_base + legacy_regs::QUEUE_ADDRESS);
         unsafe { queue_addr.write((desc_phys / 4096) as u32) };
+
+        crate::serial_println!(
+            "[VirtIO-Blk] Queue mem virt={:#x} phys={:#x} pfn={:#x}",
+            queue_virt, queue_phys, desc_phys / 4096
+        );
 
         // Read device capacity
         let mut cap_low: Port<u32> = Port::new(io_base + legacy_regs::CONFIG);
@@ -271,8 +296,11 @@ impl VirtioBlock {
             capacity,
             queue_size,
             desc_phys,
+            desc_virt,
             avail_phys,
+            avail_virt,
             used_phys,
+            used_virt,
             header_buf: Box::new(BlockRequestHeader {
                 request_type: 0,
                 reserved: 0,
@@ -337,34 +365,42 @@ impl VirtioBlock {
         // Clear data buffer
         self.data_buf.fill(0);
 
-        // Build 3-descriptor chain in the descriptor table
-        let desc_base = self.desc_phys as *mut VirtqDescRaw;
-        let avail_base = self.avail_phys as *mut u16;
-        let used_base = self.used_phys as *mut u16;
+        // Translate DMA buffer addresses: virtual → physical.
+        let hdr_virt = &*self.header_buf as *const BlockRequestHeader as u64;
+        let hdr_phys = crate::memory::virt_to_phys(hdr_virt).unwrap_or(hdr_virt);
+        let data_virt = self.data_buf.as_ptr() as u64;
+        let data_phys = crate::memory::virt_to_phys(data_virt).unwrap_or(data_virt);
+        let status_virt = &*self.status_buf as *const u8 as u64;
+        let status_phys = crate::memory::virt_to_phys(status_virt).unwrap_or(status_virt);
+
+        // Build 3-descriptor chain — CPU writes via VIRTUAL desc base,
+        // but addr fields inside descriptors must be PHYSICAL (DMA).
+        let desc_base = self.desc_virt as *mut VirtqDescRaw;
+        let avail_base = self.avail_virt as *mut u16;
 
         unsafe {
             // Descriptor 0: header (device-readable)
             let d0 = &mut *desc_base.add(0);
-            d0.addr = &*self.header_buf as *const BlockRequestHeader as u64;
+            d0.addr = hdr_phys;
             d0.len = core::mem::size_of::<BlockRequestHeader>() as u32;
             d0.flags = VRING_DESC_F_NEXT;
             d0.next = 1;
 
             // Descriptor 1: data buffer (device-writable for read)
             let d1 = &mut *desc_base.add(1);
-            d1.addr = self.data_buf.as_ptr() as u64;
+            d1.addr = data_phys;
             d1.len = BLOCK_SIZE as u32;
             d1.flags = VRING_DESC_F_WRITE | VRING_DESC_F_NEXT;
             d1.next = 2;
 
             // Descriptor 2: status (device-writable)
             let d2 = &mut *desc_base.add(2);
-            d2.addr = &*self.status_buf as *const u8 as u64;
+            d2.addr = status_phys;
             d2.len = 1;
             d2.flags = VRING_DESC_F_WRITE;
             d2.next = 0;
 
-            // Add to available ring
+            // Add to available ring (CPU access via VIRTUAL avail base)
             // avail ring layout: flags(u16), idx(u16), ring[queue_size](u16), used_event(u16)
             let avail_idx_ptr = avail_base.add(1);
             let avail_idx = core::ptr::read_volatile(avail_idx_ptr);
@@ -384,9 +420,9 @@ impl VirtioBlock {
         // Notify device (queue 0)
         self.notify(0);
 
-        // Poll for completion
+        // Poll for completion — CPU reads used ring via VIRTUAL address.
         // used ring layout: flags(u16), idx(u16), ring[queue_size](VirtqUsedElem), avail_event(u16)
-        let used_idx_ptr = unsafe { (self.used_phys as *mut u16).add(1) };
+        let used_idx_ptr = unsafe { (self.used_virt as *mut u16).add(1) };
         let start_idx = unsafe { core::ptr::read_volatile(used_idx_ptr) };
         let mut timeout = 1_000_000u32;
         loop {
@@ -433,33 +469,41 @@ impl VirtioBlock {
         // Copy data to our buffer
         self.data_buf.copy_from_slice(buffer);
 
-        // Build 3-descriptor chain
-        let desc_base = self.desc_phys as *mut VirtqDescRaw;
-        let avail_base = self.avail_phys as *mut u16;
+        // Translate DMA buffer addresses: virtual → physical.
+        let hdr_virt = &*self.header_buf as *const BlockRequestHeader as u64;
+        let hdr_phys = crate::memory::virt_to_phys(hdr_virt).unwrap_or(hdr_virt);
+        let data_virt = self.data_buf.as_ptr() as u64;
+        let data_phys = crate::memory::virt_to_phys(data_virt).unwrap_or(data_virt);
+        let status_virt = &*self.status_buf as *const u8 as u64;
+        let status_phys = crate::memory::virt_to_phys(status_virt).unwrap_or(status_virt);
+
+        // Build 3-descriptor chain — PHYSICAL addresses in descriptors.
+        let desc_base = self.desc_virt as *mut VirtqDescRaw;
+        let avail_base = self.avail_virt as *mut u16;
 
         unsafe {
             // Descriptor 0: header (device-readable)
             let d0 = &mut *desc_base.add(0);
-            d0.addr = &*self.header_buf as *const BlockRequestHeader as u64;
+            d0.addr = hdr_phys;
             d0.len = core::mem::size_of::<BlockRequestHeader>() as u32;
             d0.flags = VRING_DESC_F_NEXT;
             d0.next = 1;
 
             // Descriptor 1: data buffer (device-readable for write)
             let d1 = &mut *desc_base.add(1);
-            d1.addr = self.data_buf.as_ptr() as u64;
+            d1.addr = data_phys;
             d1.len = BLOCK_SIZE as u32;
             d1.flags = VRING_DESC_F_NEXT; // NOT writable — device reads from this
             d1.next = 2;
 
             // Descriptor 2: status (device-writable)
             let d2 = &mut *desc_base.add(2);
-            d2.addr = &*self.status_buf as *const u8 as u64;
+            d2.addr = status_phys;
             d2.len = 1;
             d2.flags = VRING_DESC_F_WRITE;
             d2.next = 0;
 
-            // Add to available ring
+            // Add to available ring (CPU access via VIRTUAL avail base)
             let avail_idx_ptr = avail_base.add(1);
             let avail_idx = core::ptr::read_volatile(avail_idx_ptr);
             let ring_entry = avail_base.add(2 + (avail_idx as usize % self.queue_size as usize));
@@ -473,8 +517,8 @@ impl VirtioBlock {
         // Notify device
         self.notify(0);
 
-        // Poll for completion
-        let used_idx_ptr = unsafe { (self.used_phys as *mut u16).add(1) };
+        // Poll for completion — CPU reads used ring via VIRTUAL address.
+        let used_idx_ptr = unsafe { (self.used_virt as *mut u16).add(1) };
         let start_idx = unsafe { core::ptr::read_volatile(used_idx_ptr) };
         let mut timeout = 1_000_000u32;
         loop {

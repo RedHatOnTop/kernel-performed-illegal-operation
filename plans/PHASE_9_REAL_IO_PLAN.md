@@ -291,7 +291,7 @@ Files modified:
 
 ## Sub-phase 9-3: VFS ↔ Block Driver Integration
 
-> **Status**: In Progress (implementation merged, QG blocked by VirtIO read timeout)
+> **Status**: **Complete** (all QG items pass — 2026-02-24)
 
 ### Goal
 
@@ -373,28 +373,25 @@ platform-agnostic design.
 ### QG (Quality Gate)
 
 - [x] `cargo build` succeeds
-- [ ] QEMU serial shows `[VFS] Mounted FAT filesystem on virtio-blk0` (or similar)
-- [ ] `[VFS] Self-test: read N bytes from hello.txt` — confirms end-to-end read path
-- [ ] `vfs::readdir("/mnt/test/")` returns the expected file list
-- [ ] No panics during VFS operations on valid and invalid paths
+- [x] QEMU serial shows `[VFS] Mounted FAT filesystem on virtio-blk0 at /mnt/test`
+- [x] `[VFS] Self-test: read 36 bytes from HELLO.TXT` — end-to-end read path confirmed
+- [x] `vfs::readdir("/mnt/test/")` returns `1 entries: HELLO.TXT (Regular)`
+- [x] No panics during VFS operations (NOFILE.TXT gracefully returns FileNotFound)
 
 ### Changes After Completion
 
-Implemented on branch (not fully QG-complete yet):
-
 - `kernel/src/driver/virtio/block_adapter.rs` added (`KernelBlockAdapter`) to bridge kernel VirtIO block device to `storage::driver::BlockDevice`.
-- `kernel/src/driver/virtio/block.rs` exported helper functions to read/write sectors by device index.
+- `kernel/src/driver/virtio/block.rs`:
+  - Exported helper functions to read/write sectors by device index.
+  - **Fixed DMA address translation**: page-aligned queue memory via `alloc_zeroed(Layout)`, `virt_to_phys()` for queue PFN and all descriptor buffer addresses. Previously virtual addresses were passed as physical, causing the device to read from wrong memory and time out.
+  - Stores both virtual (CPU access) and physical (DMA) addresses for descriptor table, available ring, and used ring.
 - `storage/src/vfs.rs` now routes `mount/open/read/write/readdir/stat/statfs/...` through mounted `Filesystem` instances instead of TODO stubs.
 - `storage/src/fs/fat32.rs` replaced with a minimal read-focused FAT32 implementation (BPB parse, FAT chain traversal, directory iteration, `open/read/readdir/lookup`).
-- Boot path integration added in `kernel/src/main.rs` to register adapter, mount FAT, and run a self-test read.
+- Boot path integration added in `kernel/src/main.rs` to register adapter, mount FAT, and run self-tests (read, readdir, invalid-path).
 - Test workflow scripts added/updated:
     - `scripts/create-test-disk.ps1`
     - `scripts/run-qemu.ps1` (`-TestDisk`)
     - `scripts/qemu-test.ps1` (`-TestDisk`)
-
-Current blocker (open):
-
-- QEMU runtime shows `[VirtIO-Blk] Read timeout (sector 0)` during mount path, causing `[VFS] Mount failed ... IoError`.
 
 ---
 

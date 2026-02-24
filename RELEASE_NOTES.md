@@ -31,7 +31,13 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 ### Network Stack (NEW)
 - **VirtIO-net driver** — real packet TX/RX over both MMIO virtqueues and PIO (legacy PCI transport)
 - **DHCP** — automatic IP acquisition from QEMU SLIRP (`10.0.2.15/24`, gw `10.0.2.2`, dns `10.0.2.3`)
-- **DMA** — `virt_to_phys()` 4-level page table walk for correct VirtIO descriptor addresses
+- **DMA** — `virt_to_phys()` 4-level page table walk for correct VirtIO descriptor addresses (net + block)
+
+### Storage (NEW)
+- **VirtIO-blk driver** — page-aligned queue, `virt_to_phys()` DMA translation, read/write sectors
+- **FAT32** — read-only filesystem: BPB parse, FAT chain traversal, directory listing, file read
+- **VFS** — mount table, file handle table, open/read/close/readdir/stat dispatch through `Filesystem` trait
+- Boot-time self-test: mounts FAT32 disk, reads HELLO.TXT, lists directory, validates error paths
 - **Ethernet** — IEEE 802.3 frame parse/build
 - **ARP** — address resolution with cache (RFC 826)
 - **IPv4** — packet construction, internet checksum, ICMP echo, subnet routing
