@@ -196,6 +196,10 @@ pub fn validate_physical_memory_offset(offset: u64) {
 /// - All physical memory is mapped at `physical_memory_offset`
 /// - This function is called only once
 pub unsafe fn init(physical_memory_offset: u64) -> OffsetPageTable<'static> {
+    // Store the physical memory offset so user_page_table (and virt_to_phys)
+    // can convert between virtual and physical addresses.
+    user_page_table::init(physical_memory_offset);
+
     let phys_offset = VirtAddr::new(physical_memory_offset);
     let level_4_table = unsafe { active_level_4_table(phys_offset) };
     unsafe { OffsetPageTable::new(level_4_table, phys_offset) }
@@ -283,5 +287,69 @@ where
             // Current region exhausted, advance to the next region
             self.advance_to_usable_region();
         }
+    }
+}
+
+/// Translate a virtual address to its physical address by walking the
+/// active page tables through the physical memory window.
+///
+/// Returns `None` if any page table entry along the path is not present.
+///
+/// # Safety
+///
+/// This function reads page table memory through the physical-memory mapping.
+/// The caller must ensure `user_page_table::init()` has been called (which is
+/// done automatically by `memory::init()`).
+pub fn virt_to_phys(virt_addr: u64) -> Option<u64> {
+    let phys_offset = user_page_table::get_phys_offset();
+    if phys_offset == 0 {
+        // Phys offset not yet initialised — fall back to identity assumption.
+        return Some(virt_addr);
+    }
+
+    // Walk the 4-level page table to translate any virtual address.
+    use x86_64::registers::control::Cr3;
+    let cr3 = Cr3::read().0.start_address().as_u64();
+
+    let indices = [
+        ((virt_addr >> 39) & 0x1FF) as usize, // PML4
+        ((virt_addr >> 30) & 0x1FF) as usize, // PDPT
+        ((virt_addr >> 21) & 0x1FF) as usize, // PD
+        ((virt_addr >> 12) & 0x1FF) as usize, // PT
+    ];
+
+    unsafe {
+        let pml4 = (phys_offset + cr3) as *const u64;
+        let pml4e = core::ptr::read_volatile(pml4.add(indices[0]));
+        if pml4e & 1 == 0 {
+            return None;
+        }
+
+        let pdpt = (phys_offset + (pml4e & 0x000F_FFFF_FFFF_F000)) as *const u64;
+        let pdpte = core::ptr::read_volatile(pdpt.add(indices[1]));
+        if pdpte & 1 == 0 {
+            return None;
+        }
+        // 1 GiB huge page
+        if pdpte & (1 << 7) != 0 {
+            return Some((pdpte & 0x000F_FFFF_C000_0000) | (virt_addr & 0x3FFF_FFFF));
+        }
+
+        let pd = (phys_offset + (pdpte & 0x000F_FFFF_FFFF_F000)) as *const u64;
+        let pde = core::ptr::read_volatile(pd.add(indices[2]));
+        if pde & 1 == 0 {
+            return None;
+        }
+        // 2 MiB huge page
+        if pde & (1 << 7) != 0 {
+            return Some((pde & 0x000F_FFFF_FFE0_0000) | (virt_addr & 0x1F_FFFF));
+        }
+
+        let pt = (phys_offset + (pde & 0x000F_FFFF_FFFF_F000)) as *const u64;
+        let pte = core::ptr::read_volatile(pt.add(indices[3]));
+        if pte & 1 == 0 {
+            return None;
+        }
+        Some((pte & 0x000F_FFFF_FFFF_F000) | (virt_addr & 0xFFF))
     }
 }

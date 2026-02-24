@@ -152,7 +152,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
         // Use the upper half of the largest usable region so we don't collide
         // with frames already consumed by BootInfoFrameAllocator.
-        let pool_start = best_start + best_size / 2;
+        // Align pool_start UP to the next page boundary (4 KiB) to satisfy
+        // the frame allocator's alignment requirements.
+        let pool_start = ((best_start + best_size / 2) + 4095) & !4095;
         let pool_end = best_start + best_size;
         memory::init_frame_allocator(pool_start, pool_end);
         serial_println!(
@@ -208,21 +210,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { interrupts::init_apic(phys_mem_offset) };
     serial_println!("[KPIO] APIC initialized");
 
-    // Phase 7.5: ACPI table parsing
-    serial_println!("[KPIO] Initializing ACPI...");
-    if let Some(rsdp_addr) = boot_info.rsdp_addr.into_option() {
-        match hw::acpi::init_with_rsdp(rsdp_addr, phys_mem_offset) {
-            Ok(()) => serial_println!(
-                "[KPIO] ACPI initialized ({} tables)",
-                hw::acpi::table_count()
-            ),
-            Err(e) => serial_println!("[KPIO] ACPI init failed: {}", e),
-        }
-    } else {
-        serial_println!("[KPIO] No RSDP address from bootloader");
-    }
-
-    // Phase 8: PCI enumeration
+    // Phase 8: PCI enumeration (moved before ACPI — basic PCI config-space
+    // access via CF8/CFC works without ACPI tables, and ACPI parsing has a
+    // known page-fault issue that must not block NIC/network init)
     serial_println!("[KPIO] Enumerating PCI bus...");
     driver::pci::enumerate();
 
@@ -243,7 +233,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     net::init();
     serial_println!("[KPIO] Network stack ready (loopback + DNS + HTTP)");
 
-    // Phase 9.7: PS/2 Mouse initialization
+    // Phase 7.5: ACPI table parsing (deferred after NIC/network init so
+    // that a page-fault in ACPI does not block DHCP or packet I/O)
+    serial_println!("[KPIO] Initializing ACPI...");
+    if let Some(rsdp_addr) = boot_info.rsdp_addr.into_option() {
+        match hw::acpi::init_with_rsdp(rsdp_addr, phys_mem_offset) {
+            Ok(()) => serial_println!(
+                "[KPIO] ACPI initialized ({} tables)",
+                hw::acpi::table_count()
+            ),
+            Err(e) => serial_println!("[KPIO] ACPI init failed: {}", e),
+        }
+    } else {
+        serial_println!("[KPIO] No RSDP address from bootloader");
+    }
     serial_println!("[KPIO] Initializing PS/2 mouse...");
     driver::ps2_mouse::init();
 

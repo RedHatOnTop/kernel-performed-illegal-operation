@@ -85,20 +85,56 @@ ring, used ring), and DRIVER_OK. `probe()` enables PCI bus mastering and calls
 
 ---
 
-## 3. DHCP Timeout Delay on Boot
+## 3. ~~DHCP Timeout Delay on Boot~~ ✅ RESOLVED
 
 | Field       | Detail                                                         |
 |-------------|----------------------------------------------------------------|
-| Severity    | Low (cosmetic — adds ~3 s to boot)                             |
+| Severity    | ~~Low~~ → Resolved                                             |
 | Component   | `kernel/src/net/dhcp.rs`                                       |
-| Status      | **In Progress** — NIC driver now functional (Phase 9-1); NIC registration in NETWORK_MANAGER is Phase 9-2 |
+| Status      | **Fixed** in Phase 9-2 (2026-02-24)                            |
+
+### Resolution
+
+Phase 9-2 wired the VirtIO NIC into `NETWORK_MANAGER`, implemented `virt_to_phys()` for
+correct DMA address translation, fixed the virtqueue size to match the device's read-only
+`QUEUE_SIZE` register (256 entries), and negotiated the `MRG_RXBUF` feature for correct
+12-byte VirtIO net headers. DHCP now completes on the first attempt in under 1 second:
+
+```
+[DHCP] Lease acquired: 10.0.2.15 (gw 10.0.2.2, dns 10.0.2.3, mask 255.255.255.0, lease=86400s)
+[VirtIO Net] TX: 2 packets (684 bytes), RX: 2 packets (1180 bytes)
+```
+
+---
+
+## 3. ACPI Misaligned Pointer Panic
+
+| Field       | Detail                                                                 |
+|-------------|------------------------------------------------------------------------|
+| Severity    | Low (non-blocking — occurs after all critical init completes)          |
+| Component   | `kernel/src/hw/acpi.rs:242`                                            |
+| Status      | **Open** — workaround in place (ACPI init moved after network stack)   |
 
 ### Symptom
 
-During boot, the DHCP client sends a DISCOVER packet and waits up to ~3 seconds for a
-reply. The NIC is now fully initialized (Phase 9-1), but is not yet registered in
-`NETWORK_MANAGER` during the DHCP window. Full DHCP success is expected after Phase 9-2.
+During ACPI initialization, the kernel panics with a misaligned pointer dereference:
+
+```
+KERNEL PANIC
+Location: kernel\src\hw\acpi.rs:242:39
+Message: misaligned pointer dereference: address must be a multiple of 0x8 but is 0x2801f77d10c
+```
+
+### Root Cause
+
+The ACPI RSDP table in QEMU's UEFI firmware is at a physical address (`0x1f77e014`) whose
+virtual mapping through the physical memory window is not 8-byte aligned. Rust's strict
+alignment checks (enabled in debug builds) trigger a panic when casting the raw pointer.
 
 ### Workaround
 
-No action needed. The kernel proceeds normally with a static IP fallback (`10.0.2.15`).
+As of Phase 9-2, the kernel init order has been rearranged so that PCI, VirtIO, and
+the network stack are initialized **before** ACPI. This ensures all I/O is functional
+before the ACPI panic occurs. The ACPI subsystem is not currently required for core
+operation.
+

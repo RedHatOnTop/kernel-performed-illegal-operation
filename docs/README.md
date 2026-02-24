@@ -30,6 +30,8 @@ This directory contains design and implementation documentation for KPIO.
 ## Phase 9: Real I/O — VirtIO Driver Completion (Current)
 
 - [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md)
+- **9-1**: VirtIO Net PIO Driver — Complete ✅
+- **9-2**: Network Stack Wiring (NIC Registration & DHCP) — Complete ✅
 
 ## Phase 8: Technical Debt Resolution (Complete)
 

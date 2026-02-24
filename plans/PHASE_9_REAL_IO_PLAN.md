@@ -1,6 +1,6 @@
 # Phase 9: Real I/O — VirtIO Driver Completion & Stack Integration
 
-> **Status**: In Progress (9-1 Complete)  
+> **Status**: In Progress (9-1, 9-2 Complete)  
 > **Predecessor**: Phase 8 (Technical Debt Resolution) — completed 2026-02-23  
 > **Boot environment**: QEMU 10.2.0, UEFI pflash, bootloader 0.11.14, nightly-2026-01-01  
 > **Goal**: Make VirtIO network and storage actually functional — DHCP succeeds, packets transmit/receive, VFS reads/writes reach disk  
@@ -246,15 +246,46 @@ always times out and falls back to the static IP `10.0.2.15`.
 
 ### QG (Quality Gate)
 
-- [ ] `cargo build` succeeds
-- [ ] QEMU serial shows `[DHCP] Lease acquired: 10.0.2.15` (or similar) instead of `DHCP timeout`
-- [ ] `[VirtIO Net] TX: N packets` counter increments during DHCP (at least DISCOVER + REQUEST = 2)
-- [ ] `[VirtIO Net] RX: N packets` counter increments (at least OFFER + ACK = 2)
-- [ ] No page faults or panics during network init
+- [x] `cargo build` succeeds
+- [x] QEMU serial shows `[DHCP] Lease acquired: 10.0.2.15` (or similar) instead of `DHCP timeout`
+- [x] `[VirtIO Net] TX: N packets` counter increments during DHCP (at least DISCOVER + REQUEST = 2)
+- [x] `[VirtIO Net] RX: N packets` counter increments (at least OFFER + ACK = 2)
+- [x] No page faults or panics during network init
 
 ### Changes After Completion
 
-_(To be filled after sub-phase is implemented)_
+**Completed:** 2026-02-24
+
+Files modified:
+- `kernel/src/drivers/net/virtio_net.rs` — Multiple critical fixes:
+  - Changed `QUEUE_SIZE` from 128 to 256 to match the device's read-only queue size register
+    (legacy VirtIO PCI). The mismatch caused avail/used ring offsets to diverge from what
+    the device expected, so the device never consumed TX descriptors.
+  - Added `MRG_RXBUF` to negotiated features (required because `VirtioNetHdr::SIZE` is 12
+    bytes, which includes the `num_buffers` field present only with `MRG_RXBUF`).
+  - Queue memory now allocated with `alloc::alloc::alloc_zeroed` + 4096-byte aligned `Layout`
+    instead of `alloc::vec!` (legacy VirtIO `QUEUE_ADDRESS` register stores a PFN, so the
+    queue must start at a page boundary).
+  - All DMA buffer addresses translated to physical via `memory::virt_to_phys()` (descriptors,
+    TX buffers, RX buffers, refill).
+  - `VirtqRings` struct now tracks both physical (for device DMA) and virtual (for CPU
+    access) addresses of descriptor table, available ring, and used ring.
+- `kernel/src/net/mod.rs` — Network stack wiring:
+  - `init()` now syncs the NIC's real MAC address to the IP config via `ipv4::set_mac()`.
+  - Added `receive_frame()` function (symmetric to `transmit_frame()`).
+  - Added TX/RX packet counter logging after DHCP completes.
+- `kernel/src/net/dhcp.rs` — DHCP reliability:
+  - `discover_and_apply()` retries the full DISCOVER→OFFER→REQUEST→ACK cycle up to 3 times.
+  - `wait_for_dhcp_reply()` polls 800 iterations with 500k-cycle spin delay per iteration.
+- `kernel/src/main.rs` — Boot order fix:
+  - Moved PCI / VirtIO / Network stack initialization BEFORE ACPI init, because ACPI has
+    a known misaligned-pointer panic that would otherwise block all networking.
+  - Fixed frame allocator `pool_start` page alignment.
+- `kernel/src/memory/mod.rs` — DMA address translation:
+  - Added `virt_to_phys(virt_addr: u64) -> Option<u64>` that performs a full 4-level page
+    table walk (PML4 → PDPT → PD → PT), handling 1 GiB and 2 MiB huge pages.
+  - `init()` now calls `user_page_table::init(physical_memory_offset)` to store the phys
+    offset for page table walks.
 
 ---
 

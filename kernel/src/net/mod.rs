@@ -220,6 +220,28 @@ pub fn init() {
     tcp::init();
     http::init();
 
+    // Sync MAC address: copy the NIC's hardware MAC into the IPv4 config
+    // so that process_rx() / is_for_us() accepts frames addressed to OUR
+    // real MAC, not just the hardcoded default.
+    {
+        let mgr = NETWORK_MANAGER.lock();
+        let names = mgr.device_names();
+        if let Some(name) = names.first() {
+            if let Some(dev) = mgr.device(name) {
+                let nic_mac = dev.mac_address();
+                let mac_bytes = nic_mac.as_bytes();
+                crate::serial_println!(
+                    "[Net] Syncing NIC MAC to IP config: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                    mac_bytes[0], mac_bytes[1], mac_bytes[2],
+                    mac_bytes[3], mac_bytes[4], mac_bytes[5]
+                );
+                ipv4::set_mac(nic_mac);
+            }
+        }
+        let count = mgr.device_count();
+        crate::serial_println!("[Net] {} NIC(s) registered in NETWORK_MANAGER", count);
+    }
+
     // Pre-populate ARP with the gateway MAC so that the first packet
     // doesn't have to wait for a reply.  QEMU user-mode networking
     // always responds to any MAC so a well-known placeholder works.
@@ -231,12 +253,15 @@ pub fn init() {
     match dhcp::discover_and_apply() {
         Ok(lease) => {
             crate::serial_println!(
-                "[Net] DHCP lease acquired: {} (gw {}, dns {})",
+                "[DHCP] Lease acquired: {} (gw {}, dns {}, mask {}, lease={}s)",
                 lease.ip,
                 lease.gateway,
-                lease.dns
+                lease.dns,
+                lease.netmask,
+                lease.lease_time
             );
             // Update ARP with new gateway
+            let cfg = ipv4::config();
             arp::insert(lease.gateway, cfg.mac);
         }
         Err(e) => {
@@ -245,6 +270,21 @@ pub fn init() {
                 e,
                 cfg.ip
             );
+        }
+    }
+
+    // Log NIC TX/RX counters after DHCP attempt
+    {
+        let mgr = NETWORK_MANAGER.lock();
+        for name in mgr.device_names() {
+            if let Some(dev) = mgr.device(&name) {
+                let stats = dev.stats();
+                crate::serial_println!(
+                    "[VirtIO Net] TX: {} packets ({} bytes), RX: {} packets ({} bytes)",
+                    stats.tx_packets, stats.tx_bytes,
+                    stats.rx_packets, stats.rx_bytes
+                );
+            }
         }
     }
 
@@ -265,6 +305,26 @@ pub fn transmit_frame(frame: &[u8]) {
         }
     }
     // No device available — silently drop (loopback-only mode).
+}
+
+/// Receive a single raw Ethernet frame from the first NIC that has data.
+///
+/// This is the symmetric counterpart to `transmit_frame()`, useful for
+/// callers that need a raw frame without going through `process_rx()`.
+pub fn receive_frame() -> Result<Vec<u8>, crate::drivers::net::NetworkError> {
+    let mut mgr = NETWORK_MANAGER.lock();
+    for name in mgr.device_names() {
+        if let Some(dev) = mgr.device_mut(&name) {
+            if dev.rx_available() {
+                let mut buf = [0u8; 2048];
+                match dev.receive(&mut buf) {
+                    Ok(n) if n > 0 => return Ok(buf[..n].to_vec()),
+                    _ => {}
+                }
+            }
+        }
+    }
+    Err(crate::drivers::net::NetworkError::RxBufferEmpty)
 }
 
 /// Poll all NICs for received frames and feed them into `process_rx`.

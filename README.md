@@ -1,7 +1,7 @@
 # Kernel Performed Illegal Operation (KPIO)
 
-**Version:** 2.4.0  
-**Status:** Phase 9 In Progress (9-1 Complete) ✅  
+**Version:** 2.5.0  
+**Status:** Phase 9 In Progress (9-1, 9-2 Complete) ✅  
 **License:** MIT / Apache-2.0 (Dual Licensed)
 
 ---
@@ -43,7 +43,7 @@ The OS adopts a **WASM-Native** architecture, enforcing strict isolation by usin
 | Browser | Servo (Stylo + WebRender) | Full web standards support with OS integration |
 | Graphics | Mesa 3D + Vulkan | GPU acceleration via RADV/ANV/NVK |
 | Compositor | wgpu + Vello | Window management and vector rendering |
-| Network | Custom TCP/IP + VirtIO PIO | Standalone TCP/IP stack with real NIC I/O |
+| Network | Custom TCP/IP + VirtIO PIO | Standalone TCP/IP stack with real NIC I/O; DHCP-acquired addressing |
 | Storage | Custom VFS | Immutable root with FUSE-like WASM modules |
 
 ---

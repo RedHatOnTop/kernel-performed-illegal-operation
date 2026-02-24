@@ -130,20 +130,34 @@ struct VirtqUsed {
     ring: [VirtqUsedElem; 256], // Variable size
 }
 
-/// Number of descriptors per queue
-const QUEUE_SIZE: usize = 128;
+/// Number of descriptors per queue.
+///
+/// Legacy VirtIO PCI: the QUEUE_SIZE register is read-only.  The device
+/// dictates the size (usually 256 on QEMU).  We MUST match it, otherwise
+/// the avail/used ring offsets inside the virtqueue page won't line up
+/// with what the device expects.
+const QUEUE_SIZE: usize = 256;
 
 /// RX buffer size
 const RX_BUFFER_SIZE: usize = 2048;
 
 /// Tracks the physical addresses of virtqueue ring memory (PIO mode).
+///
+/// `*_phys` fields hold the *physical* addresses seen by the device for DMA.
+/// `*_virt` fields hold the *virtual* addresses the CPU uses to read/write.
 struct VirtqRings {
-    /// Physical address of descriptor table
+    /// Physical address of descriptor table (for device DMA)
     desc_phys: u64,
+    /// Virtual address of descriptor table (for CPU access)
+    desc_virt: u64,
     /// Physical address of available ring
     avail_phys: u64,
+    /// Virtual address of available ring
+    avail_virt: u64,
     /// Physical address of used ring
     used_phys: u64,
+    /// Virtual address of used ring
+    used_virt: u64,
     /// Queue size reported by device
     queue_size: u16,
 }
@@ -415,9 +429,17 @@ impl VirtioNetDevice {
         let device_features = self.read32(pio_reg::DEVICE_FEATURES as u32) as u64;
         crate::serial_println!("[VirtIO Net] Device features: {:#x}", device_features);
 
-        // 5. Select features we want (keep it simple: MAC + STATUS)
+        // 5. Select features we want.
+        //    MAC + STATUS for basic operation.
+        //    MRG_RXBUF is REQUIRED because our VirtioNetHdr is 12 bytes (includes
+        //    num_buffers field).  Without MRG_RXBUF the device uses a 10-byte
+        //    header, causing a 2-byte offset mismatch that corrupts every packet.
         self.features = device_features
-            & (features::MAC | features::STATUS | features::CSUM | features::GUEST_CSUM);
+            & (features::MAC
+                | features::STATUS
+                | features::MRG_RXBUF
+                | features::CSUM
+                | features::GUEST_CSUM);
 
         // 6. Write driver features
         self.write32(pio_reg::DRIVER_FEATURES as u32, self.features as u32);
@@ -454,12 +476,14 @@ impl VirtioNetDevice {
         // 10. Initialize RX queue (queue 0) via PIO
         self.init_virtqueue_pio(0)?;
 
-        // Fill RX queue with receive buffers
+        // Fill RX queue with receive buffers — descriptors must carry PHYSICAL
+        // addresses because the VirtIO device does DMA.
         for i in 0..(QUEUE_SIZE.min(self.rx_buffers.len())) {
-            let buf_addr = self.rx_buffers[i].as_ptr() as u64;
+            let buf_virt = self.rx_buffers[i].as_ptr() as u64;
+            let buf_phys = crate::memory::virt_to_phys(buf_virt).unwrap_or(buf_virt);
             let buf_len = self.rx_buffers[i].len() as u32;
             self.rx_desc[i] = VirtqDesc {
-                addr: buf_addr,
+                addr: buf_phys,
                 len: buf_len,
                 flags: VirtqDesc::WRITE, // device writes to this buffer
                 next: 0,
@@ -469,7 +493,13 @@ impl VirtioNetDevice {
         // Write all RX descriptors to the available ring
         if let Some(ref rings) = self.rx_rings {
             unsafe {
-                let avail_ptr = rings.avail_phys as *mut u16;
+                // Write descriptors to device-visible memory
+                let desc_base = rings.desc_virt as *mut VirtqDesc;
+                for i in 0..QUEUE_SIZE {
+                    ptr::write_volatile(desc_base.add(i), self.rx_desc[i]);
+                }
+
+                let avail_ptr = rings.avail_virt as *mut u16;
                 for i in 0..QUEUE_SIZE as u16 {
                     // ring[i] = descriptor index
                     ptr::write_volatile(avail_ptr.add(2 + i as usize), i);
@@ -635,32 +665,48 @@ impl VirtioNetDevice {
         let avail_size = 6 + 2 * qsz as usize;
         let _used_size = 6 + 8 * qsz as usize;
 
-        // Allocate physically contiguous memory (simplified: heap allocation).
-        // 4 pages (16 KiB) is plenty for 128-entry queues.
-        let queue_mem = alloc::vec![0u8; 4096 * 4].into_boxed_slice();
-        let queue_ptr = Box::into_raw(queue_mem);
-        let queue_base = queue_ptr as *mut u8 as u64;
+        // Allocate heap memory (4 pages, 16 KiB — plenty for 128-entry queues)
+        // and translate the virtual address to physical for DMA.
+        //
+        // CRITICAL: the legacy VirtIO QUEUE_ADDRESS register takes a physical
+        // page frame number (PFN), so the queue memory must start at a
+        // page-aligned address.  Use Layout with 4096-byte alignment.
+        let layout = alloc::alloc::Layout::from_size_align(4096 * 4, 4096)
+            .expect("[VirtIO Net] Failed to create page-aligned layout");
+        let queue_virt = unsafe { alloc::alloc::alloc_zeroed(layout) } as u64;
+        if queue_virt == 0 {
+            return Err(NetworkError::HardwareError(0xDEAD));
+        }
 
-        let desc_phys = queue_base;
+        let queue_phys = crate::memory::virt_to_phys(queue_virt)
+            .expect("[VirtIO Net] Failed to translate queue memory to physical address");
+
+        let desc_virt = queue_virt;
+        let desc_phys = queue_phys;
+        let avail_virt = desc_virt + desc_size as u64;
         let avail_phys = desc_phys + desc_size as u64;
         // Used ring must be page-aligned (legacy spec requirement)
+        let used_virt = (avail_virt + avail_size as u64 + 4095) & !4095;
         let used_phys = (avail_phys + avail_size as u64 + 4095) & !4095;
 
-        // Write queue physical page number to device (legacy: pfn = phys_addr >> 12)
+        // Write queue PHYSICAL page number to device (legacy: pfn = phys_addr >> 12)
         let mut queue_addr_port: Port<u32> =
             Port::new(self.io_base + pio_reg::QUEUE_ADDRESS);
         unsafe { queue_addr_port.write((desc_phys / 4096) as u32) };
 
         let rings = VirtqRings {
             desc_phys,
+            desc_virt,
             avail_phys,
+            avail_virt,
             used_phys,
+            used_virt,
             queue_size: qsz,
         };
 
         if queue_idx == 0 {
             // Copy our pre-allocated descriptor data into the device memory
-            let desc_base = desc_phys as *mut VirtqDesc;
+            let desc_base = desc_virt as *mut VirtqDesc;
             for i in 0..qsz as usize {
                 unsafe {
                     ptr::write_volatile(desc_base.add(i), self.rx_desc[i]);
@@ -668,7 +714,7 @@ impl VirtioNetDevice {
             }
             self.rx_rings = Some(rings);
         } else {
-            let desc_base = desc_phys as *mut VirtqDesc;
+            let desc_base = desc_virt as *mut VirtqDesc;
             for i in 0..qsz as usize {
                 unsafe {
                     ptr::write_volatile(desc_base.add(i), self.tx_desc[i]);
@@ -678,8 +724,8 @@ impl VirtioNetDevice {
         }
 
         crate::serial_println!(
-            "[VirtIO Net] Queue {} configured: desc={:#x} avail={:#x} used={:#x}",
-            queue_idx, desc_phys, avail_phys, used_phys
+            "[VirtIO Net] Queue {} configured: phys={:#x} (virt={:#x})",
+            queue_idx, desc_phys, desc_virt
         );
         Ok(())
     }
@@ -744,7 +790,7 @@ impl VirtioNetDevice {
             self.write32(mmio_reg::QUEUE_NOTIFY, RX_QUEUE);
         } else if let Some(ref rings) = self.rx_rings {
             unsafe {
-                let avail_ptr = rings.avail_phys as *mut u16;
+                let avail_ptr = rings.avail_virt as *mut u16;
                 let avail_idx = ptr::read_volatile(avail_ptr.add(1));
                 let ring_slot = avail_ptr.add(2 + (avail_idx as usize % rings.queue_size as usize));
                 ptr::write_volatile(ring_slot, desc_idx);
@@ -881,9 +927,11 @@ impl NetworkDevice for VirtioNetDevice {
         // Copy payload
         self.tx_buffers[idx][VirtioNetHdr::SIZE..total].copy_from_slice(data);
 
-        // Set up TX descriptor in our local array
+        // Set up TX descriptor in our local array — addr must be PHYSICAL
+        let buf_virt = self.tx_buffers[idx].as_ptr() as u64;
+        let buf_phys = crate::memory::virt_to_phys(buf_virt).unwrap_or(buf_virt);
         self.tx_desc[idx] = VirtqDesc {
-            addr: self.tx_buffers[idx].as_ptr() as u64,
+            addr: buf_phys,
             len: total as u32,
             flags: 0, // device reads from this buffer
             next: 0,
@@ -892,12 +940,12 @@ impl NetworkDevice for VirtioNetDevice {
         // For PIO mode: write descriptor to device memory and update available ring
         if let Some(ref rings) = self.tx_rings {
             unsafe {
-                // Write descriptor to device-visible descriptor table
-                let desc_base = rings.desc_phys as *mut VirtqDesc;
+                // Write descriptor to device-visible descriptor table (CPU access via virt)
+                let desc_base = rings.desc_virt as *mut VirtqDesc;
                 ptr::write_volatile(desc_base.add(idx), self.tx_desc[idx]);
 
-                // Add to available ring
-                let avail_ptr = rings.avail_phys as *mut u16;
+                // Add to available ring (CPU access via virt)
+                let avail_ptr = rings.avail_virt as *mut u16;
                 let avail_idx = ptr::read_volatile(avail_ptr.add(1));
                 let ring_slot =
                     avail_ptr.add(2 + (avail_idx as usize % rings.queue_size as usize));
@@ -930,7 +978,7 @@ impl NetworkDevice for VirtioNetDevice {
 
         // PIO mode: check the used ring for completed RX descriptors
         if let Some(ref rings) = self.rx_rings {
-            let used_idx_ptr = unsafe { (rings.used_phys as *mut u16).add(1) };
+            let used_idx_ptr = unsafe { (rings.used_virt as *mut u16).add(1) };
             let current_used = unsafe { ptr::read_volatile(used_idx_ptr) };
 
             if current_used == self.rx_used_idx {
@@ -938,7 +986,7 @@ impl NetworkDevice for VirtioNetDevice {
             }
 
             // Read the used ring element:  ring[used_idx % qsz] → (id: u32, len: u32)
-            let used_ring_base = unsafe { (rings.used_phys as *mut u8).add(4) }; // skip flags+idx
+            let used_ring_base = unsafe { (rings.used_virt as *mut u8).add(4) }; // skip flags+idx
             let elem_offset = (self.rx_used_idx as usize % rings.queue_size as usize) * 8;
             let elem_ptr = unsafe { used_ring_base.add(elem_offset) };
             let desc_id = unsafe { ptr::read_volatile(elem_ptr as *const u32) } as usize;
@@ -963,6 +1011,8 @@ impl NetworkDevice for VirtioNetDevice {
             self.rx_used_idx = self.rx_used_idx.wrapping_add(1);
             self.stats.rx_packets += 1;
             self.stats.rx_bytes += copy_len as u64;
+
+
 
             return Ok(copy_len);
         }
@@ -1003,7 +1053,7 @@ impl NetworkDevice for VirtioNetDevice {
         }
         // PIO mode: check used ring
         if let Some(ref rings) = self.rx_rings {
-            let used_idx_ptr = unsafe { (rings.used_phys as *mut u16).add(1) };
+            let used_idx_ptr = unsafe { (rings.used_virt as *mut u16).add(1) };
             let current_used = unsafe { ptr::read_volatile(used_idx_ptr) };
             return current_used != self.rx_used_idx;
         }
@@ -1051,17 +1101,19 @@ impl VirtioNetDevice {
         for b in self.rx_buffers[idx].iter_mut() {
             *b = 0;
         }
-        // Reset descriptor
+        // Reset descriptor — addr must be PHYSICAL for DMA
+        let buf_virt = self.rx_buffers[idx].as_ptr() as u64;
+        let buf_phys = crate::memory::virt_to_phys(buf_virt).unwrap_or(buf_virt);
         self.rx_desc[idx] = VirtqDesc {
-            addr: self.rx_buffers[idx].as_ptr() as u64,
+            addr: buf_phys,
             len: self.rx_buffers[idx].len() as u32,
             flags: VirtqDesc::WRITE,
             next: 0,
         };
-        // Write updated descriptor to device-visible memory (PIO mode)
+        // Write updated descriptor to device-visible memory (PIO mode, via virt)
         if let Some(ref rings) = self.rx_rings {
             unsafe {
-                let desc_base = rings.desc_phys as *mut VirtqDesc;
+                let desc_base = rings.desc_virt as *mut VirtqDesc;
                 ptr::write_volatile(desc_base.add(idx), self.rx_desc[idx]);
             }
         }

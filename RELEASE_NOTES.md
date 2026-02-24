@@ -30,6 +30,8 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 
 ### Network Stack (NEW)
 - **VirtIO-net driver** — real packet TX/RX over both MMIO virtqueues and PIO (legacy PCI transport)
+- **DHCP** — automatic IP acquisition from QEMU SLIRP (`10.0.2.15/24`, gw `10.0.2.2`, dns `10.0.2.3`)
+- **DMA** — `virt_to_phys()` 4-level page table walk for correct VirtIO descriptor addresses
 - **Ethernet** — IEEE 802.3 frame parse/build
 - **ARP** — address resolution with cache (RFC 826)
 - **IPv4** — packet construction, internet checksum, ICMP echo, subnet routing

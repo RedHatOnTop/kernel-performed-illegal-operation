@@ -70,57 +70,86 @@ pub struct DhcpLease {
 /// Returns `Ok(lease)` on success, `Err(msg)` on failure.
 pub fn discover_and_apply() -> Result<DhcpLease, String> {
     let mac = get_nic_mac();
+    let mac_bytes = mac.as_bytes();
+    crate::serial_println!(
+        "[DHCP] Starting with MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        mac_bytes[0], mac_bytes[1], mac_bytes[2],
+        mac_bytes[3], mac_bytes[4], mac_bytes[5]
+    );
 
     // Generate a transaction ID
     let xid: u32 = 0x4B50_1001; // "KP" + unique
 
-    // Step 1: DHCP DISCOVER
-    crate::serial_println!("[DHCP] Sending DISCOVER...");
-    let discover = build_dhcp_packet(DHCP_DISCOVER, xid, mac, None, None);
-    let frame = build_dhcp_frame(mac, &discover);
-    transmit_raw(&frame);
+    // Retry the full DISCOVER→OFFER→REQUEST→ACK cycle up to 3 times.
+    // QEMU SLIRP occasionally needs a moment before it responds.
+    const MAX_ATTEMPTS: usize = 3;
+    const POLL_ITERS: usize = 800;
 
-    // Step 2: Wait for OFFER
-    let offer = wait_for_dhcp_reply(xid, DHCP_OFFER, 300)?;
-    crate::serial_println!(
-        "[DHCP] Got OFFER: ip={}, gw={}, dns={}, mask={}",
-        offer.ip,
-        offer.gateway,
-        offer.dns,
-        offer.netmask
-    );
+    for attempt in 0..MAX_ATTEMPTS {
+        // Step 1: DHCP DISCOVER
+        crate::serial_println!("[DHCP] Sending DISCOVER (attempt {}/{})...", attempt + 1, MAX_ATTEMPTS);
+        let discover = build_dhcp_packet(DHCP_DISCOVER, xid, mac, None, None);
+        let frame = build_dhcp_frame(mac, &discover);
+        transmit_raw(&frame);
 
-    // Step 3: DHCP REQUEST
-    crate::serial_println!("[DHCP] Sending REQUEST for {}...", offer.ip);
-    let request = build_dhcp_packet(
-        DHCP_REQUEST,
-        xid,
-        mac,
-        Some(offer.ip),
-        Some(offer.server_id),
-    );
-    let frame = build_dhcp_frame(mac, &request);
-    transmit_raw(&frame);
+        // Step 2: Wait for OFFER
+        let offer = match wait_for_dhcp_reply(xid, DHCP_OFFER, POLL_ITERS) {
+            Ok(o) => o,
+            Err(_) if attempt + 1 < MAX_ATTEMPTS => {
+                crate::serial_println!("[DHCP] No OFFER received, retrying...");
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        crate::serial_println!(
+            "[DHCP] Got OFFER: ip={}, gw={}, dns={}, mask={}",
+            offer.ip,
+            offer.gateway,
+            offer.dns,
+            offer.netmask
+        );
 
-    // Step 4: Wait for ACK
-    let lease = wait_for_dhcp_reply(xid, DHCP_ACK, 300)?;
-    crate::serial_println!(
-        "[DHCP] Got ACK: ip={}, lease={}s",
-        lease.ip,
-        lease.lease_time
-    );
+        // Step 3: DHCP REQUEST
+        crate::serial_println!("[DHCP] Sending REQUEST for {}...", offer.ip);
+        let request = build_dhcp_packet(
+            DHCP_REQUEST,
+            xid,
+            mac,
+            Some(offer.ip),
+            Some(offer.server_id),
+        );
+        let frame = build_dhcp_frame(mac, &request);
+        transmit_raw(&frame);
 
-    // Apply to IP config
-    ipv4::set_config(ipv4::IpConfig {
-        ip: lease.ip,
-        netmask: lease.netmask,
-        gateway: lease.gateway,
-        dns: lease.dns,
-        mac,
-    });
+        // Step 4: Wait for ACK
+        let lease = match wait_for_dhcp_reply(xid, DHCP_ACK, POLL_ITERS) {
+            Ok(l) => l,
+            Err(_) if attempt + 1 < MAX_ATTEMPTS => {
+                crate::serial_println!("[DHCP] No ACK received, retrying full cycle...");
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        crate::serial_println!(
+            "[DHCP] Got ACK: ip={}, lease={}s",
+            lease.ip,
+            lease.lease_time
+        );
 
-    crate::serial_println!("[DHCP] IP configuration applied");
-    Ok(lease)
+        // Apply to IP config
+        ipv4::set_config(ipv4::IpConfig {
+            ip: lease.ip,
+            netmask: lease.netmask,
+            gateway: lease.gateway,
+            dns: lease.dns,
+            mac,
+        });
+
+        crate::serial_println!("[DHCP] IP configuration applied");
+        return Ok(lease);
+    }
+
+    Err(alloc::format!("DHCP failed after {} attempts", MAX_ATTEMPTS))
 }
 
 // ── Packet construction ─────────────────────────────────────
@@ -276,17 +305,29 @@ fn wait_for_dhcp_reply(xid: u32, expected_type: u8, max_iters: usize) -> Result<
     // Bind UDP port 68 temporarily for DHCP client
     super::udp::bind(DHCP_CLIENT_PORT);
 
-    for _ in 0..max_iters {
+    for i in 0..max_iters {
+        // Poll NIC for any received frames and dispatch through the stack.
+        // This is critical: without polling, received DHCP replies would
+        // sit in the VirtIO used ring and never be processed.
         super::poll_rx();
+
+
 
         if let Some(dgram) = super::udp::recv(DHCP_CLIENT_PORT) {
             if let Some(lease) = parse_dhcp_reply(&dgram.data, xid, expected_type) {
+                crate::serial_println!(
+                    "[DHCP] Received type {} reply after {} poll(s)",
+                    expected_type, i + 1
+                );
                 super::udp::unbind(DHCP_CLIENT_PORT);
                 return Ok(lease);
             }
         }
 
-        for _ in 0..100_000 {
+        // Spin-wait between polls.  Use a generous delay (≈ 1–2 ms per
+        // iteration at ≈ 1 GHz) to give QEMU SLIRP time to process and
+        // reply to the DHCP packet.
+        for _ in 0..500_000 {
             core::hint::spin_loop();
         }
     }

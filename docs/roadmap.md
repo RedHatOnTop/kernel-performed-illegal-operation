@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 6.0.0  
-**Last Updated:** 2026-02-23  
-**Status:** Phase 9 In Progress (9-1 Complete) ✅
+**Document Version:** 6.1.0  
+**Last Updated:** 2026-02-24  
+**Status:** Phase 9 In Progress (9-1, 9-2 Complete) ✅
 
 ---
 
@@ -10,7 +10,7 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 9 (Real I/O — VirtIO Driver Completion & Stack Integration) is in progress as of 2026-02-23. Sub-phase 9-1 (VirtIO Net PIO Driver Implementation) has been completed, replacing stub PIO accessors with real `x86_64::instructions::port::Port` I/O. See [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md).
+**Update:** Phase 9 (Real I/O — VirtIO Driver Completion & Stack Integration) is in progress as of 2026-02-24. Sub-phases 9-1 (VirtIO Net PIO Driver) and 9-2 (Network Stack Wiring — NIC Registration & DHCP Success) have been completed. The VirtIO NIC is now fully functional with real DMA, and DHCP successfully acquires `10.0.2.15` from QEMU SLIRP. See [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md).
 
 **Previous:** Phase 8 (Technical Debt Resolution) completed 2026-02-23. See [Phase 8 Plan](../plans/PHASE_8_BUGFIX_PLAN.md).
 

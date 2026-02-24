@@ -1,8 +1,8 @@
 # Networking Subsystem Design Document
 
-**Document Version:** 2.0.0  
-**Last Updated:** 2026-02-11  
-**Status:** Implemented
+**Document Version:** 2.1.0  
+**Last Updated:** 2026-02-24  
+**Status:** Implemented (VirtIO PIO + DHCP verified on QEMU)
 
 ---
 
