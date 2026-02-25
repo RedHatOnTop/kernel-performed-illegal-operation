@@ -173,7 +173,8 @@ impl AcpiTables {
     /// `phys_mem_offset` must be the offset at which all physical memory is mapped.
     pub unsafe fn parse(rsdp_addr: u64, phys_mem_offset: u64) -> Result<Self, &'static str> {
         let rsdp_virt = rsdp_addr + phys_mem_offset;
-        let rsdp = unsafe { &*(rsdp_virt as *const Rsdp) };
+        // Safety: use read_unaligned because Rsdp is #[repr(C, packed)]
+        let rsdp = unsafe { ptr::read_unaligned(rsdp_virt as *const Rsdp) };
 
         // Verify signature
         if &rsdp.signature != b"RSD PTR " {
@@ -209,7 +210,8 @@ impl AcpiTables {
     /// Parse RSDT (32-bit pointers). `rsdt_phys` is a physical address.
     unsafe fn parse_rsdt(&mut self, rsdt_phys: u64) -> Result<(), &'static str> {
         let rsdt_virt = self.phys_to_virt(rsdt_phys);
-        let header = unsafe { &*(rsdt_virt as *const AcpiTableHeader) };
+        // Safety: use read_unaligned because AcpiTableHeader is #[repr(C, packed)]
+        let header = unsafe { ptr::read_unaligned(rsdt_virt as *const AcpiTableHeader) };
 
         if &header.signature != b"RSDT" {
             return Err("Invalid RSDT signature");
@@ -219,7 +221,7 @@ impl AcpiTables {
         let entries = (rsdt_virt + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
 
         for i in 0..entry_count {
-            let table_phys = unsafe { *entries.add(i) } as u64;
+            let table_phys = unsafe { entries.add(i).read_unaligned() } as u64;
             unsafe { self.add_table(table_phys)? };
         }
 
@@ -229,7 +231,8 @@ impl AcpiTables {
     /// Parse XSDT (64-bit pointers). `xsdt_phys` is a physical address.
     unsafe fn parse_xsdt(&mut self, xsdt_phys: u64) -> Result<(), &'static str> {
         let xsdt_virt = self.phys_to_virt(xsdt_phys);
-        let header = unsafe { &*(xsdt_virt as *const AcpiTableHeader) };
+        // Safety: use read_unaligned because AcpiTableHeader is #[repr(C, packed)]
+        let header = unsafe { ptr::read_unaligned(xsdt_virt as *const AcpiTableHeader) };
 
         if &header.signature != b"XSDT" {
             return Err("Invalid XSDT signature");
@@ -239,7 +242,7 @@ impl AcpiTables {
         let entries = (xsdt_virt + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u64;
 
         for i in 0..entry_count {
-            let table_phys = unsafe { *entries.add(i) };
+            let table_phys = unsafe { entries.add(i).read_unaligned() };
             unsafe { self.add_table(table_phys)? };
         }
 
@@ -249,7 +252,8 @@ impl AcpiTables {
     /// Add a table to the list. `table_phys` is a physical address.
     unsafe fn add_table(&mut self, table_phys: u64) -> Result<(), &'static str> {
         let table_virt = self.phys_to_virt(table_phys);
-        let header = unsafe { &*(table_virt as *const AcpiTableHeader) };
+        // Safety: use read_unaligned because AcpiTableHeader is #[repr(C, packed)]
+        let header = unsafe { ptr::read_unaligned(table_virt as *const AcpiTableHeader) };
 
         self.tables.push(FoundTable {
             signature: header.signature,
@@ -337,7 +341,8 @@ impl MadtInfo {
     /// `phys_mem_offset` must be the offset at which all physical memory is mapped.
     pub unsafe fn parse(madt_phys: u64, phys_mem_offset: u64) -> Result<Self, &'static str> {
         let madt_virt = madt_phys + phys_mem_offset;
-        let header = unsafe { &*(madt_virt as *const AcpiTableHeader) };
+        // Safety: use read_unaligned because AcpiTableHeader is #[repr(C, packed)]
+        let header = unsafe { ptr::read_unaligned(madt_virt as *const AcpiTableHeader) };
 
         if &header.signature != b"APIC" {
             return Err("Invalid MADT signature");
@@ -346,10 +351,10 @@ impl MadtInfo {
         // Local APIC address is right after the header
         let local_apic_addr_ptr =
             (madt_virt + core::mem::size_of::<AcpiTableHeader>() as u64) as *const u32;
-        let local_apic_address = unsafe { *local_apic_addr_ptr } as u64;
+        let local_apic_address = unsafe { local_apic_addr_ptr.read_unaligned() } as u64;
 
         // Flags are after local APIC address
-        let _flags = unsafe { *((local_apic_addr_ptr as u64 + 4) as *const u32) };
+        let _flags = unsafe { ((local_apic_addr_ptr as u64 + 4) as *const u32).read_unaligned() };
 
         let mut info = MadtInfo {
             local_apic_address,
@@ -364,12 +369,13 @@ impl MadtInfo {
 
         let mut current = entries_start;
         while current < entries_end {
-            let entry_header = unsafe { &*(current as *const MadtEntryHeader) };
+            // Safety: use read_unaligned for all packed MADT entry structs
+            let entry_header = unsafe { ptr::read_unaligned(current as *const MadtEntryHeader) };
 
             match entry_header.entry_type {
                 0 => {
                     // Local APIC
-                    let entry = unsafe { &*(current as *const MadtLocalApic) };
+                    let entry = unsafe { ptr::read_unaligned(current as *const MadtLocalApic) };
                     info.local_apics.push(LocalApicInfo {
                         processor_id: entry.acpi_processor_id,
                         apic_id: entry.apic_id,
@@ -378,7 +384,7 @@ impl MadtInfo {
                 }
                 1 => {
                     // I/O APIC
-                    let entry = unsafe { &*(current as *const MadtIoApic) };
+                    let entry = unsafe { ptr::read_unaligned(current as *const MadtIoApic) };
                     info.io_apics.push(IoApicInfo {
                         id: entry.io_apic_id,
                         address: entry.io_apic_address,
@@ -387,7 +393,7 @@ impl MadtInfo {
                 }
                 2 => {
                     // Interrupt Source Override
-                    let entry = unsafe { &*(current as *const MadtInterruptOverride) };
+                    let entry = unsafe { ptr::read_unaligned(current as *const MadtInterruptOverride) };
                     info.overrides.push(InterruptOverride {
                         source_irq: entry.source,
                         global_irq: entry.global_system_interrupt,
@@ -433,7 +439,7 @@ pub fn init_with_rsdp(rsdp_addr: u64, phys_mem_offset: u64) -> Result<(), &'stat
         match unsafe { MadtInfo::parse(madt_table.address, phys_mem_offset) } {
             Ok(info) => {
                 crate::serial_println!(
-                    "[ACPI] MADT: {} local APICs, {} I/O APICs, {} overrides",
+                    "[ACPI] MADT parsed: {} local APICs, {} I/O APICs, {} overrides",
                     info.local_apics.len(),
                     info.io_apics.len(),
                     info.overrides.len()

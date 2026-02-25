@@ -136,34 +136,26 @@ Boot now shows:
 
 ---
 
-## 5. ACPI Misaligned Pointer Panic
+## 5. ~~ACPI Misaligned Pointer Panic~~ ✅ RESOLVED
 
 | Field       | Detail                                                                 |
 |-------------|------------------------------------------------------------------------|
-| Severity    | Low (non-blocking — occurs after all critical init completes)          |
-| Component   | `kernel/src/hw/acpi.rs:242`                                            |
-| Status      | **Open** — workaround in place (ACPI init moved after network stack)   |
+| Severity    | ~~Low~~ → Resolved                                                    |
+| Component   | `kernel/src/hw/acpi.rs`                                                |
+| Status      | **Fixed** in Phase 10-1 (2026-02-25)                                   |
 
-### Symptom
+### Resolution
 
-During ACPI initialization, the kernel panics with a misaligned pointer dereference:
+All 14 sites in `kernel/src/hw/acpi.rs` that used `&*(addr as *const T)` on
+`#[repr(C, packed)]` structs were replaced with `core::ptr::read_unaligned()`.
+This eliminates undefined behavior from misaligned pointer dereferences in both
+debug and release builds. The RSDP, RSDT/XSDT, and MADT parsing now use
+stack-local copies of packed structures, ensuring correct field access regardless
+of the physical memory alignment provided by the firmware.
 
+Boot now shows:
 ```
-KERNEL PANIC
-Location: kernel\src\hw\acpi.rs:242:39
-Message: misaligned pointer dereference: address must be a multiple of 0x8 but is 0x2801f77d10c
+[ACPI] MADT parsed: 1 local APICs, 1 I/O APICs, 5 overrides
+[ACPI] Parsed 6 ACPI table(s)
 ```
-
-### Root Cause
-
-The ACPI RSDP table in QEMU's UEFI firmware is at a physical address (`0x1f77e014`) whose
-virtual mapping through the physical memory window is not 8-byte aligned. Rust's strict
-alignment checks (enabled in debug builds) trigger a panic when casting the raw pointer.
-
-### Workaround
-
-As of Phase 9-2, the kernel init order has been rearranged so that PCI, VirtIO, and
-the network stack are initialized **before** ACPI. This ensures all I/O is functional
-before the ACPI panic occurs. The ACPI subsystem is not currently required for core
-operation.
 

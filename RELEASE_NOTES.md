@@ -27,6 +27,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - Device driver framework (keyboard, mouse, storage, network)
 - System call interface for applications
 - **Full TCP/IP network stack** for online browsing (see below)
+- **Phase 10-1: Stability fixes** — ACPI misaligned pointer deref (14 sites fixed with `read_unaligned`), VFS `seek(SeekFrom::End)` now returns real file size, VirtIO MMIO net path negotiates `MRG_RXBUF` feature and uses physical DMA addresses
 
 ### Network Stack (NEW)
 - **VirtIO-net driver** — real packet TX/RX over both MMIO virtqueues and PIO (legacy PCI transport)

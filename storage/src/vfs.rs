@@ -246,6 +246,8 @@ pub struct VfsHandle {
     pub offset: u64,
     /// Open flags.
     pub flags: OpenFlags,
+    /// Relative path within the filesystem (for fstat/seek).
+    pub rel_path: String,
 }
 
 fn relative_path<'a>(mount: &MountInfo, path: &'a str) -> &'a str {
@@ -467,7 +469,8 @@ pub fn open(path: &str, flags: OpenFlags) -> Result<u32, StorageError> {
     drop(table);
 
     let fs = get_filesystem(mount_idx)?;
-    let fs_handle = fs.open(relative_path(&mount, path), flags)?;
+    let rel = relative_path(&mount, path);
+    let fs_handle = fs.open(rel, flags)?;
 
     // Create VFS handle
     let handle = VfsHandle {
@@ -475,6 +478,7 @@ pub fn open(path: &str, flags: OpenFlags) -> Result<u32, StorageError> {
         fs_handle,
         offset: 0,
         flags,
+        rel_path: String::from(rel),
     };
 
     let mut handles = FILE_HANDLES.write();
@@ -532,8 +536,10 @@ pub fn seek(fd: u32, pos: SeekFrom) -> Result<u64, StorageError> {
     let new_offset = match pos {
         SeekFrom::Start(offset) => offset,
         SeekFrom::End(offset) => {
-            // TODO: Get file size
-            let size: u64 = 0;
+            // Get actual file size via filesystem lookup
+            let fs = get_filesystem(handle.mount_idx)?;
+            let metadata = fs.lookup(&handle.rel_path)?;
+            let size: u64 = metadata.size;
             if offset < 0 {
                 size.checked_sub((-offset) as u64)
                     .ok_or(StorageError::InvalidArgument)?

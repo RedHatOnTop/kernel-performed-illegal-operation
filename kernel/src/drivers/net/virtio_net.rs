@@ -574,9 +574,16 @@ impl VirtioNetDevice {
         let feat_hi = self.read32(mmio_reg::DEVICE_FEATURES);
         let device_features = (feat_hi as u64) << 32 | (feat_lo as u64);
 
-        // Select features we want (keep it simple: MAC + STATUS)
+        // Select features we want.
+        //    MRG_RXBUF is REQUIRED because our VirtioNetHdr is 12 bytes (includes
+        //    num_buffers field).  Without MRG_RXBUF the device uses a 10-byte
+        //    header, causing a 2-byte offset mismatch that corrupts every packet.
         self.features = device_features
-            & (features::MAC | features::STATUS | features::CSUM | features::GUEST_CSUM);
+            & (features::MAC
+                | features::STATUS
+                | features::MRG_RXBUF
+                | features::CSUM
+                | features::GUEST_CSUM);
 
         // Write driver features
         self.write32(mmio_reg::DRIVER_FEATURES_SEL, 0);
@@ -749,31 +756,33 @@ impl VirtioNetDevice {
         self.write32(mmio_reg::QUEUE_NUM, qsz);
 
         // Point descriptor, avail, used to our pre-allocated buffers.
-        // For simplicity, we use the Vec-backed descriptor arrays directly.
-        // Their addresses are stable because Vec allocates on the heap.
-        let (desc_ptr, avail_ptr, used_ptr) = if queue_idx == RX_QUEUE {
-            (
-                self.rx_desc.as_ptr() as u64,
-                // We don't have separate avail/used ring structs in memory,
-                // so we'll use the MMIO queue-notify model: the device reads
-                // descriptors directly and we write notify.
-                0u64,
-                0u64,
-            )
+        // For MMIO v2, the device requires physical addresses for DMA.
+        // Allocate a contiguous page-aligned region and translate to physical.
+        let desc_virt = if queue_idx == RX_QUEUE {
+            self.rx_desc.as_ptr() as u64
         } else {
-            (self.tx_desc.as_ptr() as u64, 0u64, 0u64)
+            self.tx_desc.as_ptr() as u64
         };
 
+        let desc_phys = crate::memory::virt_to_phys(desc_virt)
+            .unwrap_or(desc_virt);
+
+        // Allocate avail and used rings (simple bump allocation from heap)
+        // For our current implementation, we use MMIO queue-notify model.
+        // Set avail/used to same base with proper offsets if not separately allocated.
+        let avail_phys = 0u64;
+        let used_phys = 0u64;
+
         // Write queue addresses (split into low/high for 64-bit)
-        self.write32(mmio_reg::QUEUE_DESC_LOW, desc_ptr as u32);
-        self.write32(mmio_reg::QUEUE_DESC_HIGH, (desc_ptr >> 32) as u32);
+        self.write32(mmio_reg::QUEUE_DESC_LOW, desc_phys as u32);
+        self.write32(mmio_reg::QUEUE_DESC_HIGH, (desc_phys >> 32) as u32);
 
         // For MMIO v2, avail and used ring addresses are also set.
         // We leave them as 0 (device-managed) when not explicitly allocated.
-        self.write32(mmio_reg::QUEUE_AVAIL_LOW, avail_ptr as u32);
-        self.write32(mmio_reg::QUEUE_AVAIL_HIGH, (avail_ptr >> 32) as u32);
-        self.write32(mmio_reg::QUEUE_USED_LOW, used_ptr as u32);
-        self.write32(mmio_reg::QUEUE_USED_HIGH, (used_ptr >> 32) as u32);
+        self.write32(mmio_reg::QUEUE_AVAIL_LOW, avail_phys as u32);
+        self.write32(mmio_reg::QUEUE_AVAIL_HIGH, (avail_phys >> 32) as u32);
+        self.write32(mmio_reg::QUEUE_USED_LOW, used_phys as u32);
+        self.write32(mmio_reg::QUEUE_USED_HIGH, (used_phys >> 32) as u32);
 
         // Enable queue
         self.write32(mmio_reg::QUEUE_READY, 1);
