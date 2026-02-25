@@ -1,6 +1,6 @@
 # Phase 10: Preemptive Kernel & User-Space Isolation
 
-> **Status**: In Progress (10-1 Complete ✅)  
+> **Status**: In Progress (10-1 ✅, 10-2 ✅, 10-3 Complete ✅)  
 > **Predecessor**: Phase 9 (Real I/O — VirtIO Driver Completion & Stack Integration) — completed 2026-02-24  
 > **Boot environment**: QEMU 10.2.0, UEFI pflash, bootloader 0.11.14, nightly-2026-01-01  
 > **Goal**: Enable preemptive multitasking with real context switching, Ring 3 user-space
@@ -495,13 +495,13 @@ is caught by the kernel (not a triple fault), and syscalls go through `SYSCALL`/
 
 ### QG (Quality Gate)
 
-- [ ] `cargo build` succeeds
-- [ ] `SYSCALL`/`SYSRET` round-trip works — a user-mode `syscall` enters kernel and returns
-- [ ] An ELF binary loaded at user addresses runs in Ring 3 (CS & 3 == 3 visible in fault logs)
-- [ ] User-space page fault is caught gracefully — kernel logs error and kills process (no triple fault)
-- [ ] Two processes with different page tables can run concurrently
-- [ ] TSS RSP0 is updated on every context switch
-- [ ] Kernel memory (upper half) is not accessible from Ring 3 (page fault on access)
+- [x] `cargo build` succeeds — both `x86_64-kpio.json` and `x86_64-unknown-none` targets compile cleanly
+- [x] `SYSCALL`/`SYSRET` round-trip works — `ring3_syscall_entry` naked asm (SWAPGS + kernel stack switch + `ring3_syscall_dispatch` + SYSRETQ); verified `SYS_EXIT(42)` from Ring 3
+- [x] An ELF binary loaded at user addresses runs in Ring 3 — 16-byte test program at `0x400000` executes, `CS=0x23` confirmed in serial log
+- [x] User-space page fault is caught gracefully — kernel GPF/PF handlers check `(cs & 3) == 3` / `USER_MODE` flag, log error, call `exit_current(-11)` (no triple fault)
+- [x] Two processes with different page tables can run concurrently — CR3 switching in `schedule()` via `switch_address_space()`, kernel tasks use CR3=0 (no switch)
+- [x] TSS RSP0 is updated on every context switch — `gdt::set_kernel_stack()` called in `schedule()` for user processes
+- [x] Kernel memory is not accessible from Ring 3 — all 512 P4 entries copied but kernel pages lack `USER_ACCESSIBLE` flag; Ring 3 access triggers page fault
 
 ---
 

@@ -8,6 +8,7 @@ pub mod optimization;
 pub mod priority;
 pub mod round_robin;
 pub mod task;
+pub mod userspace;
 
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -18,6 +19,22 @@ use spin::Mutex;
 pub use context::SwitchContext;
 pub use priority::Priority;
 pub use task::{Task, TaskId, TaskState};
+
+/// Context switch metadata returned by `prepare_switch()`.
+/// Contains the register-swap pointers plus CR3/stack info
+/// for user-space isolation.
+pub struct SwitchInfo {
+    /// Pointer to the previous task's SwitchContext (save destination).
+    pub prev_ctx: *mut SwitchContext,
+    /// Pointer to the next task's SwitchContext (restore source).
+    pub next_ctx: *const SwitchContext,
+    /// Next task's CR3 (page table root). 0 = kernel task (no switch).
+    pub next_cr3: u64,
+    /// Next task's kernel stack top (for TSS RSP0 and PerCpu).
+    pub next_kernel_stack_top: u64,
+    /// Next task's process PID (for PerCpu current_pid).
+    pub next_pid: u64,
+}
 
 /// Maximum number of priority levels.
 const MAX_PRIORITY_LEVELS: usize = 32;
@@ -81,8 +98,9 @@ pub fn spawn(task: Task) -> TaskId {
 ///
 /// This function is safe to call from interrupt context or from
 /// cooperative yield points.  It extracts context-switch pointers
-/// under the scheduler lock, drops the lock, and then performs
-/// the assembly-level register swap.
+/// under the scheduler lock, drops the lock, applies CR3/TSS
+/// updates for user-space isolation, and then performs the
+/// assembly-level register swap.
 pub fn schedule() {
     // Don't reschedule while preemption is disabled.
     if PREEMPT_COUNT.load(Ordering::Relaxed) > 0 {
@@ -91,7 +109,7 @@ pub fn schedule() {
     }
 
     // Determine prev/next SwitchContext pointers under the lock.
-    let switch_info: Option<(*mut SwitchContext, *const SwitchContext)> = {
+    let switch_info: Option<SwitchInfo> = {
         if let Some(mut guard) = SCHEDULER.try_lock() {
             if let Some(ref mut scheduler) = *guard {
                 scheduler.prepare_switch()
@@ -105,11 +123,84 @@ pub fn schedule() {
     };
     // Lock is dropped here — safe to switch stacks.
 
-    if let Some((prev_ptr, next_ptr)) = switch_info {
+    if let Some(info) = switch_info {
         CONTEXT_SWITCHES.fetch_add(1, Ordering::Relaxed);
-        unsafe {
-            context::switch_context(prev_ptr, next_ptr);
+
+        // Apply CR3 switch for user-space process isolation
+        if info.next_cr3 != 0 {
+            unsafe { switch_address_space(info.next_cr3); }
         }
+
+        // Update TSS RSP0 and PerCpu kernel stack pointer
+        // so that Ring 3 → Ring 0 transitions land on the
+        // correct kernel stack for the next task.
+        if info.next_kernel_stack_top != 0 {
+            crate::gdt::set_kernel_stack(
+                x86_64::VirtAddr::new(info.next_kernel_stack_top),
+            );
+            // Write kernel RSP to per-CPU data (offset 0) via KERNEL_GS_BASE
+            unsafe { percpu_set_kernel_rsp(info.next_kernel_stack_top); }
+        }
+
+        // Update PerCpu current PID (offset 16 in per-CPU data)
+        unsafe { percpu_set_current_pid(info.next_pid); }
+
+        unsafe {
+            context::switch_context(info.prev_ctx, info.next_ctx);
+        }
+    }
+}
+
+/// Switch the CPU's active page table (CR3).
+///
+/// # Safety
+///
+/// The new CR3 must point to a valid page table with the kernel
+/// half-space properly mapped.
+unsafe fn switch_address_space(new_cr3: u64) {
+    use x86_64::registers::control::Cr3;
+    use x86_64::structures::paging::PhysFrame;
+    use x86_64::PhysAddr;
+
+    let frame = PhysFrame::containing_address(PhysAddr::new(new_cr3));
+    unsafe {
+        Cr3::write(frame, Cr3::read().1);
+    }
+}
+
+/// Write kernel RSP to the per-CPU data structure (offset 0).
+///
+/// Per-CPU data lives at the virtual address stored in the
+/// `IA32_KERNEL_GS_BASE` MSR (0xC000_0102).  The first field is
+/// `kernel_rsp` (u64 at offset 0).
+///
+/// # Safety
+///
+/// Must only be called when per-CPU data has been initialized
+/// (i.e. after `syscall::percpu::init()`).
+unsafe fn percpu_set_kernel_rsp(rsp: u64) {
+    use x86_64::registers::model_specific::Msr;
+    const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
+    let gs_base = unsafe { Msr::new(IA32_KERNEL_GS_BASE).read() };
+    if gs_base != 0 {
+        unsafe { core::ptr::write_volatile(gs_base as *mut u64, rsp); }
+    }
+}
+
+/// Write current PID to the per-CPU data structure (offset 16).
+///
+/// Per-CPU layout: `[kernel_rsp, user_rsp_scratch, current_pid, ...]`
+/// Each field is u64, so `current_pid` is at byte offset 16.
+///
+/// # Safety
+///
+/// Must only be called when per-CPU data has been initialized.
+unsafe fn percpu_set_current_pid(pid: u64) {
+    use x86_64::registers::model_specific::Msr;
+    const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
+    let gs_base = unsafe { Msr::new(IA32_KERNEL_GS_BASE).read() };
+    if gs_base != 0 {
+        unsafe { core::ptr::write_volatile((gs_base as *mut u64).add(2), pid); }
     }
 }
 
@@ -328,16 +419,17 @@ impl Scheduler {
         }
     }
 
-    /// Prepare a context switch and return raw pointers.
+    /// Prepare a context switch and return switch metadata.
     ///
     /// Calls `schedule()` to pick the next task, then returns
-    /// `(prev_switch_ctx_ptr, next_switch_ctx_ptr)` that the
-    /// caller can pass to `switch_context()` **after** dropping
-    /// the scheduler lock.
+    /// a `SwitchInfo` containing the register-swap pointers and
+    /// CR3/kernel-stack info.  The caller applies CR3/TSS updates
+    /// and calls `switch_context()` **after** dropping the
+    /// scheduler lock.
     ///
     /// Returns `None` when there is nothing to switch to, or when
     /// prev == next (same task picked again).
-    pub fn prepare_switch(&mut self) -> Option<(*mut SwitchContext, *const SwitchContext)> {
+    pub fn prepare_switch(&mut self) -> Option<SwitchInfo> {
         let prev_arc = self.current_task.clone();
 
         self.schedule();
@@ -376,12 +468,23 @@ impl Scheduler {
             let mut g = prev.lock();
             g.switch_ctx_mut() as *mut SwitchContext
         };
-        let next_ptr: *const SwitchContext = {
+        let (next_ptr, next_cr3, next_kstack, next_pid): (*const SwitchContext, u64, u64, u64) = {
             let g = next.lock();
-            g.switch_ctx() as *const SwitchContext
+            (
+                g.switch_ctx() as *const SwitchContext,
+                g.cr3(),
+                g.kernel_stack_top_addr(),
+                g.process_pid(),
+            )
         };
 
-        Some((prev_ptr, next_ptr))
+        Some(SwitchInfo {
+            prev_ctx: prev_ptr,
+            next_ctx: next_ptr,
+            next_cr3,
+            next_kernel_stack_top: next_kstack,
+            next_pid,
+        })
     }
 
     /// Block a task.

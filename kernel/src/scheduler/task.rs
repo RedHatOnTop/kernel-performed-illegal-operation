@@ -49,6 +49,8 @@ pub enum TaskType {
     Kernel,
     /// WASM process (runs in sandboxed environment).
     WasmProcess,
+    /// User-space process (runs in Ring 3 with its own page table).
+    UserProcess,
     /// Idle task.
     Idle,
 }
@@ -153,6 +155,15 @@ pub struct Task {
     parent: Option<TaskId>,
     /// Owned kernel stack allocation (kept alive for the task's lifetime).
     _kernel_stack: Option<Vec<u8>>,
+    /// CR3 page table root for user-space processes.
+    /// 0 means "use current kernel CR3" (kernel tasks).
+    cr3: u64,
+    /// Kernel stack top address for TSS RSP0 and PerCpu.
+    /// Used when switching to this task so that Ring 3→0
+    /// transitions land on the correct kernel stack.
+    kernel_stack_top_addr: u64,
+    /// Associated process ID (for user-space tasks).
+    process_pid: u64,
 }
 
 impl Task {
@@ -208,6 +219,9 @@ impl Task {
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
             _kernel_stack: Some(stack),
+            cr3: 0,
+            kernel_stack_top_addr: stack_top,
+            process_pid: 0,
         }
     }
 
@@ -241,6 +255,9 @@ impl Task {
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
             _kernel_stack: Some(stack),
+            cr3: 0,
+            kernel_stack_top_addr: stack_top,
+            process_pid: 0,
         }
     }
 
@@ -282,6 +299,9 @@ impl Task {
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
             _kernel_stack: Some(stack),
+            cr3: 0,
+            kernel_stack_top_addr: stack_top,
+            process_pid: 0,
         }
     }
 
@@ -312,6 +332,9 @@ impl Task {
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
             _kernel_stack: Some(stack),
+            cr3: 0,
+            kernel_stack_top_addr: stack_top,
+            process_pid: 0,
         }
     }
 
@@ -413,6 +436,170 @@ impl Task {
     /// Get a reference to the switch context.
     pub fn switch_ctx(&self) -> &SwitchContext {
         &self.switch_ctx
+    }
+
+    /// Get the CR3 (page table root) for this task.
+    /// Returns 0 for kernel tasks (use current CR3).
+    pub fn cr3(&self) -> u64 {
+        self.cr3
+    }
+
+    /// Get the kernel stack top address (for TSS RSP0).
+    pub fn kernel_stack_top_addr(&self) -> u64 {
+        self.kernel_stack_top_addr
+    }
+
+    /// Get the associated process PID.
+    pub fn process_pid(&self) -> u64 {
+        self.process_pid
+    }
+
+    /// Create a new user-space process task.
+    ///
+    /// This task starts in kernel mode at a trampoline function.
+    /// The trampoline reads the `UserEntryContext` pointer from `r12`
+    /// (set in `SwitchContext`), then enters Ring 3 via `iretq`.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Task name
+    /// * `cr3` - Physical address of the process's P4 page table
+    /// * `entry_point` - User-space entry point (RIP)
+    /// * `user_stack_top` - User-space stack pointer (RSP)
+    /// * `user_cs` - User code segment selector (u16, e.g., 0x23)
+    /// * `user_ds` - User data segment selector (u16, e.g., 0x1B)
+    /// * `kernel_stack_top` - Top of the task's kernel stack (for TSS RSP0)
+    /// * `kernel_stack` - Owned kernel stack allocation
+    /// * `pid` - Associated process ID
+    pub fn new_user_process(
+        name: &str,
+        cr3: u64,
+        entry_point: u64,
+        user_stack_top: u64,
+        user_cs: u16,
+        user_ds: u16,
+        kernel_stack_top: u64,
+        kernel_stack: Vec<u8>,
+        pid: u64,
+    ) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(100);
+
+        // Store UserEntryContext on the heap so the trampoline can read it.
+        let entry_ctx = UserEntryContext {
+            rip: entry_point,
+            cs: user_cs as u64,
+            rflags: 0x202, // IF + reserved bit-1
+            rsp: user_stack_top,
+            ss: user_ds as u64,
+        };
+        let ctx_box = alloc::boxed::Box::new(entry_ctx);
+        let ctx_ptr = alloc::boxed::Box::into_raw(ctx_box) as u64;
+
+        // Set up SwitchContext:
+        //   rsp → kernel stack with trampoline as return address
+        //   r12 → pointer to heap-allocated ProcessContext
+        let trampoline_addr = user_process_entry_trampoline as *const () as u64;
+        let initial_rsp = setup_initial_stack(kernel_stack_top, trampoline_addr);
+
+        let switch_ctx = SwitchContext {
+            rip: trampoline_addr,
+            rsp: initial_rsp,
+            rbp: 0,
+            rbx: 0,
+            r12: ctx_ptr,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+        };
+
+        Task {
+            id: TaskId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
+            name: String::from(name),
+            task_type: TaskType::UserProcess,
+            state: TaskState::Ready,
+            priority: Priority::Normal,
+            context: TaskContext::default(),
+            switch_ctx,
+            stats: TaskStats::default(),
+            exit_code: None,
+            stack_top: kernel_stack_top,
+            stack_size: KERNEL_STACK_SIZE,
+            parent: None,
+            _kernel_stack: Some(kernel_stack),
+            cr3,
+            kernel_stack_top_addr: kernel_stack_top,
+            process_pid: pid,
+        }
+    }
+}
+
+/// Minimal context for entering Ring 3 via iretq.
+///
+/// This is a self-contained version of the fields needed by
+/// `iretq` — stored on the heap and recovered by the trampoline.
+/// Avoids a dependency on `crate::process::context::ProcessContext`.
+#[repr(C)]
+pub struct UserEntryContext {
+    /// User-mode instruction pointer
+    pub rip: u64,
+    /// User code-segment selector (Ring 3)
+    pub cs: u64,
+    /// Initial RFLAGS (0x202 = IF + reserved bit-1)
+    pub rflags: u64,
+    /// User-mode stack pointer
+    pub rsp: u64,
+    /// User stack-segment selector (Ring 3)
+    pub ss: u64,
+}
+
+/// User-space process entry trampoline.
+///
+/// This function is the initial entry point for user-space tasks.
+/// When `switch_context()` first resumes this task, it "returns"
+/// here.  The `SwitchContext.r12` register holds a pointer to a
+/// heap-allocated `UserEntryContext`.
+///
+/// The trampoline:
+/// 1. Reads the UserEntryContext pointer from `r12`
+/// 2. Copies it to the stack and frees the heap allocation
+/// 3. Enables interrupts
+/// 4. Enters Ring 3 via inline `iretq`
+fn user_process_entry_trampoline() -> ! {
+    // r12 was restored by switch_context and contains the UserEntryContext pointer
+    let ctx_ptr: u64;
+    unsafe { core::arch::asm!("mov {}, r12", out(reg) ctx_ptr); }
+
+    // Take ownership of the heap-allocated UserEntryContext
+    let ctx = unsafe { *alloc::boxed::Box::from_raw(ctx_ptr as *mut UserEntryContext) };
+
+    crate::serial_println!("[PROC] Entering Ring 3: RIP={:#x} RSP={:#x} CS={:#x} SS={:#x}",
+        ctx.rip, ctx.rsp, ctx.cs, ctx.ss);
+
+    // Enable interrupts before entering user space (timer must fire for preemption)
+    x86_64::instructions::interrupts::enable();
+
+    // Enter Ring 3 via iretq — prepare the stack frame and execute iretq
+    unsafe {
+        core::arch::asm!(
+            // Push SS
+            "push {ss}",
+            // Push RSP
+            "push {rsp_val}",
+            // Push RFLAGS
+            "push {rflags}",
+            // Push CS
+            "push {cs}",
+            // Push RIP
+            "push {rip}",
+            // iretq pops RIP, CS, RFLAGS, RSP, SS and transfers to Ring 3
+            "iretq",
+            ss = in(reg) ctx.ss,
+            rsp_val = in(reg) ctx.rsp,
+            rflags = in(reg) ctx.rflags,
+            cs = in(reg) ctx.cs,
+            rip = in(reg) ctx.rip,
+            options(noreturn),
+        );
     }
 }
 

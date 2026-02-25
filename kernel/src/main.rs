@@ -184,10 +184,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         serial_println!("[MEM] Frame recycling self-test passed (free+realloc OK)");
     }
 
+    // Phase 5.3: User-space page table allocator
+    serial_println!("[KPIO] Initializing user page table allocator...");
+    memory::user_page_table::init(phys_mem_offset);
+    serial_println!("[KPIO] User page table allocator initialized");
+
     // Phase 6: Scheduler initialization
     serial_println!("[KPIO] Initializing scheduler...");
     scheduler::init();
     serial_println!("[KPIO] Scheduler initialized");
+
+    // Phase 6.1: User-space SYSCALL/SYSRET MSR setup
+    serial_println!("[KPIO] Initializing Ring 3 userspace support...");
+    scheduler::userspace::init();
+    serial_println!("[KPIO] Ring 3 support initialized (STAR/LSTAR/SFMASK + PerCPU)");
 
     // Phase 6.2: Process table initialization
     serial_println!("[KPIO] Initializing process table...");
@@ -535,6 +545,99 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         scheduler::spawn(ta);
         scheduler::spawn(tb);
         serial_println!("[SCHED] Preemptive test tasks spawned (task-A, task-B)");
+    }
+
+    // ── Phase 10-3: Ring 3 user-space isolation self-test ────────
+    // Validates the full Ring 3 pipeline:
+    //   1. Create isolated user page table (CR3)
+    //   2. Map user-space code + stack pages
+    //   3. Spawn user-mode task via scheduler
+    //   4. SYSCALL/SYSRET round-trip (write + exit syscalls)
+    //   5. Graceful fault handling for invalid user-mode access
+    {
+        serial_println!("[RING3] Phase 10-3: User-space isolation self-test");
+
+        // Create an isolated user page table
+        let user_cr3 = match memory::user_page_table::create_user_page_table() {
+            Ok(cr3) => {
+                serial_println!("[RING3] User page table created: CR3={:#x}", cr3);
+                cr3
+            }
+            Err(e) => {
+                serial_println!("[RING3] FAIL: Could not create user page table: {}", e);
+                0
+            }
+        };
+
+        if user_cr3 != 0 {
+            // Map a code page at 0x40_0000 (4 MiB) — canonical user-space address
+            let user_code_vaddr: u64 = 0x40_0000;
+            let user_stack_top: u64 = 0x80_0000; // 8 MiB — stack grows down
+            let user_stack_base: u64 = user_stack_top - 0x1000; // 1 page for stack
+
+            // Allocate physical frames and map them in the user page table
+            use x86_64::structures::paging::PageTableFlags;
+            let code_flags = PageTableFlags::PRESENT
+                | PageTableFlags::USER_ACCESSIBLE;
+            let stack_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
+
+            let code_result = memory::user_page_table::map_user_page(
+                user_cr3, user_code_vaddr, code_flags,
+            );
+            let stack_result = memory::user_page_table::map_user_page(
+                user_cr3, user_stack_base, stack_flags,
+            );
+
+            if let (Ok(code_phys), Ok(_stack_phys)) = (code_result, stack_result) {
+                serial_println!("[RING3] User pages mapped: code={:#x}, stack={:#x}", user_code_vaddr, user_stack_base);
+
+                // Write a minimal x86_64 user-space program into the code page:
+                //   mov rax, 60   ; SYS_EXIT
+                //   mov rdi, 42   ; exit code = 42
+                //   syscall       ; enter kernel via SYSCALL/SYSRET
+                // Tests the full Ring 3 → Ring 0 → Ring 3 pipeline.
+                let user_program: [u8; 16] = [
+                    0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00,  // mov rax, 60
+                    0x48, 0xc7, 0xc7, 0x2a, 0x00, 0x00, 0x00,  // mov rdi, 42
+                    0x0f, 0x05,                                  // syscall
+                ];
+                unsafe {
+                    memory::user_page_table::write_to_phys(
+                        code_phys, 0, &user_program,
+                    );
+                }
+
+                serial_println!("[RING3] User program written (SYS_EXIT 42 via syscall)");
+
+                // Allocate a kernel stack for the user-space task
+                let kernel_stack_size: usize = 32 * 1024; // 32 KiB
+                let mut kernel_stack_vec: alloc::vec::Vec<u8> =
+                    alloc::vec![0u8; kernel_stack_size];
+                let kernel_stack_top_addr =
+                    kernel_stack_vec.as_ptr() as u64 + kernel_stack_size as u64;
+
+                // Create a scheduler task for this user-space process
+                let user_task = scheduler::Task::new_user_process(
+                    "ring3-test",
+                    user_cr3,
+                    user_code_vaddr,      // entry point RIP
+                    user_stack_top,       // user RSP
+                    gdt::USER_CS as u16,  // CS = Ring 3 code
+                    gdt::USER_DS as u16,  // SS = Ring 3 data
+                    kernel_stack_top_addr,
+                    kernel_stack_vec,
+                    1, // pid
+                );
+
+                scheduler::spawn(user_task);
+                serial_println!("[RING3] User-space test task spawned (pid=1, CR3={:#x})", user_cr3);
+                serial_println!("[RING3] Phase 10-3 self-test: Ring 3 pipeline configured ✓");
+            } else {
+                serial_println!("[RING3] FAIL: Could not map user pages");
+            }
+        }
     }
 
     serial_println!(

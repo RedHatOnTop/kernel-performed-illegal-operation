@@ -1,8 +1,8 @@
 # Kernel Design Document
 
-**Document Version:** 1.1.0  
-**Last Updated:** 2026-02-24  
-**Status:** Implemented (Phase 9 complete — VirtIO PIO net/block, DHCP, VFS, E2E test)
+**Document Version:** 1.2.0  
+**Last Updated:** 2026-02-25  
+**Status:** Implemented (Phase 10-3 complete — Ring 3 user-space isolation, SYSCALL/SYSRET, per-process page tables)
 
 ---
 
@@ -884,6 +884,90 @@ impl Executor {
     }
 }
 ```
+
+### 7.1.2 Ring 3 User-Space Isolation (Phase 10-3)
+
+Processes flagged as `TaskType::UserProcess` run in Ring 3 with hardware-enforced
+privilege separation. The scheduler manages address space switching and kernel
+stack setup so that user-mode faults are caught gracefully.
+
+#### SYSCALL/SYSRET Entry Point
+
+The `scheduler::userspace::init()` function writes four MSRs at boot:
+
+| MSR | Name | Value | Purpose |
+|-----|------|-------|---------|
+| `0xC000_0080` | `IA32_EFER` | `bit 0` (SCE) set | Enable `SYSCALL`/`SYSRET` instructions |
+| `0xC000_0081` | `IA32_STAR` | `0x001B_0008_0000_0000` | Kernel CS/SS in bits 47:32, user CS/SS in bits 63:48 |
+| `0xC000_0082` | `IA32_LSTAR` | `ring3_syscall_entry` addr | Entry point for `SYSCALL` |
+| `0xC000_0084` | `IA32_FMASK` | `0x200` | Clear IF (disable interrupts) on entry |
+
+The `ring3_syscall_entry` naked function implements the SWAPGS pattern:
+
+```
+SYSCALL from Ring 3
+    │
+    ├─ swapgs              → GS base = per-CPU data
+    ├─ mov gs:[0], rsp     → save user RSP
+    ├─ mov rsp, gs:[8]     → load kernel stack (RSP0)
+    ├─ push caller-saved registers + user RIP (RCX) + RFLAGS (R11)
+    ├─ sti                 → re-enable interrupts
+    ├─ call ring3_syscall_dispatch(rax, rdi, rsi, rdx, r10, r8, r9)
+    ├─ cli                 → disable interrupts
+    ├─ pop registers
+    ├─ mov rsp, gs:[0]     → restore user RSP
+    ├─ swapgs              → restore user GS
+    └─ sysretq             → return to Ring 3 (RCX→RIP, R11→RFLAGS)
+```
+
+Supported syscalls: `SYS_WRITE` (1), `SYS_EXIT` (60), `BRK` (12), `ARCH_PRCTL` (158).
+
+#### Per-CPU Data (SWAPGS)
+
+```rust
+#[repr(C, align(64))]
+struct PerCpuData {
+    kernel_rsp:  u64,    // offset 0  — kernel stack top
+    user_rsp:    u64,    // offset 8  — saved user RSP
+    current_pid: u64,    // offset 16 — running process PID
+    _reserved:   [u64; 5],
+}
+```
+
+`IA32_KERNEL_GS_BASE` (MSR `0xC000_0102`) points to the CPU's `PerCpuData` struct.
+`SWAPGS` swaps the active GS base with `KERNEL_GS_BASE`, giving the kernel access
+to the per-CPU area without touching any general-purpose register.
+
+#### CR3 Switching and Page Table Isolation
+
+Each user process receives its own Level 4 page table via `create_user_page_table()`.
+The new table copies **all 512 P4 entries** from the kernel's page table. Kernel pages
+are protected because they lack the `USER_ACCESSIBLE` page flag — hardware-enforced,
+Ring 3 access to any kernel page triggers a page fault.
+
+User code and stack are mapped with `USER_ACCESSIBLE | PRESENT | WRITABLE` at low
+addresses (e.g., code at `0x400000`, stack top at `0x800000`).
+
+On context switch, the scheduler performs:
+1. `switch_address_space(next.cr3)` — writes new CR3 if different from current
+2. `gdt::set_kernel_stack(next.kernel_stack_top)` — updates TSS RSP0
+3. `percpu_set_kernel_rsp(next.kernel_stack_top)` — updates per-CPU data for SWAPGS
+4. `switch_context(prev, next)` — naked asm register swap
+
+#### Ring 3 Entry via iretq
+
+New user processes enter Ring 3 through `user_process_entry_trampoline()`:
+the trampoline reads a heap-allocated `UserEntryContext` (RIP, CS, RFLAGS, RSP, SS),
+pushes an `iretq` frame, enables interrupts, and executes `iretq` to transition
+from Ring 0 to Ring 3 at the specified user entry point.
+
+#### Graceful User-Mode Fault Handling
+
+Both the General Protection Fault (`#GP`) and Page Fault (`#PF`) handlers check
+whether the faulting code was in Ring 3:
+- **GPF**: `(stack_frame.code_segment & 0x3) == 3` → log and `exit_current(-11)`
+- **PF**: `error_code.contains(USER_MODE)` → log and `exit_current(-11)`
+- Kernel-mode faults still trigger a kernel panic (unchanged behavior)
 
 ### 7.2 Timer Management
 

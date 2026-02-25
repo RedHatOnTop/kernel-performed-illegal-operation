@@ -238,6 +238,25 @@ extern "x86-interrupt" fn general_protection_fault_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
+    // Check if the fault originated in Ring 3 (user mode).
+    // CS RPL bits [1:0] == 3 means user mode.
+    let cs = stack_frame.code_segment.0;
+    let from_usermode = (cs & 0x3) == 3;
+
+    if from_usermode {
+        crate::serial_println!(
+            "[GPF] User-mode GPF (error_code={}, CS={:#x}, RIP={:#x}) — killing process",
+            error_code,
+            cs,
+            stack_frame.instruction_pointer.as_u64()
+        );
+        // Kill the current user process instead of panicking the kernel.
+        crate::scheduler::exit_current(-11); // SIGSEGV
+        // The scheduler will switch to another task; we should not
+        // reach here, but if we do, halt.
+        loop { x86_64::instructions::hlt(); }
+    }
+
     panic!(
         "EXCEPTION: GENERAL PROTECTION FAULT (error code: {})\n{:#?}",
         error_code, stack_frame
@@ -251,6 +270,22 @@ extern "x86-interrupt" fn page_fault_handler(
     use x86_64::registers::control::Cr2;
 
     let faulting_address = Cr2::read();
+
+    // Check if the fault originated in user mode (Ring 3).
+    let from_usermode = error_code.contains(PageFaultErrorCode::USER_MODE);
+
+    if from_usermode {
+        crate::serial_println!(
+            "[FAULT] User-mode page fault at {:?} (error={:?}, RIP={:#x}) — killing process",
+            faulting_address,
+            error_code,
+            stack_frame.instruction_pointer.as_u64()
+        );
+        // Kill the current user process gracefully.
+        crate::scheduler::exit_current(-11); // SIGSEGV
+        // The scheduler will context-switch away; halt if we somehow return.
+        loop { x86_64::instructions::hlt(); }
+    }
 
     crate::serial_println!(
         "EXCEPTION: PAGE FAULT\nAccessed Address: {:?}\nError Code: {:?}\n{:#?}",

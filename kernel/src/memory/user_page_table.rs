@@ -81,9 +81,22 @@ pub fn create_user_page_table() -> Result<u64, &'static str> {
         entry.set_unused();
     }
 
-    // Copy kernel half-space entries (indices 256-511) from current P4
+    // Copy ALL P4 entries from the current (kernel) page table.
+    //
+    // The bootloader maps physical memory at a dynamic offset that may
+    // fall in the lower half (P4 indices < 256).  The heap, kernel
+    // stacks, and physical-memory-offset mapping all live there.
+    // Copying every entry ensures the kernel remains accessible after
+    // a CR3 switch.
+    //
+    // Security is maintained because kernel pages do NOT have the
+    // USER_ACCESSIBLE flag.  Ring 3 code cannot read/write/execute
+    // kernel memory even though the P4 entries exist — the CPU
+    // enforces the page-level U/S bit.  Only pages explicitly mapped
+    // with USER_ACCESSIBLE (via `map_user_page`) are accessible from
+    // Ring 3.
     let current_l4 = unsafe { current_level_4_table(offset) };
-    for i in 256..512 {
+    for i in 0..512 {
         new_l4[i] = current_l4[i].clone();
     }
 

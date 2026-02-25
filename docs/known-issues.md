@@ -195,3 +195,36 @@ Move all lock-dependent callback work to a deferred "bottom-half" mechanism
 (e.g., a software interrupt or work queue) that runs with interrupts enabled
 outside ISR context.
 
+---
+
+## 7. User Page Table Only Copied Upper-Half P4 Entries
+
+| Field       | Detail                                                                 |
+|-------------|------------------------------------------------------------------------|
+| Severity    | Critical                                                               |
+| Component   | `kernel/src/memory/user_page_table.rs`                                 |
+| Affects     | Ring 3 process execution — CR3 switch caused triple fault              |
+| Status      | **RESOLVED** (Phase 10-3, 2026-02-25)                                  |
+| Discovered  | Phase 10-3 Ring 3 user-space isolation (2026-02-25)                    |
+
+### Symptom
+
+Switching CR3 to a newly-created user page table caused an immediate triple
+fault. The Ring 3 test process never reached its entry point.
+
+### Root Cause
+
+`create_user_page_table()` copied only P4 entries 256–511 (the "upper half"
+of the virtual address space), assuming the kernel lived in the upper half.
+However, the bootloader (v0.11.14) maps its physical memory offset and heap
+in the **lower half** — the physical memory identity map lands at P4 index ~5
+and the heap at P4 index ~136. After CR3 switch, kernel code, heap, and
+stacks were all unmapped.
+
+### Fix
+
+Changed `create_user_page_table()` to copy **all 512 P4 entries** from the
+current kernel page table. Security is maintained because kernel pages lack
+the `USER_ACCESSIBLE` page flag — the CPU's MMU enforces this in hardware,
+so Ring 3 code still cannot access kernel memory despite the P4 entries
+being present.
