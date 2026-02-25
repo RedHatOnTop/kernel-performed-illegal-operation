@@ -37,14 +37,35 @@ static CONTEXT_SWITCHES: AtomicU64 = AtomicU64::new(0);
 /// Boot tick counter (incremented every timer tick).
 static BOOT_TICKS: AtomicU64 = AtomicU64::new(0);
 
+/// Preemption nesting counter.
+/// When > 0, preemptive scheduling is inhibited.
+static PREEMPT_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Flag: a reschedule was requested while preemption was disabled.
+static PREEMPT_PENDING: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
 /// Initialize the scheduler.
 pub fn init() {
     let mut scheduler = SCHEDULER.lock();
     *scheduler = Some(Scheduler::new());
 
+    let sched = scheduler.as_mut().unwrap();
+
     // Create idle task
     let idle_task = Task::new_idle();
-    scheduler.as_mut().unwrap().add_task(idle_task);
+    sched.add_task(idle_task);
+
+    // Register the boot (main kernel) context as the currently
+    // running task.  Its SwitchContext will be filled in by the
+    // first call to `switch_context()`.
+    let boot_task = Task::new_boot_task();
+    let boot_arc = Arc::new(Mutex::new(boot_task));
+    sched.all_tasks.push(boot_arc.clone());
+    sched.current_task = Some(boot_arc);
+    CURRENT_TASK_ID.store(0, Ordering::Relaxed);
+
+    crate::serial_println!("[SCHED] Scheduler initialized with preemptive support");
 }
 
 /// Spawn a new task.
@@ -56,10 +77,39 @@ pub fn spawn(task: Task) -> TaskId {
     id
 }
 
-/// Schedule the next task.
+/// Schedule the next task (may trigger a context switch).
+///
+/// This function is safe to call from interrupt context or from
+/// cooperative yield points.  It extracts context-switch pointers
+/// under the scheduler lock, drops the lock, and then performs
+/// the assembly-level register swap.
 pub fn schedule() {
-    if let Some(ref mut scheduler) = *SCHEDULER.lock() {
-        scheduler.schedule();
+    // Don't reschedule while preemption is disabled.
+    if PREEMPT_COUNT.load(Ordering::Relaxed) > 0 {
+        PREEMPT_PENDING.store(true, Ordering::Relaxed);
+        return;
+    }
+
+    // Determine prev/next SwitchContext pointers under the lock.
+    let switch_info: Option<(*mut SwitchContext, *const SwitchContext)> = {
+        if let Some(mut guard) = SCHEDULER.try_lock() {
+            if let Some(ref mut scheduler) = *guard {
+                scheduler.prepare_switch()
+            } else {
+                None
+            }
+        } else {
+            // Lock is held — defer the switch.
+            None
+        }
+    };
+    // Lock is dropped here — safe to switch stacks.
+
+    if let Some((prev_ptr, next_ptr)) = switch_info {
+        CONTEXT_SWITCHES.fetch_add(1, Ordering::Relaxed);
+        unsafe {
+            context::switch_context(prev_ptr, next_ptr);
+        }
     }
 }
 
@@ -125,11 +175,64 @@ pub fn sleep_ticks(ticks: u64) {
 }
 
 /// Timer tick handler (called from timer interrupt).
+///
+/// Increments boot ticks, runs sleep-queue wake-ups and time-slice
+/// countdown, then triggers a reschedule if the current task's
+/// time slice has expired.
 pub fn timer_tick() {
     BOOT_TICKS.fetch_add(1, Ordering::Relaxed);
-    if let Some(ref mut scheduler) = *SCHEDULER.lock() {
-        scheduler.timer_tick();
+
+    // Try to lock the scheduler — if we can't (someone else holds
+    // the lock), skip this tick to avoid deadlock.  The timer will
+    // fire again on the next tick.
+    let should_schedule = {
+        if let Some(mut guard) = SCHEDULER.try_lock() {
+            if let Some(ref mut scheduler) = *guard {
+                scheduler.timer_tick();
+                scheduler.needs_reschedule()
+            } else {
+                false
+            }
+        } else {
+            // Scheduler lock is held elsewhere — skip this tick.
+            false
+        }
+    };
+
+    if should_schedule {
+        schedule();
     }
+}
+
+// ==================== Preemption Guards ====================
+
+/// Disable preemptive scheduling.
+///
+/// Increments a nesting counter.  While the counter is > 0,
+/// `schedule()` will record a pending request but not perform
+/// the actual context switch.
+pub fn preempt_disable() {
+    PREEMPT_COUNT.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Re-enable preemptive scheduling.
+///
+/// Decrements the nesting counter.  When the counter reaches zero
+/// and a reschedule was requested in the meantime, it is performed
+/// immediately.
+pub fn preempt_enable() {
+    let prev = PREEMPT_COUNT.fetch_sub(1, Ordering::SeqCst);
+    if prev == 1 {
+        // Counter reached zero — check for pending reschedule.
+        if PREEMPT_PENDING.swap(false, Ordering::SeqCst) {
+            schedule();
+        }
+    }
+}
+
+/// Returns `true` when preemption is currently disabled.
+pub fn is_preemption_disabled() -> bool {
+    PREEMPT_COUNT.load(Ordering::Relaxed) > 0
 }
 
 /// The scheduler implementation.
@@ -189,6 +292,10 @@ impl Scheduler {
     }
 
     /// Schedule the next task.
+    ///
+    /// Moves the current task back onto its ready queue and selects
+    /// the highest-priority runnable task.  Does **not** perform the
+    /// actual register-level context switch (see `prepare_switch`).
     pub fn schedule(&mut self) {
         // Save current task state
         if let Some(ref current) = self.current_task {
@@ -215,13 +322,66 @@ impl Scheduler {
             let task_id = task.lock().id().0;
             self.current_task = Some(task);
             self.time_slice_remaining = DEFAULT_TIME_SLICE;
+            self.need_reschedule = false;
 
             CURRENT_TASK_ID.store(task_id, Ordering::Relaxed);
-            CONTEXT_SWITCHES.fetch_add(1, Ordering::Relaxed);
-
-            // Perform context switch
-            self.context_switch();
         }
+    }
+
+    /// Prepare a context switch and return raw pointers.
+    ///
+    /// Calls `schedule()` to pick the next task, then returns
+    /// `(prev_switch_ctx_ptr, next_switch_ctx_ptr)` that the
+    /// caller can pass to `switch_context()` **after** dropping
+    /// the scheduler lock.
+    ///
+    /// Returns `None` when there is nothing to switch to, or when
+    /// prev == next (same task picked again).
+    pub fn prepare_switch(&mut self) -> Option<(*mut SwitchContext, *const SwitchContext)> {
+        let prev_arc = self.current_task.clone();
+
+        self.schedule();
+
+        let next_arc = self.current_task.clone();
+
+        // Both must exist.
+        let (prev, next) = match (prev_arc, next_arc) {
+            (Some(p), Some(n)) => (p, n),
+            (None, Some(n)) => {
+                // First ever switch — no previous task.
+                // We'll set up a bootstrap context instead.
+                return None;
+            }
+            _ => return None,
+        };
+
+        // Don't switch to ourselves.
+        if Arc::ptr_eq(&prev, &next) {
+            return None;
+        }
+
+        // Update stats on the new task.
+        {
+            let mut t = next.lock();
+            t.stats_mut().context_switches += 1;
+            t.stats_mut().last_scheduled = BOOT_TICKS.load(Ordering::Relaxed);
+        }
+
+        // Extract raw pointers into the Arc-owned data.
+        // SAFETY: The Arcs keep the Tasks alive.  The pointers
+        // are valid until the next time we lock these tasks.
+        // We only use them for one `switch_context` call while
+        // the scheduler lock is dropped.
+        let prev_ptr: *mut SwitchContext = {
+            let mut g = prev.lock();
+            g.switch_ctx_mut() as *mut SwitchContext
+        };
+        let next_ptr: *const SwitchContext = {
+            let g = next.lock();
+            g.switch_ctx() as *const SwitchContext
+        };
+
+        Some((prev_ptr, next_ptr))
     }
 
     /// Block a task.
@@ -303,22 +463,6 @@ impl Scheduler {
                 self.sleep_queue.push((wake_at, task.clone()));
                 break;
             }
-        }
-    }
-
-    /// Perform context switch.
-    /// Saves current task context and loads next task context via
-    /// the process::context::context_switch assembly routine.
-    fn context_switch(&mut self) {
-        // In a full implementation this would call:
-        //   process::context::context_switch(old_ctx_ptr, new_ctx_ptr)
-        // For now the cooperative scheduler relies on Rust function
-        // call/return semantics — each yield_now() already returns
-        // to the correct call-site.  We update stats here.
-        if let Some(ref task) = self.current_task {
-            let mut t = task.lock();
-            t.stats_mut().context_switches += 1;
-            t.stats_mut().last_scheduled = BOOT_TICKS.load(Ordering::Relaxed);
         }
     }
 

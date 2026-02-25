@@ -324,12 +324,12 @@ timer_interrupt_handler()
 
 ### QG (Quality Gate)
 
-- [ ] `cargo build` succeeds
-- [ ] A test with two tasks (A prints "A", B prints "B") interleaves output on serial
-- [ ] A CPU-bound infinite loop task does not prevent a second task from running
-- [ ] Timer tick counter keeps incrementing during task switching
-- [ ] `CONTEXT_SWITCHES` counter increments (visible via `[SCHED] N context switches` log)
-- [ ] No deadlocks or double panics during scheduling
+- [x] `cargo build` succeeds
+- [x] A test with two tasks (A prints "A", B prints "B") interleaves output on serial
+- [x] A CPU-bound infinite loop task does not prevent a second task from running
+- [x] Timer tick counter keeps incrementing during task switching
+- [x] `CONTEXT_SWITCHES` counter increments (visible via `[TIMER] tick=N ctx_switches=M` log)
+- [x] No deadlocks or double panics during scheduling
 
 ---
 

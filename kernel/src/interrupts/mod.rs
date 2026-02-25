@@ -270,18 +270,25 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
     // Increment tick counter
     let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
 
-    // Log every 100 ticks (~1 second at 100 Hz)
-    if ticks % 100 == 0 {
-        crate::serial_println!("[TIMER] Tick {}", ticks);
+    // Log every 100 ticks (~1 second at 100 Hz).
+    if ticks % 100 == 0 && ticks > 0 {
+        crate::serial_println!(
+            "[TIMER] tick={} ctx_switches={}",
+            ticks,
+            crate::scheduler::context_switch_count()
+        );
     }
 
-    // Call timer callback (for GUI processing)
-    if let Some(cb) = *TIMER_CALLBACK.lock() {
-        cb();
-    }
+    // Timer callback (boot animation / GUI rendering) is processed
+    // outside interrupt context via the main loop to avoid lock
+    // contention with the heap allocator and framebuffer.
+    // The main loop checks TIMER_TICKS to drive animation/rendering.
 
     // Send EOI to Local APIC
     apic::end_of_interrupt();
+
+    // Drive the scheduler
+    crate::scheduler::timer_tick();
 }
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {

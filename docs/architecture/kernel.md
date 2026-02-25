@@ -118,7 +118,7 @@ kernel/
 | POSIX Compatibility | WASI provides sufficient abstraction |
 | Native Binary Support | WASM-only policy simplifies security |
 | Legacy Hardware | Focus on modern UEFI systems |
-| Real-time Guarantees | Cooperative scheduling prioritizes throughput |
+| Real-time Guarantees | Preemptive scheduling prioritizes fairness and throughput over hard-RT deadlines |
 
 ---
 
@@ -709,9 +709,102 @@ pub struct TaskStats {
 
 ## 7. Scheduler Design
 
-### 7.1 Cooperative Async Scheduling
+### 7.1 Preemptive Priority Scheduling
 
-KPIO uses **cooperative multitasking** based on Rust's async/await:
+KPIO uses **preemptive multitasking** driven by the APIC timer interrupt.
+The scheduler maintains 32 priority levels, each with a FIFO ready queue.
+Every task receives a 10-tick time slice (~100 ms at 100 Hz); when the
+slice expires the timer ISR forces a context switch to the next ready task.
+
+**Key design decisions:**
+
+| Decision | Rationale |
+|----------|-----------|
+| Save only callee-saved regs | System V ABI guarantees caller-saved regs are handled by the compiler |
+| Drop scheduler lock before `switch_context()` | Prevents deadlock when the resumed task also calls `schedule()` |
+| `try_lock()` in timer ISR | Avoids spinning on a lock already held by the interrupted code path |
+| Per-task 16 KiB kernel stack | Each task gets its own stack so interrupt frames survive context switches |
+| Boot task as task 0 | The initial kernel execution context is registered as a schedulable task |
+
+```
+APIC Timer IRQ (Vector 32, ~100 Hz)
+        │
+        ▼
+timer_interrupt_handler()
+        │
+        ├─ TIMER_TICKS += 1
+        ├─ SCHEDULER.try_lock() → timer_tick()
+        │       ├─ Wake sleeping tasks whose deadline passed
+        │       ├─ time_slice_remaining -= 1
+        │       └─ if 0 → need_reschedule = true
+        │
+        ├─ if need_reschedule:
+        │       schedule()
+        │           ├─ prepare_switch() under lock
+        │           │     ├─ Move current task to ready queue
+        │           │     ├─ Pick highest-priority ready task
+        │           │     └─ Return (prev_ctx_ptr, next_ctx_ptr)
+        │           ├─ Drop scheduler lock
+        │           └─ switch_context(prev_ptr, next_ptr)  [naked asm]
+        │                 ├─ Save r15..rbp + rsp to prev
+        │                 ├─ Restore r15..rbp + rsp from next
+        │                 └─ ret (pops return address from new stack)
+        │
+        └─ apic::end_of_interrupt()
+```
+
+#### Context Switch Assembly
+
+The `switch_context()` naked function saves/restores only callee-saved
+registers (r15, r14, r13, r12, rbx, rbp) and the stack pointer (rsp).
+For newly-created tasks, `setup_initial_stack()` pushes the entry point
+as a fake return address so `ret` jumps directly to the task's code.
+For resumed tasks, the `call switch_context` instruction placed the real
+return address on the stack, and `ret` naturally returns to the caller.
+
+```rust
+// kernel/src/scheduler/context.rs
+#[unsafe(naked)]
+pub unsafe extern "C" fn switch_context(
+    _current: *mut SwitchContext,
+    _next: *const SwitchContext,
+) {
+    core::arch::naked_asm!(
+        // Save callee-saved regs + rsp to [rdi]
+        "mov [rdi + 0x00], r15", "mov [rdi + 0x08], r14",
+        "mov [rdi + 0x10], r13", "mov [rdi + 0x18], r12",
+        "mov [rdi + 0x20], rbx", "mov [rdi + 0x28], rbp",
+        "mov [rdi + 0x30], rsp",
+        // Restore callee-saved regs + rsp from [rsi]
+        "mov r15, [rsi + 0x00]", "mov r14, [rsi + 0x08]",
+        "mov r13, [rsi + 0x10]", "mov r12, [rsi + 0x18]",
+        "mov rbx, [rsi + 0x20]", "mov rbp, [rsi + 0x28]",
+        "mov rsp, [rsi + 0x30]",
+        "ret",
+    );
+}
+```
+
+#### Preemption Guards
+
+Critical sections that must not be preempted use `preempt_disable()` /
+`preempt_enable()` (nesting counter).  While disabled, `schedule()` defers
+the context switch until the counter returns to zero.
+
+```rust
+pub fn preempt_disable() { PREEMPT_COUNT.fetch_add(1, SeqCst); }
+pub fn preempt_enable()  {
+    if PREEMPT_COUNT.fetch_sub(1, SeqCst) == 1 {
+        if PREEMPT_PENDING.swap(false, SeqCst) { schedule(); }
+    }
+}
+```
+
+### 7.1.1 Cooperative Async Scheduling (WASM Layer)
+
+For WASM processes, KPIO also supports **cooperative multitasking** based
+on Rust's async/await.  The `Executor` polls futures and re-queues them
+via wakers:
 
 ```rust
 // kernel/src/scheduler/executor.rs

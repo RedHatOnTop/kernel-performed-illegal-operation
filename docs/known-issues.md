@@ -159,3 +159,39 @@ Boot now shows:
 [ACPI] Parsed 6 ACPI table(s)
 ```
 
+---
+
+## 6. Timer Callback Not Executed in Interrupt Context
+
+| Field       | Detail                                                                 |
+|-------------|------------------------------------------------------------------------|
+| Severity    | Low                                                                    |
+| Component   | `kernel/src/interrupts/mod.rs`, `kernel/src/main.rs`                   |
+| Affects     | Boot animation rendering timing (cosmetic only)                       |
+| Status      | **Workaround** — callback driven from main loop instead of ISR        |
+| Discovered  | Phase 10-2 preemptive scheduling (2026-02-25)                         |
+
+### Symptom
+
+When the timer callback (`on_boot_animation_tick`) is called directly from
+`timer_interrupt_handler()`, the system hangs after a few ticks.
+
+### Root Cause
+
+The boot animation callback acquires framebuffer and formatting locks. If the
+timer interrupt fires while main-line code already holds one of these locks,
+the ISR spins forever on the lock — a classic interrupt-context deadlock.
+
+### Workaround
+
+The timer callback is no longer called from the interrupt handler. Instead, the
+main kernel loop calls `on_boot_animation_tick()` each iteration, driven by
+`hlt`/wake cycles. This slightly changes the animation cadence but avoids all
+lock contention.
+
+### Permanent Fix (TODO)
+
+Move all lock-dependent callback work to a deferred "bottom-half" mechanism
+(e.g., a software interrupt or work queue) that runs with interrupts enabled
+outside ISR context.
+

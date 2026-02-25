@@ -4,8 +4,10 @@
 
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use super::context::{SwitchContext, setup_initial_stack};
 use super::priority::Priority;
 
 /// Unique task identifier.
@@ -18,6 +20,11 @@ impl TaskId {
 
     /// The idle task ID (always 1).
     pub const IDLE: TaskId = TaskId(1);
+
+    /// Create a TaskId from a raw value.
+    pub fn new(id: u64) -> Self {
+        TaskId(id)
+    }
 }
 
 /// Task state.
@@ -115,6 +122,9 @@ pub struct TaskStats {
     pub last_scheduled: u64,
 }
 
+/// Default kernel stack size: 16 KiB per task.
+const KERNEL_STACK_SIZE: usize = 16 * 1024;
+
 /// A task in the system.
 pub struct Task {
     /// Unique task ID.
@@ -127,8 +137,10 @@ pub struct Task {
     state: TaskState,
     /// Task priority.
     priority: Priority,
-    /// CPU context.
+    /// CPU context (full register set — used for user/kernel boundary).
     context: TaskContext,
+    /// Scheduler switch context (callee-saved regs — used by switch_context asm).
+    pub switch_ctx: SwitchContext,
     /// Task statistics.
     stats: TaskStats,
     /// Exit code (set when terminated).
@@ -139,19 +151,48 @@ pub struct Task {
     stack_size: usize,
     /// Parent task ID (if any).
     parent: Option<TaskId>,
+    /// Owned kernel stack allocation (kept alive for the task's lifetime).
+    _kernel_stack: Option<Vec<u8>>,
 }
 
 impl Task {
-    /// Create a new kernel task.
-    pub fn new_kernel(name: &str, entry: u64, stack_top: u64) -> Self {
+    /// Create a new kernel task with its own kernel stack.
+    ///
+    /// Allocates a dedicated kernel stack and initialises the
+    /// `SwitchContext` so that `switch_context()` will start
+    /// execution at `entry` on the new stack.
+    pub fn new_kernel(name: &str, entry: u64, _stack_top_legacy: u64) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(2);
+
+        // Allocate a dedicated kernel stack for this task.
+        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
+        stack.resize(KERNEL_STACK_SIZE, 0u8);
+        let stack_bottom = stack.as_ptr() as u64;
+        // Stack grows downward — top is bottom + size, 16-byte aligned.
+        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
 
         let mut context = TaskContext::default();
         context.rip = entry;
         context.rsp = stack_top;
         context.rflags = 0x202; // IF flag set
-        context.cs = 0x08; // Kernel code segment
-        context.ss = 0x10; // Kernel data segment
+        context.cs = 0x08;     // Kernel code segment
+        context.ss = 0x10;     // Kernel data segment
+
+        // Prepare the stack: push the entry point as a fake
+        // return address.  When `switch_context()` restores RSP
+        // and executes `ret`, it pops this address and jumps there.
+        let initial_rsp = setup_initial_stack(stack_top, entry);
+
+        let switch_ctx = SwitchContext {
+            rip: entry,          // informational only
+            rsp: initial_rsp,
+            rbp: 0,
+            rbx: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+        };
 
         Task {
             id: TaskId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
@@ -160,17 +201,25 @@ impl Task {
             state: TaskState::Ready,
             priority: Priority::Normal,
             context,
+            switch_ctx,
             stats: TaskStats::default(),
             exit_code: None,
             stack_top,
-            stack_size: 64 * 1024, // 64 KB default
+            stack_size: KERNEL_STACK_SIZE,
             parent: None,
+            _kernel_stack: Some(stack),
         }
     }
 
     /// Create a new WASM process task.
-    pub fn new_wasm(name: &str, stack_top: u64) -> Self {
+    pub fn new_wasm(name: &str, _stack_top_legacy: u64) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(2);
+
+        // Allocate dedicated kernel stack.
+        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
+        stack.resize(KERNEL_STACK_SIZE, 0u8);
+        let stack_bottom = stack.as_ptr() as u64;
+        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
 
         let mut context = TaskContext::default();
         context.rsp = stack_top;
@@ -185,16 +234,40 @@ impl Task {
             state: TaskState::Ready,
             priority: Priority::Normal,
             context,
+            switch_ctx: SwitchContext::default(),
             stats: TaskStats::default(),
             exit_code: None,
             stack_top,
-            stack_size: 64 * 1024,
+            stack_size: KERNEL_STACK_SIZE,
             parent: None,
+            _kernel_stack: Some(stack),
         }
     }
 
     /// Create the idle task.
+    ///
+    /// The idle task gets its own stack but uses a dedicated
+    /// idle-loop entry point.
     pub fn new_idle() -> Self {
+        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
+        stack.resize(KERNEL_STACK_SIZE, 0u8);
+        let stack_bottom = stack.as_ptr() as u64;
+        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
+
+        let idle_entry = idle_task_entry as *const () as u64;
+        let initial_rsp = setup_initial_stack(stack_top, idle_entry);
+
+        let switch_ctx = SwitchContext {
+            rip: idle_entry,     // informational only
+            rsp: initial_rsp,
+            rbp: 0,
+            rbx: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+        };
+
         Task {
             id: TaskId::IDLE,
             name: String::from("idle"),
@@ -202,11 +275,43 @@ impl Task {
             state: TaskState::Ready,
             priority: Priority::Idle,
             context: TaskContext::default(),
+            switch_ctx,
             stats: TaskStats::default(),
             exit_code: None,
-            stack_top: 0,
-            stack_size: 4096,
+            stack_top,
+            stack_size: KERNEL_STACK_SIZE,
             parent: None,
+            _kernel_stack: Some(stack),
+        }
+    }
+
+    /// Create the boot (kernel-main) task.
+    ///
+    /// Represents the initial kernel execution context.  Allocates
+    /// its own kernel stack.  The first context switch will save
+    /// the actual register state into its `SwitchContext`.
+    pub fn new_boot_task() -> Self {
+        // Allocate a kernel stack for the boot task so that
+        // saved RSP always points to dedicated memory.
+        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
+        stack.resize(KERNEL_STACK_SIZE, 0u8);
+        let stack_bottom = stack.as_ptr() as u64;
+        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
+
+        Task {
+            id: TaskId::KERNEL,
+            name: String::from("kernel-main"),
+            task_type: TaskType::Kernel,
+            state: TaskState::Running,
+            priority: Priority::Normal,
+            context: TaskContext::default(),
+            switch_ctx: SwitchContext::default(),
+            stats: TaskStats::default(),
+            exit_code: None,
+            stack_top,
+            stack_size: KERNEL_STACK_SIZE,
+            parent: None,
+            _kernel_stack: Some(stack),
         }
     }
 
@@ -298,5 +403,24 @@ impl Task {
     /// Check if the task is runnable.
     pub fn is_runnable(&self) -> bool {
         matches!(self.state, TaskState::Ready | TaskState::Running)
+    }
+
+    /// Get a mutable reference to the switch context.
+    pub fn switch_ctx_mut(&mut self) -> &mut SwitchContext {
+        &mut self.switch_ctx
+    }
+
+    /// Get a reference to the switch context.
+    pub fn switch_ctx(&self) -> &SwitchContext {
+        &self.switch_ctx
+    }
+}
+
+/// Idle task entry point — enables interrupts, then loops executing
+/// `hlt` until woken by interrupt.
+pub fn idle_task_entry() -> ! {
+    x86_64::instructions::interrupts::enable();
+    loop {
+        x86_64::instructions::hlt();
     }
 }

@@ -487,7 +487,60 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] Enabling interrupts...");
     interrupts::enable();
 
-    serial_println!("[KPIO] Kernel initialization complete");
+    // ── Phase 10-2: Preemptive scheduling self-test ──────────────
+    // Spawn two kernel tasks that print interleaved messages.
+    // The APIC timer will preempt the CPU-bound task_A and let
+    // task_B run, proving that preemptive context switching works.
+    {
+        use scheduler::{Task, TaskId};
+        use core::sync::atomic::{AtomicU64, Ordering as AtOrd};
+
+        static TASK_A_COUNT: AtomicU64 = AtomicU64::new(0);
+        static TASK_B_COUNT: AtomicU64 = AtomicU64::new(0);
+
+        fn task_a_entry() -> ! {
+            // Re-enable interrupts — we were switched-to from an
+            // interrupt context where IF was cleared by the CPU.
+            x86_64::instructions::interrupts::enable();
+            for i in 0..5u64 {
+                serial_println!("[TASK-A] iteration {}", i);
+                TASK_A_COUNT.fetch_add(1, AtOrd::Relaxed);
+                // Busy-wait ~10 ms worth of cycles to consume time slice
+                for _ in 0..100_000u64 {
+                    core::hint::spin_loop();
+                }
+            }
+            serial_println!("[TASK-A] done");
+            scheduler::exit_current(0);
+            loop { x86_64::instructions::hlt(); }
+        }
+
+        fn task_b_entry() -> ! {
+            x86_64::instructions::interrupts::enable();
+            for i in 0..5u64 {
+                serial_println!("[TASK-B] iteration {}", i);
+                TASK_B_COUNT.fetch_add(1, AtOrd::Relaxed);
+                for _ in 0..100_000u64 {
+                    core::hint::spin_loop();
+                }
+            }
+            serial_println!("[TASK-B] done");
+            scheduler::exit_current(0);
+            loop { x86_64::instructions::hlt(); }
+        }
+
+        serial_println!("[SCHED] Spawning preemptive test tasks...");
+        let ta = Task::new_kernel("task-A", task_a_entry as *const () as u64, 0);
+        let tb = Task::new_kernel("task-B", task_b_entry as *const () as u64, 0);
+        scheduler::spawn(ta);
+        scheduler::spawn(tb);
+        serial_println!("[SCHED] Preemptive test tasks spawned (task-A, task-B)");
+    }
+
+    serial_println!(
+        "[KPIO] Kernel initialization complete (ctx_switches={})",
+        scheduler::context_switch_count()
+    );
 
     // Run tests if in test mode
     #[cfg(test)]
@@ -496,6 +549,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Main loop: wait for boot animation to complete, then initialize GUI
     serial_println!("[KPIO] Waiting for boot animation...");
     loop {
+        // Drive the boot animation callback from the main loop
+        // (instead of the timer interrupt) to avoid lock contention.
+        on_boot_animation_tick();
+
         unsafe {
             if BOOT_ANIMATION_COMPLETE && !GUI_INITIALIZED {
                 // Disable interrupts briefly to prevent reentrancy

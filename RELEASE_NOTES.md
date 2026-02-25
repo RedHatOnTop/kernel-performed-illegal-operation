@@ -28,6 +28,7 @@ This is the first stable release of KPIO OS, a modern browser-based operating sy
 - System call interface for applications
 - **Full TCP/IP network stack** for online browsing (see below)
 - **Phase 10-1: Stability fixes** — ACPI misaligned pointer deref (14 sites fixed with `read_unaligned`), VFS `seek(SeekFrom::End)` now returns real file size, VirtIO MMIO net path negotiates `MRG_RXBUF` feature and uses physical DMA addresses
+- **Phase 10-2: Preemptive scheduling** — Real context switching via APIC timer interrupt. Tasks receive 10-tick time slices (~100 ms at 100 Hz); when a slice expires the scheduler saves callee-saved registers + RSP and switches to the next ready task. Per-task 16 KiB kernel stacks, `setup_initial_stack()` for first-run entry, `preempt_disable()`/`preempt_enable()` guards, `try_lock()` in interrupt context to prevent deadlocks. Verified: two CPU-bound tasks interleave output, context switch counter increments (56 switches in test run), no page faults or panics
 
 ### Network Stack (NEW)
 - **VirtIO-net driver** — real packet TX/RX over both MMIO virtqueues and PIO (legacy PCI transport)
