@@ -861,32 +861,36 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
+    // Wait ~500ms for process tests to run, then print summary.
+    // This is done BEFORE the main loop to avoid framebuffer
+    // rendering stealing the init task's entire time slice.
+    {
+        let wait_start = scheduler::boot_ticks();
+        loop {
+            let elapsed = scheduler::boot_ticks().wrapping_sub(wait_start);
+            if elapsed >= 50 {
+                break;
+            }
+            x86_64::instructions::hlt();
+        }
+        let ctx = scheduler::context_switch_count();
+        let tasks = scheduler::total_task_count();
+        serial_println!(
+            "[PROC] All process tests PASSED (tasks={}, ctx_switches={})",
+            tasks, ctx,
+        );
+        serial_println!(
+            "[SCHED] Final: {} context switches, {} tasks",
+            ctx, tasks,
+        );
+    }
+
     // Main loop: wait for boot animation to complete, then initialize GUI
     serial_println!("[KPIO] Waiting for boot animation...");
-    static PROC_SUMMARY_PRINTED: core::sync::atomic::AtomicBool =
-        core::sync::atomic::AtomicBool::new(false);
-    let mut ticks_after_init: u64 = 0;
     loop {
         // Drive the boot animation callback from the main loop
         // (instead of the timer interrupt) to avoid lock contention.
         on_boot_animation_tick();
-
-        // After ~50 ticks (~500ms at 100Hz), print Phase 10-5 test summary
-        ticks_after_init += 1;
-        if ticks_after_init == 50
-            && !PROC_SUMMARY_PRINTED.swap(true, core::sync::atomic::Ordering::Relaxed)
-        {
-            let ctx = scheduler::context_switch_count();
-            let tasks = scheduler::total_task_count();
-            serial_println!(
-                "[PROC] All process tests PASSED (tasks={}, ctx_switches={})",
-                tasks, ctx,
-            );
-            serial_println!(
-                "[SCHED] Final: {} context switches, {} tasks",
-                ctx, tasks,
-            );
-        }
 
         unsafe {
             if BOOT_ANIMATION_COMPLETE && !GUI_INITIALIZED {

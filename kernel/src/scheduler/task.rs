@@ -578,6 +578,26 @@ fn user_process_entry_trampoline() -> ! {
     // Enable interrupts before entering user space (timer must fire for preemption)
     x86_64::instructions::interrupts::enable();
 
+    // Ensure correct SWAPGS state before entering Ring 3.
+    //
+    // On iretq to Ring 3, we need:
+    //   GS_BASE        = 0 (or user value)
+    //   KERNEL_GS_BASE = per-CPU address
+    //
+    // After SYS_EXIT → exit_current() → schedule() → switch_context(),
+    // the ring3_syscall_entry epilogue (swapgs + sysretq) never runs.
+    // The MSRs may be inverted: GS_BASE = per-CPU, KERNEL_GS_BASE = 0.
+    // We detect this by checking KERNEL_GS_BASE; if it's 0, we swapgs.
+    unsafe {
+        use x86_64::registers::model_specific::Msr;
+        const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
+        let kgs = Msr::new(IA32_KERNEL_GS_BASE).read();
+        if kgs == 0 {
+            // MSRs are inverted — do swapgs to fix them
+            core::arch::asm!("swapgs", options(nomem, nostack));
+        }
+    }
+
     // Enter Ring 3 via iretq — prepare the stack frame and execute iretq
     unsafe {
         core::arch::asm!(

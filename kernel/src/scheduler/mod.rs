@@ -170,18 +170,25 @@ unsafe fn switch_address_space(new_cr3: u64) {
 
 /// Write kernel RSP to the per-CPU data structure (offset 0).
 ///
-/// Per-CPU data lives at the virtual address stored in the
-/// `IA32_KERNEL_GS_BASE` MSR (0xC000_0102).  The first field is
-/// `kernel_rsp` (u64 at offset 0).
+/// Accesses the static `PER_CPU_ARRAY` directly (via the address
+/// stored in `IA32_KERNEL_GS_BASE` OR `IA32_GS_BASE` — whichever
+/// is non-zero).  This handles the SWAPGS-inverted state: after
+/// a `swapgs` (e.g., inside `ring3_syscall_entry`), the per-CPU
+/// address moves from `KERNEL_GS_BASE` to `GS_BASE`.
 ///
 /// # Safety
 ///
 /// Must only be called when per-CPU data has been initialized
-/// (i.e. after `syscall::percpu::init()`).
+/// (i.e. after `scheduler::userspace::init()`).
 unsafe fn percpu_set_kernel_rsp(rsp: u64) {
     use x86_64::registers::model_specific::Msr;
+    const IA32_GS_BASE: u32 = 0xC000_0101;
     const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
-    let gs_base = unsafe { Msr::new(IA32_KERNEL_GS_BASE).read() };
+    // After swapgs: per-CPU is in GS_BASE; before swapgs: in KERNEL_GS_BASE
+    let mut gs_base = unsafe { Msr::new(IA32_KERNEL_GS_BASE).read() };
+    if gs_base == 0 {
+        gs_base = unsafe { Msr::new(IA32_GS_BASE).read() };
+    }
     if gs_base != 0 {
         unsafe { core::ptr::write_volatile(gs_base as *mut u64, rsp); }
     }
@@ -197,8 +204,12 @@ unsafe fn percpu_set_kernel_rsp(rsp: u64) {
 /// Must only be called when per-CPU data has been initialized.
 unsafe fn percpu_set_current_pid(pid: u64) {
     use x86_64::registers::model_specific::Msr;
+    const IA32_GS_BASE: u32 = 0xC000_0101;
     const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
-    let gs_base = unsafe { Msr::new(IA32_KERNEL_GS_BASE).read() };
+    let mut gs_base = unsafe { Msr::new(IA32_KERNEL_GS_BASE).read() };
+    if gs_base == 0 {
+        gs_base = unsafe { Msr::new(IA32_GS_BASE).read() };
+    }
     if gs_base != 0 {
         unsafe { core::ptr::write_volatile((gs_base as *mut u64).add(2), pid); }
     }

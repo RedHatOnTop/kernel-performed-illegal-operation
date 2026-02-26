@@ -239,7 +239,7 @@ pub fn init() {
     INITIALIZED.store(true, Ordering::Release);
 
     crate::serial_println!(
-        "[RING3] Userspace init: KERNEL_GS_BASE + STAR/LSTAR/SFMASK configured"
+        "[RING3] User-space init: KERNEL_GS_BASE + STAR/LSTAR/SFMASK configured"
     );
     crate::serial_println!(
         "[RING3]   LSTAR = {:#x} (ring3_syscall_entry)",

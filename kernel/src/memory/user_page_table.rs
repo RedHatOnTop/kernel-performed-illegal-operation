@@ -24,11 +24,22 @@ pub use x86_64::structures::paging::PageTableFlags;
 /// Physical memory offset (set during kernel init).
 static PHYS_OFFSET: AtomicU64 = AtomicU64::new(0);
 
+/// Saved kernel CR3 at init time (before any user page table operations).
+static KERNEL_CR3: AtomicU64 = AtomicU64::new(0);
+
 /// Initialize the user page table subsystem.
 ///
 /// Must be called after the physical memory offset is known (from bootloader).
+/// Saves the kernel's CR3 so that `create_user_page_table` always copies from
+/// the pristine kernel table rather than from whatever CR3 is active at call
+/// time (which could be a user process's table after a context switch).
 pub fn init(phys_offset: u64) {
     PHYS_OFFSET.store(phys_offset, Ordering::Release);
+
+    // Save the kernel's original CR3 before any user-space operations
+    use x86_64::registers::control::Cr3;
+    let (frame, _) = Cr3::read();
+    KERNEL_CR3.store(frame.start_address().as_u64(), Ordering::Release);
 }
 
 /// Get the stored physical memory offset.
@@ -76,29 +87,64 @@ pub fn create_user_page_table() -> Result<u64, &'static str> {
     let l4_virt = offset + l4_phys as u64;
     let new_l4: &mut PageTable = unsafe { &mut *l4_virt.as_mut_ptr::<PageTable>() };
 
-    // Zero all entries first (user space: indices 0-255)
+    // Zero all entries first
     for entry in new_l4.iter_mut() {
         entry.set_unused();
     }
 
-    // Copy ALL P4 entries from the current (kernel) page table.
+    // Copy P4 entries from the kernel's ORIGINAL page table (saved at
+    // init time, before any user-space mapping operations).
     //
-    // The bootloader maps physical memory at a dynamic offset that may
-    // fall in the lower half (P4 indices < 256).  The heap, kernel
-    // stacks, and physical-memory-offset mapping all live there.
-    // Copying every entry ensures the kernel remains accessible after
-    // a CR3 switch.
+    // UPPER HALF (indices 256-511): Always copied — these contain the
+    // kernel's own mappings (heap, stacks, kernel code in high
+    // canonical addresses).
     //
-    // Security is maintained because kernel pages do NOT have the
-    // USER_ACCESSIBLE flag.  Ring 3 code cannot read/write/execute
-    // kernel memory even though the P4 entries exist — the CPU
-    // enforces the page-level U/S bit.  Only pages explicitly mapped
-    // with USER_ACCESSIBLE (via `map_user_page`) are accessible from
-    // Ring 3.
-    let current_l4 = unsafe { current_level_4_table(offset) };
-    for i in 0..512 {
-        new_l4[i] = current_l4[i].clone();
+    // LOWER HALF (indices 0-255): Only the entries the kernel needs
+    // for its own operation are copied.  The bootloader places
+    // certain kernel-critical mappings in the lower half:
+    //   - Physical memory offset (P4 index = phys_offset >> 39)
+    //   - Kernel ELF segments (typically P4[2])
+    //   - Boot info (typically P4[7])
+    //
+    // We must NOT copy ALL lower-half entries because:
+    //   1. P4 entries are shallow — they point to shared P3/P2/P1
+    //      frames.  If a previous `map_user_page` call created user-
+    //      accessible entries under a shared P4 entry (e.g., P4[0]),
+    //      those modifications are visible through every copy.
+    //   2. The bootloader may leave identity mappings at P4[0] that
+    //      conflict with the standard ELF load address (0x400000).
+    //
+    // Solution: copy ONLY entries whose P4 index ≥ 1.  P4[0] covers
+    // virtual addresses 0x0–0x7F_FFFF_FFFF, which is precisely the
+    // range reserved for user-space ELF binaries and stacks.  The
+    // kernel never accesses this range — all kernel infrastructure
+    // sits at P4[2] (ELF), P4[5] (phys offset), P4[7] (boot info),
+    // or P4[256+] (kernel half).
+    //
+    // Security: Ring 3 code still cannot access kernel pages because
+    // the CPU enforces the page-level U/S bit.  Only pages mapped
+    // with USER_ACCESSIBLE via `map_user_page` are ring-3 accessible.
+    let kernel_cr3 = KERNEL_CR3.load(Ordering::Acquire);
+    let source_l4 = if kernel_cr3 != 0 {
+        let virt = offset + kernel_cr3;
+        unsafe { &*virt.as_ptr::<PageTable>() }
+    } else {
+        // Fallback: use current CR3 if init() wasn't called yet
+        unsafe { current_level_4_table(offset) }
+    };
+
+    // Upper half: copy unconditionally
+    for i in 256..512 {
+        new_l4[i] = source_l4[i].clone();
     }
+
+    // Lower half: copy all entries EXCEPT P4[0] (user-space ELF range)
+    for i in 1..256 {
+        if !source_l4[i].is_unused() {
+            new_l4[i] = source_l4[i].clone();
+        }
+    }
+    // P4[0] is intentionally left zeroed — fresh for user-space mapping
 
     Ok(l4_phys as u64)
 }
@@ -169,13 +215,27 @@ pub fn map_user_page_at(
     let full_flags = flags | PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
 
     unsafe {
-        mapper
-            .map_to(page, frame, full_flags, &mut KernelFrameAllocator)
-            .map_err(|_| "Failed to map user page")?
-            .flush();
+        match mapper.map_to(page, frame, full_flags, &mut KernelFrameAllocator) {
+            Ok(flush) => {
+                flush.flush();
+                Ok(())
+            }
+            Err(e) => {
+                use x86_64::structures::paging::mapper::MapToError;
+                match e {
+                    MapToError::FrameAllocationFailed => {
+                        Err("map_to: FrameAllocationFailed (KernelFrameAllocator returned None)")
+                    }
+                    MapToError::PageAlreadyMapped(_f) => {
+                        Err("map_to: PageAlreadyMapped")
+                    }
+                    MapToError::ParentEntryHugePage => {
+                        Err("map_to: ParentEntryHugePage")
+                    }
+                }
+            }
+        }
     }
-
-    Ok(())
 }
 
 /// Map a contiguous range of user-space pages.
