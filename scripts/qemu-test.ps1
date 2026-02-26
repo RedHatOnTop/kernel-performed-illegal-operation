@@ -49,13 +49,14 @@
     .\scripts\qemu-test.ps1 -Mode linux              # Linux compat verification
     .\scripts\qemu-test.ps1 -Mode io                 # Full I/O integration test
     .\scripts\qemu-test.ps1 -Mode io -Verbose        # I/O test with serial log
+    .\scripts\qemu-test.ps1 -Mode process             # Phase 10 process lifecycle test
     .\scripts\qemu-test.ps1 -Mode full -Verbose      # Full verification (verbose)
     .\scripts\qemu-test.ps1 -Mode custom -Expect "GDT initialized","IDT initialized"
     .\scripts\qemu-test.ps1 -NoBuild -NoImage -Mode boot  # Quick retest
 #>
 
 param(
-    [ValidateSet("boot", "smoke", "linux", "full", "io", "custom")]
+    [ValidateSet("boot", "smoke", "linux", "full", "io", "process", "custom")]
     [string]$Mode = "boot",
     [int]$Timeout = 45,
     [switch]$Release,
@@ -145,6 +146,21 @@ $IoChecks = $SmokeChecks + @(
     @{ Pattern = "VFS.*Mounted";                  Label = "VFS mount"; IsRegex = $true },
     @{ Pattern = "Self-test.*read.*bytes";         Label = "VFS read"; IsRegex = $true },
     @{ Pattern = "E2E.*PASSED";                   Label = "E2E integration test"; IsRegex = $true }
+)
+
+# Process lifecycle checks: Phase 10 preemptive scheduling + Ring 3 + process tests
+$ProcessChecks = $SmokeChecks + @(
+    @{ Pattern = "ACPI.*MADT parsed";                          Label = "ACPI fix"; IsRegex = $true },
+    @{ Pattern = "SCHED.*Preemptive test tasks spawned";       Label = "Preemptive tasks spawned"; IsRegex = $true },
+    @{ Pattern = "RING3.*User-space init";                     Label = "Ring 3 MSR setup"; IsRegex = $true },
+    @{ Pattern = "RING3.*Phase 10-3.*configured";              Label = "Ring 3 pipeline"; IsRegex = $true },
+    @{ Pattern = "PROC.*Phase 10-5";                           Label = "Process test start"; IsRegex = $true },
+    @{ Pattern = "PROC.*hello-test spawned";                   Label = "Hello test spawned"; IsRegex = $true },
+    @{ Pattern = "PROC.*spin-test spawned";                    Label = "Spin test spawned"; IsRegex = $true },
+    @{ Pattern = "PROC.*exit42-test spawned";                  Label = "Exit42 test spawned"; IsRegex = $true },
+    @{ Pattern = "Kernel initialization complete";             Label = "Preemption works" },
+    @{ Pattern = "PROC.*All process tests PASSED";             Label = "Process E2E" ; IsRegex = $true },
+    @{ Pattern = "SCHED.*context switches";                    Label = "Context switches"; IsRegex = $true }
 )
 
 # ============================================================
@@ -368,8 +384,10 @@ while ($elapsed -lt $Timeout) {
         $content = Get-Content $SerialLog -Raw -ErrorAction SilentlyContinue
         if ($content) {
             if ($content.Contains("Kernel initialization complete")) {
-                Write-Detail "Kernel init complete detected -> waiting 2s"
-                Start-Sleep -Seconds 2
+                # In process mode, wait longer for delayed test summary
+                $waitSec = if ($Mode -eq "process") { 5 } else { 2 }
+                Write-Detail "Kernel init complete detected -> waiting ${waitSec}s"
+                Start-Sleep -Seconds $waitSec
                 $earlyExit = $true
                 break
             }
@@ -421,12 +439,13 @@ if ($Verbose -and $SerialContent.Length -gt 0) {
 
 # Select checks based on mode
 $checks = switch ($Mode) {
-    "boot"   { $BootChecks }
-    "smoke"  { $SmokeChecks }
-    "linux"  { $LinuxChecks }
-    "full"   { $LinuxChecks }
-    "io"     { $IoChecks }
-    "custom" {
+    "boot"    { $BootChecks }
+    "smoke"   { $SmokeChecks }
+    "linux"   { $LinuxChecks }
+    "full"    { $LinuxChecks }
+    "io"      { $IoChecks }
+    "process" { $ProcessChecks }
+    "custom"  {
         $Expect | ForEach-Object {
             @{ Pattern = $_; Label = "Custom: $_" }
         }

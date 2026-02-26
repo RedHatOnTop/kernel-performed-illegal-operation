@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 6.7.0  
+**Document Version:** 6.8.0  
 **Last Updated:** 2026-02-26  
-**Status:** Phase 10 In Progress (10-1 ✅, 10-2 ✅, 10-3 ✅, 10-4 Complete ✅)
+**Status:** Phase 10 Complete ✅ (10-1 ✅, 10-2 ✅, 10-3 ✅, 10-4 ✅, 10-5 ✅)
 
 ---
 
@@ -10,7 +10,7 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 10 (Preemptive Kernel & User-Space Isolation) started 2026-02-25. Sub-phase 10-1 (stability fixes) is complete — ACPI misaligned pointer derefs fixed, VFS `seek(SeekFrom::End)` bug fixed, VirtIO MMIO `MRG_RXBUF` feature negotiation corrected. Sub-phase 10-2 (preemptive scheduling) is complete — real context switching via APIC timer, per-task kernel stacks, `setup_initial_stack()`, preemption guards, interrupt-safe `try_lock()`. Sub-phase 10-3 (Ring 3 user-space isolation) is complete — SYSCALL/SYSRET via IA32_LSTAR with SWAPGS per-CPU stack switching, per-process CR3 page tables, TSS RSP0 update on context switch, graceful user-mode fault handling. Sub-phase 10-4 (core process syscalls) is complete — `fork()` with full address-space copy, `execve()` with ELF reload and user-mapping teardown, `wait4()` with zombie reaping, `mprotect()` with real PTE flag updates and TLB flush, `rt_sigaction`/`rt_sigprocmask` signal handling, futex WAIT/WAKE with per-address wait queues. See [Phase 10 Plan](../plans/PHASE_10_PREEMPTIVE_USERSPACE_PLAN.md).
+**Update:** Phase 10 (Preemptive Kernel & User-Space Isolation) completed 2026-02-26. All five sub-phases are done. Sub-phase 10-1 (stability fixes) — ACPI misaligned pointer derefs fixed, VFS `seek(SeekFrom::End)` bug fixed, VirtIO MMIO `MRG_RXBUF` feature negotiation corrected. Sub-phase 10-2 (preemptive scheduling) — real context switching via APIC timer, per-task kernel stacks, `setup_initial_stack()`, preemption guards, interrupt-safe `try_lock()`. Sub-phase 10-3 (Ring 3 user-space isolation) — SYSCALL/SYSRET via IA32_LSTAR with SWAPGS per-CPU stack switching, per-process CR3 page tables, TSS RSP0 update on context switch, graceful user-mode fault handling. Sub-phase 10-4 (core process syscalls) — `fork()` with full address-space copy, `execve()` with ELF reload and user-mapping teardown, `wait4()` with zombie reaping, `mprotect()` with real PTE flag updates and TLB flush, `rt_sigaction`/`rt_sigprocmask` signal handling, futex WAIT/WAKE with per-address wait queues. Sub-phase 10-5 (integration & validation) — automated QEMU process lifecycle tests (`qemu-test.ps1 -Mode process`), embedded test programs (hello Ring 3, spin preemption, multi-process isolation), Phase 10 documentation. See [Phase 10 Plan](../plans/PHASE_10_PREEMPTIVE_USERSPACE_PLAN.md).
 
 **Previous:** Phase 9 (Real I/O — VirtIO Driver Completion & Stack Integration) completed 2026-02-24. All five sub-phases (9-1 through 9-5) have been implemented and verified. The kernel now has fully functional VirtIO network and block I/O, DHCP-acquired addressing, real WASI2 HTTP/sockets, and an automated E2E integration test (`qemu-test.ps1 -Mode io`). See [Phase 9 Plan](../plans/PHASE_9_REAL_IO_PLAN.md).
 
@@ -526,6 +526,7 @@ Prepare the system for production use with security, stability, and performance 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 6.8.0 | 2026-02-26 | Phase 10 complete — 10-5 integration tests and documentation |
 | 6.7.0 | 2026-02-26 | Phase 10-4 complete — core process syscalls (fork, execve, wait4, mprotect, signals, futex) |
 | 6.6.0 | 2026-02-25 | Phase 10-3 complete — Ring 3 user-space isolation with SYSCALL/SYSRET |
 | 6.5.0 | 2026-02-25 | Phase 10-2 complete — preemptive scheduling with real context switching |

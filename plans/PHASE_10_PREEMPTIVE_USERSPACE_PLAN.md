@@ -1,6 +1,6 @@
 # Phase 10: Preemptive Kernel & User-Space Isolation
 
-> **Status**: In Progress (10-1 ✅, 10-2 ✅, 10-3 Complete ✅)  
+> **Status**: Complete ✅ (10-1 ✅, 10-2 ✅, 10-3 ✅, 10-4 ✅, 10-5 ✅)  
 > **Predecessor**: Phase 9 (Real I/O — VirtIO Driver Completion & Stack Integration) — completed 2026-02-24  
 > **Boot environment**: QEMU 10.2.0, UEFI pflash, bootloader 0.11.14, nightly-2026-01-01  
 > **Goal**: Enable preemptive multitasking with real context switching, Ring 3 user-space
@@ -900,11 +900,11 @@ path, and document the changes.
 
 ### QG (Quality Gate)
 
-- [ ] `.\scripts\qemu-test.ps1 -Mode process` passes all checks
-- [ ] All check patterns found in serial output
-- [ ] Test completes in under 60 seconds
-- [ ] No panics, triple faults, or deadlocks during test run
-- [ ] `qemu-test.ps1 -Mode boot` and `-Mode io` still pass (regression-free)
+- [x] `.\scripts\qemu-test.ps1 -Mode process` passes all checks
+- [x] All check patterns found in serial output
+- [x] Test completes in under 60 seconds
+- [x] No panics, triple faults, or deadlocks during test run
+- [x] `qemu-test.ps1 -Mode boot` and `-Mode io` still pass (regression-free)
 
 ---
 

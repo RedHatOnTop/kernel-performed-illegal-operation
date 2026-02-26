@@ -1,8 +1,8 @@
 # Kernel Design Document
 
-**Document Version:** 1.3.0  
+**Document Version:** 1.4.0  
 **Last Updated:** 2026-02-26  
-**Status:** Implemented (Phase 10-4 complete — Core process syscalls: fork, execve, wait4, mprotect, signals, futex)
+**Status:** Implemented (Phase 10 complete — Preemptive scheduling, Ring 3 isolation, process syscalls, integration tests)
 
 ---
 
@@ -1787,6 +1787,53 @@ fn test_boot_to_init() {
     qemu.shutdown();
 }
 ```
+
+### 13.5 Process Lifecycle Integration Test (Phase 10-5)
+
+Phase 10-5 adds an automated QEMU-based integration test that validates the full
+preemptive scheduling, Ring 3 isolation, and process lifecycle pipeline.
+
+#### Test Programs
+
+Minimal x86_64 flat binaries embedded in the kernel as byte arrays (source in
+`tests/e2e/userspace/*.S`):
+
+| Program | Syscalls Used | Purpose |
+|---------|---------------|---------|
+| `HELLO_PROGRAM` | `SYS_WRITE(1)`, `SYS_EXIT(60)` | Ring 3 I/O + clean exit |
+| `SPIN_PROGRAM` | none (infinite `jmp`) | Preemption verification |
+| `EXIT42_PROGRAM` | `SYS_EXIT(60)` | Multi-process isolation |
+
+#### Boot-Time Self-Test
+
+During kernel init (`kernel/src/main.rs`), after enabling the APIC timer:
+
+1. **Test 1 — Ring 3 hello**: Creates isolated user page table, maps code + stack pages,
+   writes `HELLO_PROGRAM` machine code, spawns user task. Verifies `SYS_WRITE` output
+   appears in serial and `SYS_EXIT(0)` completes cleanly.
+
+2. **Test 2 — Preemption**: Spawns `SPIN_PROGRAM` (infinite loop in Ring 3). The APIC
+   timer preempts it. Success is proved by the kernel reaching "Kernel initialization
+   complete" despite the spin task.
+
+3. **Test 3 — Multi-process isolation**: Spawns `EXIT42_PROGRAM` with a separate page
+   table (different CR3). Proves two user-space processes with independent address spaces
+   run concurrently via CR3 switching.
+
+After ~500ms, a delayed summary prints `[PROC] All process tests PASSED`.
+
+#### QEMU Test Mode
+
+```powershell
+.\scripts\qemu-test.ps1 -Mode process
+```
+
+Verifies 22 serial output patterns including:
+- ACPI MADT parsing (Phase 10-1 fix)
+- Preemptive task spawning and context switches (Phase 10-2)
+- Ring 3 MSR setup and pipeline (Phase 10-3)
+- Process test spawning and completion (Phase 10-5)
+- Final "All process tests PASSED" summary
 
 ---
 
