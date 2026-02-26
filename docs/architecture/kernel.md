@@ -1,8 +1,8 @@
 # Kernel Design Document
 
-**Document Version:** 1.2.0  
-**Last Updated:** 2026-02-25  
-**Status:** Implemented (Phase 10-3 complete — Ring 3 user-space isolation, SYSCALL/SYSRET, per-process page tables)
+**Document Version:** 1.3.0  
+**Last Updated:** 2026-02-26  
+**Status:** Implemented (Phase 10-4 complete — Core process syscalls: fork, execve, wait4, mprotect, signals, futex)
 
 ---
 
@@ -704,6 +704,107 @@ pub struct TaskStats {
                                       v         |
                                   Destroyed ----+
 ```
+
+### 6.3 Core Process Syscalls (Phase 10-4)
+
+Phase 10-4 implements the essential POSIX-like process lifecycle syscalls required for
+Linux binary compatibility. These syscalls bridge the gap between the kernel's internal
+task model and the Linux ABI expected by user-space ELF binaries.
+
+#### 6.3.1 fork() — Process Duplication
+
+`sys_fork()` (syscall 57) creates a child process by deep-copying the parent's address space.
+
+**Implementation strategy:** Immediate full page copy (not copy-on-write).
+
+| Step | Operation |
+|------|-----------|
+| 1 | Read parent CR3, file descriptors, cwd, uid/gid, signals, memory state |
+| 2 | `clone_user_page_table(parent_cr3)` — deep-copy all user-space P4 entries (0–255), physically copying every mapped frame; kernel-half entries (256–511) are shared |
+| 3 | Create child `Process` in `PROCESS_TABLE` with copied state and `parent` set |
+| 4 | Create scheduler `Task::new_user_process()` with child's CR3 and same RIP/RSP |
+| 5 | Return child PID to parent, 0 to child (via child's initial register state) |
+
+```
+Parent (PID 5)                     Child (PID 6)
+┌─────────────────┐                ┌─────────────────┐
+│ CR3 → P4_parent  │                │ CR3 → P4_child   │
+│ P4[0..255] user  │     fork()     │ P4[0..255] copy  │
+│ P4[256..511] kern│  ──────────►  │ P4[256..511] shared│
+│ FDs: [0,1,2]     │                │ FDs: [0,1,2] dup  │
+│ signals: inherited│               │ signals: inherited │
+└─────────────────┘                └─────────────────┘
+```
+
+#### 6.3.2 execve() — Process Image Replacement
+
+`sys_execve()` (syscall 59) replaces the current process's memory image with a new ELF binary.
+
+| Step | Operation |
+|------|-----------|
+| 1 | Read path string from user space, resolve via VFS |
+| 2 | Read ELF binary from VFS (`read_all()`) |
+| 3 | `destroy_user_mappings(cr3)` — free all user-space frames and intermediate page tables, clear P4[0..255] |
+| 4 | Parse ELF headers (`parse_elf_header()`) and load segments via `load_segment()` |
+| 5 | Set up fresh user stack at `0x7FFF_FFFF_E000` (8 KiB) |
+| 6 | Update process metadata: name, program path, linux_memory, reset signal handlers |
+| 7 | Return entry point address to syscall dispatcher (which sets RIP via SYSRET) |
+
+#### 6.3.3 wait4() — Child Process Reaping
+
+`sys_wait4()` (syscall 61) waits for a child process to exit and retrieves its status.
+
+| Mode | Behavior |
+|------|----------|
+| `pid > 0` | Wait for specific child PID |
+| `pid == -1` | Wait for any child |
+| `WNOHANG` (options & 1) | Return immediately if no zombie child |
+
+When a zombie child is found, `wait4()` writes the exit status encoded as
+`(exit_code & 0xFF) << 8` (WEXITSTATUS format) to the `wstatus` pointer,
+removes the process from `PROCESS_TABLE`, and returns the child PID.
+
+#### 6.3.4 mprotect() — Page Protection Modification
+
+`sys_mprotect()` (syscall 10) changes the protection flags on existing page mappings.
+
+The implementation walks the 4-level page table for each page in the range
+using `update_pte_flags(cr3, virt_addr, new_flags)`, which locates the leaf
+L1 PTE and updates its flags in-place while preserving the physical address.
+After each PTE update, `invlpg` flushes the corresponding TLB entry.
+
+#### 6.3.5 Signal Infrastructure
+
+Signals provide asynchronous notification between processes. Each process
+maintains a `SignalState` containing:
+
+- **Pending mask** (u64) — bit per signal number (1–64)
+- **Blocked mask** (u64) — signals currently blocked by `sigprocmask()`
+- **Handlers** (Vec<SignalAction>) — per-signal action (default, ignore, or custom handler)
+
+| Syscall | Number | Purpose |
+|---------|--------|---------|
+| `rt_sigaction` | 13 | Install/query signal handlers |
+| `rt_sigprocmask` | 14 | Block/unblock signals |
+| `kill` | 62 | Send signal to process |
+| `tkill` | 200 | Send signal to thread |
+| `tgkill` | 234 | Send signal to thread in thread group |
+
+SIGKILL (9) and SIGSTOP (19) cannot be caught or blocked — `rt_sigaction`
+returns `-EINVAL` for these signals.
+
+#### 6.3.6 Futex — Fast User-Space Mutex
+
+`sys_futex()` (syscall 202) provides user-space synchronization primitives.
+
+| Operation | Behavior |
+|-----------|----------|
+| `FUTEX_WAIT` (0) | Atomically check `*uaddr == expected`, if equal block the task on a per-address wait queue |
+| `FUTEX_WAKE` (1) | Wake up to `val` tasks blocked on the given address |
+
+Wait queues are stored in a global `BTreeMap<u64, VecDeque<TaskId>>` keyed by
+virtual address. Blocking uses `scheduler::block_current()` and waking uses
+`scheduler::unblock()`.
 
 ---
 

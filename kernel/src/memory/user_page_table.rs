@@ -345,6 +345,301 @@ unsafe fn current_level_4_table(physical_memory_offset: VirtAddr) -> &'static Pa
     unsafe { &*virt.as_ptr() }
 }
 
+/// Clone a user-space page table (shallow copy).
+///
+/// Creates a new P4 table where:
+/// - Kernel-half entries (256-511) are shared (copied from parent)
+/// - User-half entries (0-255) are deeply copied at the page-table
+///   structure level, but leaf (data) frames are **shared** — both
+///   parent and child PTEs point to the same physical data frames.
+///
+/// For a true CoW implementation, we would also clear the WRITABLE
+/// bit and set a CoW marker on shared pages.  This simplified version
+/// copies the structure and shares the data frames without CoW
+/// protection (safe for fork+exec patterns where the child immediately
+/// calls execve and replaces its address space).
+///
+/// # Arguments
+///
+/// * `parent_cr3` - Physical address of the parent's P4 table
+///
+/// # Returns
+///
+/// Physical address of the new (child) P4 table.
+pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
+    let offset = phys_offset();
+    if offset.as_u64() == 0 {
+        return Err("User page table subsystem not initialized");
+    }
+
+    // Allocate a new P4 frame for the child
+    let child_l4_phys =
+        crate::memory::allocate_frame().ok_or("Out of memory: cannot allocate child P4 frame")?;
+    let child_l4_virt = offset + child_l4_phys as u64;
+    let child_l4: &mut PageTable = unsafe { &mut *child_l4_virt.as_mut_ptr::<PageTable>() };
+
+    // Access parent P4
+    let parent_l4_virt = offset + parent_cr3;
+    let parent_l4: &PageTable = unsafe { &*parent_l4_virt.as_mut_ptr::<PageTable>() };
+
+    // Copy kernel half (indices 256-511) directly — shared across all processes
+    for i in 256..512 {
+        child_l4[i] = parent_l4[i].clone();
+    }
+
+    // Deep-clone user half (indices 0-255)
+    for i in 0..256 {
+        let parent_entry = &parent_l4[i];
+        if !parent_entry.flags().contains(PageTableFlags::PRESENT) {
+            child_l4[i].set_unused();
+            continue;
+        }
+
+        // Allocate child L3
+        let child_l3_phys = crate::memory::allocate_frame()
+            .ok_or("Out of memory: cannot allocate child L3 frame")?;
+        let child_l3_virt = offset + child_l3_phys as u64;
+        let child_l3: &mut PageTable =
+            unsafe { &mut *child_l3_virt.as_mut_ptr::<PageTable>() };
+
+        let parent_l3_phys = parent_entry.addr();
+        let parent_l3_virt = offset + parent_l3_phys.as_u64();
+        let parent_l3: &PageTable =
+            unsafe { &*parent_l3_virt.as_mut_ptr::<PageTable>() };
+
+        for j in 0..512 {
+            let parent_l3e = &parent_l3[j];
+            if !parent_l3e.flags().contains(PageTableFlags::PRESENT) {
+                child_l3[j].set_unused();
+                continue;
+            }
+            // Skip huge pages (1GB)
+            if parent_l3e.flags().contains(PageTableFlags::HUGE_PAGE) {
+                child_l3[j] = parent_l3e.clone();
+                continue;
+            }
+
+            // Allocate child L2
+            let child_l2_phys = crate::memory::allocate_frame()
+                .ok_or("Out of memory: cannot allocate child L2 frame")?;
+            let child_l2_virt = offset + child_l2_phys as u64;
+            let child_l2: &mut PageTable =
+                unsafe { &mut *child_l2_virt.as_mut_ptr::<PageTable>() };
+
+            let parent_l2_phys = parent_l3e.addr();
+            let parent_l2_virt = offset + parent_l2_phys.as_u64();
+            let parent_l2: &PageTable =
+                unsafe { &*parent_l2_virt.as_mut_ptr::<PageTable>() };
+
+            for k in 0..512 {
+                let parent_l2e = &parent_l2[k];
+                if !parent_l2e.flags().contains(PageTableFlags::PRESENT) {
+                    child_l2[k].set_unused();
+                    continue;
+                }
+                // Skip huge pages (2MB)
+                if parent_l2e.flags().contains(PageTableFlags::HUGE_PAGE) {
+                    child_l2[k] = parent_l2e.clone();
+                    continue;
+                }
+
+                // Allocate child L1
+                let child_l1_phys = crate::memory::allocate_frame()
+                    .ok_or("Out of memory: cannot allocate child L1 frame")?;
+                let child_l1_virt = offset + child_l1_phys as u64;
+                let child_l1: &mut PageTable =
+                    unsafe { &mut *child_l1_virt.as_mut_ptr::<PageTable>() };
+
+                let parent_l1_phys = parent_l2e.addr();
+                let parent_l1_virt = offset + parent_l1_phys.as_u64();
+                let parent_l1: &PageTable =
+                    unsafe { &*parent_l1_virt.as_mut_ptr::<PageTable>() };
+
+                // Copy L1 entries — leaf data frames are SHARED
+                // (both parent and child point to the same physical data)
+                for l in 0..512 {
+                    if parent_l1[l].flags().contains(PageTableFlags::PRESENT) {
+                        // Copy the data frame content to a new frame
+                        // (immediate copy, not CoW — simpler and correct)
+                        let parent_data_phys = parent_l1[l].addr().as_u64();
+                        let new_frame = crate::memory::allocate_frame()
+                            .ok_or("Out of memory: cannot allocate data frame for fork")?;
+
+                        // Copy 4KiB of data
+                        let src = (offset + parent_data_phys).as_ptr::<u8>();
+                        let dst = (offset + new_frame as u64).as_mut_ptr::<u8>();
+                        unsafe {
+                            core::ptr::copy_nonoverlapping(src, dst, 4096);
+                        }
+
+                        // Map with same flags
+                        child_l1[l] = parent_l1[l].clone();
+                        // Update the physical address to the new frame
+                        use x86_64::structures::paging::page_table::PageTableEntry;
+                        let flags = parent_l1[l].flags();
+                        child_l1[l].set_addr(PhysAddr::new(new_frame as u64), flags);
+                    } else {
+                        child_l1[l].set_unused();
+                    }
+                }
+
+                // Set child L2 entry to point to the new L1
+                child_l2[k] = parent_l2[k].clone();
+                child_l2[k].set_addr(
+                    PhysAddr::new(child_l1_phys as u64),
+                    parent_l2[k].flags(),
+                );
+            }
+
+            // Set child L3 entry to point to the new L2
+            child_l3[j] = parent_l3[j].clone();
+            child_l3[j].set_addr(
+                PhysAddr::new(child_l2_phys as u64),
+                parent_l3[j].flags(),
+            );
+        }
+
+        // Set child L4 entry to point to the new L3
+        child_l4[i] = parent_l4[i].clone();
+        child_l4[i].set_addr(
+            PhysAddr::new(child_l3_phys as u64),
+            parent_l4[i].flags(),
+        );
+    }
+
+    Ok(child_l4_phys as u64)
+}
+
+/// Update page table entry flags in-place for a mapped page.
+///
+/// Walks the page table for `virt_addr` and sets new flags on the
+/// leaf (L1) PTE.  Returns `Ok(())` if the page was found and updated,
+/// or `Err` if the page is not mapped.
+///
+/// # Arguments
+///
+/// * `cr3_phys` - Physical address of the P4 table
+/// * `virt_addr` - Virtual address of the page to update
+/// * `new_flags` - New page table flags (PRESENT + USER_ACCESSIBLE are forced)
+pub fn update_pte_flags(
+    cr3_phys: u64,
+    virt_addr: u64,
+    new_flags: PageTableFlags,
+) -> Result<(), &'static str> {
+    let offset = phys_offset();
+
+    let l4_index = ((virt_addr >> 39) & 0x1FF) as usize;
+    let l3_index = ((virt_addr >> 30) & 0x1FF) as usize;
+    let l2_index = ((virt_addr >> 21) & 0x1FF) as usize;
+    let l1_index = ((virt_addr >> 12) & 0x1FF) as usize;
+
+    let l4_virt = offset + cr3_phys;
+    let l4: &PageTable = unsafe { &*l4_virt.as_mut_ptr::<PageTable>() };
+
+    let l4e = &l4[l4_index];
+    if !l4e.flags().contains(PageTableFlags::PRESENT) {
+        return Err("L4 entry not present");
+    }
+
+    let l3_virt = offset + l4e.addr().as_u64();
+    let l3: &PageTable = unsafe { &*l3_virt.as_mut_ptr::<PageTable>() };
+
+    let l3e = &l3[l3_index];
+    if !l3e.flags().contains(PageTableFlags::PRESENT) {
+        return Err("L3 entry not present");
+    }
+
+    let l2_virt = offset + l3e.addr().as_u64();
+    let l2: &PageTable = unsafe { &*l2_virt.as_mut_ptr::<PageTable>() };
+
+    let l2e = &l2[l2_index];
+    if !l2e.flags().contains(PageTableFlags::PRESENT) {
+        return Err("L2 entry not present");
+    }
+
+    let l1_virt = offset + l2e.addr().as_u64();
+    let l1: &mut PageTable = unsafe { &mut *l1_virt.as_mut_ptr::<PageTable>() };
+
+    let l1e = &mut l1[l1_index];
+    if !l1e.flags().contains(PageTableFlags::PRESENT) {
+        return Err("L1 entry not present (page not mapped)");
+    }
+
+    // Preserve the physical address, update flags
+    let phys = l1e.addr();
+    let full_flags = new_flags | PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+    l1e.set_addr(phys, full_flags);
+
+    Ok(())
+}
+
+/// Destroy user-space mappings (entries 0-255) without freeing the P4 frame.
+///
+/// This is used by `execve()` to clear the old address space while
+/// keeping the same P4 frame (CR3 stays the same).
+pub fn destroy_user_mappings(cr3_phys: u64) -> Result<(), &'static str> {
+    let offset = phys_offset();
+    let l4_virt = offset + cr3_phys;
+    let l4_table: &mut PageTable = unsafe { &mut *l4_virt.as_mut_ptr::<PageTable>() };
+
+    for i in 0..256 {
+        let l4_entry = &l4_table[i];
+        if !l4_entry.flags().contains(PageTableFlags::PRESENT) {
+            continue;
+        }
+
+        let l3_phys = l4_entry.addr();
+        let l3_virt = offset + l3_phys.as_u64();
+        let l3_table: &PageTable = unsafe { &*l3_virt.as_mut_ptr::<PageTable>() };
+
+        for j in 0..512 {
+            let l3_entry = &l3_table[j];
+            if !l3_entry.flags().contains(PageTableFlags::PRESENT) {
+                continue;
+            }
+            if l3_entry.flags().contains(PageTableFlags::HUGE_PAGE) {
+                continue;
+            }
+
+            let l2_phys = l3_entry.addr();
+            let l2_virt = offset + l2_phys.as_u64();
+            let l2_table: &PageTable = unsafe { &*l2_virt.as_mut_ptr::<PageTable>() };
+
+            for k in 0..512 {
+                let l2_entry = &l2_table[k];
+                if !l2_entry.flags().contains(PageTableFlags::PRESENT) {
+                    continue;
+                }
+                if l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) {
+                    continue;
+                }
+
+                let l1_phys = l2_entry.addr();
+                let l1_virt = offset + l1_phys.as_u64();
+                let l1_table: &PageTable = unsafe { &*l1_virt.as_mut_ptr::<PageTable>() };
+
+                for l in 0..512 {
+                    let l1_entry = &l1_table[l];
+                    if l1_entry.flags().contains(PageTableFlags::PRESENT) {
+                        crate::memory::free_frame(l1_entry.addr().as_u64() as usize);
+                    }
+                }
+
+                crate::memory::free_frame(l1_phys.as_u64() as usize);
+            }
+
+            crate::memory::free_frame(l2_phys.as_u64() as usize);
+        }
+
+        crate::memory::free_frame(l3_phys.as_u64() as usize);
+
+        // Clear the L4 entry
+        l4_table[i].set_unused();
+    }
+
+    Ok(())
+}
+
 extern crate alloc;
 
 #[cfg(test)]

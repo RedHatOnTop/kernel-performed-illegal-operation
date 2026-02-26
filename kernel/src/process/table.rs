@@ -10,6 +10,7 @@ use spin::RwLock;
 
 use super::context::ProcessContext;
 use crate::loader::program::UserProgram;
+use crate::process::signal::SignalState;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Linux memory management structures
@@ -196,6 +197,8 @@ pub struct Process {
     pub gid: u32,
     /// Linux memory management state (brk, mmap VMAs)
     pub linux_memory: Option<LinuxMemoryInfo>,
+    /// Signal state (pending signals, blocked mask, handlers)
+    pub signals: SignalState,
 }
 
 /// File descriptor entry
@@ -253,6 +256,7 @@ impl Process {
             uid: 0,
             gid: 0,
             linux_memory: None,
+            signals: SignalState::new(),
         }
     }
 
@@ -306,6 +310,7 @@ impl Process {
             uid: 0,
             gid: 0,
             linux_memory: None,
+            signals: SignalState::new(),
         }
     }
 
@@ -454,6 +459,37 @@ impl ProcessTable {
             f(pid, proc);
         }
     }
+
+    /// Get a snapshot of all processes (cloned PIDs and basic info).
+    ///
+    /// Returns a Vec of (ProcessId, ProcessSnapshot) for iteration
+    /// without holding the lock.
+    pub fn processes_snapshot(&self) -> alloc::vec::Vec<(ProcessId, ProcessSnapshot)> {
+        let guard = self.processes.read();
+        guard
+            .iter()
+            .map(|(pid, proc)| {
+                (
+                    *pid,
+                    ProcessSnapshot {
+                        pid: proc.pid,
+                        parent: proc.parent,
+                        state: proc.state,
+                        name: proc.name.clone(),
+                    },
+                )
+            })
+            .collect()
+    }
+}
+
+/// Lightweight snapshot of a process (for wait4 and other lookups).
+#[derive(Debug, Clone)]
+pub struct ProcessSnapshot {
+    pub pid: ProcessId,
+    pub parent: ProcessId,
+    pub state: ProcessState,
+    pub name: String,
 }
 
 /// Global process table instance

@@ -105,6 +105,17 @@ pub const SYS_FUTEX: u64 = 202;
 pub const SYS_PRLIMIT64: u64 = 302;
 pub const SYS_PIPE2: u64 = 293;
 
+// Phase 10-4: Process lifecycle syscalls
+pub const SYS_CLONE: u64 = 56;
+pub const SYS_FORK: u64 = 57;
+pub const SYS_VFORK: u64 = 58;
+pub const SYS_EXECVE: u64 = 59;
+pub const SYS_WAIT4: u64 = 61;
+pub const SYS_GETPPID: u64 = 110;
+pub const SYS_GETTID: u64 = 186;
+pub const SYS_TGKILL: u64 = 234;
+pub const SYS_TKILL: u64 = 200;
+
 /// AT_FDCWD sentinel value used by `openat`.
 pub const AT_FDCWD: i32 = -100;
 
@@ -287,12 +298,25 @@ pub fn linux_syscall_dispatch(
         SYS_FCNTL => linux_handlers::sys_fcntl(a1 as i32, a2 as i32, a3),
 
         // Process
+        SYS_FORK => linux_handlers::sys_fork(),
+        SYS_VFORK => linux_handlers::sys_fork(), // vfork treated as fork
+        SYS_CLONE => {
+            // clone with no special flags behaves like fork
+            // Full clone(flags, stack, ...) is complex; treat as fork for now
+            linux_handlers::sys_fork()
+        }
+        SYS_EXECVE => linux_handlers::sys_execve(a1, a2, a3),
         SYS_EXIT => linux_handlers::sys_exit(a1 as i32),
         SYS_EXIT_GROUP => linux_handlers::sys_exit(a1 as i32),
+        SYS_WAIT4 => linux_handlers::sys_wait4(a1 as i64, a2, a3 as i32, a4),
         SYS_GETPID => linux_handlers::sys_getpid(),
+        SYS_GETPPID => linux_handlers::sys_getppid(),
+        SYS_GETTID => linux_handlers::sys_gettid(),
         SYS_GETUID | SYS_GETEUID => 0, // root
         SYS_GETGID | SYS_GETEGID => 0, // root
         SYS_KILL => linux_handlers::sys_kill(a1 as i32, a2 as i32),
+        SYS_TKILL => linux_handlers::sys_kill(a1 as i32, a2 as i32),
+        SYS_TGKILL => linux_handlers::sys_kill(a2 as i32, a3 as i32), // tgkill(tgid, tid, sig)
 
         // Memory management
         SYS_BRK => linux_handlers::sys_brk(a1),
@@ -311,8 +335,8 @@ pub fn linux_syscall_dispatch(
         SYS_GETDENTS64 => linux_handlers::sys_getdents64(a1 as i32, a2, a3 as u32),
 
         // Signals
-        SYS_RT_SIGACTION => 0,    // stub — musl init calls this
-        SYS_RT_SIGPROCMASK => 0,  // stub — musl init calls this
+        SYS_RT_SIGACTION => linux_handlers::sys_rt_sigaction(a1 as u32, a2, a3, a4 as usize),
+        SYS_RT_SIGPROCMASK => linux_handlers::sys_rt_sigprocmask(a1 as i32, a2, a3, a4 as usize),
 
         // Time
         SYS_GETTIMEOFDAY => linux_handlers::sys_gettimeofday(a1, a2),

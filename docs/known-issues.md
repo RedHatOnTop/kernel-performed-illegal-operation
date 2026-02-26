@@ -228,3 +228,53 @@ current kernel page table. Security is maintained because kernel pages lack
 the `USER_ACCESSIBLE` page flag — the CPU's MMU enforces this in hardware,
 so Ring 3 code still cannot access kernel memory despite the P4 entries
 being present.
+
+---
+
+## 8. ~~mprotect / rt_sigaction / rt_sigprocmask / futex Were Stubs~~ ✅ RESOLVED
+
+| Field       | Detail                                                                 |
+|-------------|------------------------------------------------------------------------|
+| Severity    | ~~Medium~~ → Resolved                                                  |
+| Component   | `kernel/src/syscall/linux_handlers.rs`                                 |
+| Status      | **Fixed** in Phase 10-4 (2026-02-26)                                   |
+
+### Resolution
+
+Phase 10-4 replaced all stub implementations with real functionality:
+
+- **mprotect** — now walks the 4-level page table via `update_pte_flags()` and
+  updates the leaf PTE flags in-place, followed by `invlpg` TLB invalidation
+  for each modified page.
+- **rt_sigaction** — reads/writes the 32-byte `struct sigaction` from/to user
+  space, stores per-signal handlers in `SignalState`, and rejects SIGKILL/SIGSTOP.
+- **rt_sigprocmask** — implements `SIG_BLOCK`, `SIG_UNBLOCK`, and `SIG_SETMASK`
+  operations on the per-process blocked signal mask.
+- **futex** — `FUTEX_WAIT` atomically compares `*uaddr` with `expected` and blocks
+  the task on a per-address wait queue; `FUTEX_WAKE` wakes up to `val` waiters.
+
+---
+
+## 9. fork() Does Immediate Full Page Copy (Not CoW)
+
+| Field       | Detail                                                                 |
+|-------------|------------------------------------------------------------------------|
+| Severity    | Low (performance, not correctness)                                     |
+| Component   | `kernel/src/memory/user_page_table.rs` — `clone_user_page_table()`     |
+| Affects     | fork() memory overhead — entire user address space is copied eagerly   |
+| Status      | **Known limitation** — sufficient for fork+exec pattern                |
+| Discovered  | Phase 10-4 (2026-02-26)                                               |
+
+### Description
+
+`fork()` currently performs an immediate deep copy of all user-space page frames
+rather than using copy-on-write (CoW). This is correct but wastes memory when the
+child immediately calls `execve()` (the common fork+exec pattern), since the copied
+pages are discarded during `execve()`'s `destroy_user_mappings()` call.
+
+### Future Improvement
+
+Implement CoW by marking both parent and child PTEs as read-only after fork, and
+handling the resulting page fault by copying only the faulted page on demand. This
+requires a per-frame reference counter and a page fault handler that distinguishes
+CoW faults from genuine protection violations.

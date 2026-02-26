@@ -61,11 +61,11 @@ KPIO OS provides a Linux binary compatibility layer that enables running **stati
 | 5 | `fstat` | File I/O | ✅ Full | Via FD → path resolution |
 | 8 | `lseek` | File I/O | ✅ Full | SEEK_SET/CUR/END |
 | 9 | `mmap` | Memory | ✅ Partial | MAP_ANONYMOUS only; no file-backed mmap |
-| 10 | `mprotect` | Memory | ✅ Partial | VMA protection update; PTE in-place TODO |
+| 10 | `mprotect` | Memory | ✅ Full | PTE flag update via 4-level page table walk + TLB flush |
 | 11 | `munmap` | Memory | ✅ Full | VMA split/remove, frame deallocation |
 | 12 | `brk` | Memory | ✅ Full | Page-aligned, 256 MB limit |
-| 13 | `rt_sigaction` | Signal | ⚠️ Stub | Returns 0 (musl init compatibility) |
-| 14 | `rt_sigprocmask` | Signal | ⚠️ Stub | Returns 0 (musl init compatibility) |
+| 13 | `rt_sigaction` | Signal | ✅ Full | Per-signal handler install/query; SIGKILL/SIGSTOP rejected |
+| 14 | `rt_sigprocmask` | Signal | ✅ Full | SIG_BLOCK/UNBLOCK/SETMASK on per-process blocked mask |
 | 16 | `ioctl` | I/O | ✅ Partial | TIOCGWINSZ only (80×25) |
 | 19 | `readv` | File I/O | ✅ Full | Scatter/gather read |
 | 20 | `writev` | File I/O | ✅ Full | Scatter/gather write |
@@ -77,7 +77,7 @@ KPIO OS provides a Linux binary compatibility layer that enables running **stati
 | 35 | `nanosleep` | Time | ✅ Full | TSC-based busy wait |
 | 39 | `getpid` | Process | ✅ Full | Per-process PID |
 | 60 | `exit` | Process | ✅ Full | Exit code, resource cleanup |
-| 62 | `kill` | Signal | ✅ Partial | SIGKILL/SIGTERM only |
+| 62 | `kill` | Signal | ✅ Full | SIGKILL/SIGTERM terminate; others queued via signal infrastructure |
 | 63 | `uname` | System | ✅ Full | sysname="Linux", release="6.1.0-kpio" |
 | 72 | `fcntl` | Pipe/FD | ✅ Full | F_DUPFD, F_GETFD/SETFD, F_GETFL/SETFL |
 | 79 | `getcwd` | Directory | ✅ Full | Per-process working directory |
@@ -91,7 +91,16 @@ KPIO OS provides a Linux binary compatibility layer that enables running **stati
 | 107 | `geteuid` | Identity | ✅ Full | Returns 0 (root) |
 | 108 | `getegid` | Identity | ✅ Full | Returns 0 (root) |
 | 158 | `arch_prctl` | System | ✅ Full | ARCH_SET_FS/GET_FS for TLS |
-| 202 | `futex` | Threading | ⚠️ Stub | Minimal FUTEX_WAIT/WAKE stubs |
+| 56 | `clone` | Process | ✅ Partial | Maps to fork (CLONE_CHILD_SETTID ignored) |
+| 57 | `fork` | Process | ✅ Full | Deep address-space copy, inherited FDs/signals |
+| 58 | `vfork` | Process | ✅ Full | Implemented as fork (no shared address space) |
+| 59 | `execve` | Process | ✅ Full | User-mapping teardown, ELF reload, stack setup |
+| 61 | `wait4` | Process | ✅ Full | Specific PID / any-child, WNOHANG, zombie reaping |
+| 110 | `getppid` | Process | ✅ Full | Parent PID from process table |
+| 186 | `gettid` | Process | ✅ Full | Returns PID (single-threaded model) |
+| 200 | `tkill` | Signal | ✅ Full | Send signal to thread (= kill in single-threaded model) |
+| 202 | `futex` | Threading | ✅ Full | FUTEX_WAIT/WAKE with per-address wait queues |
+| 234 | `tgkill` | Signal | ✅ Full | Send signal to thread in thread group |
 | 217 | `getdents64` | Directory | ✅ Full | Linux `struct linux_dirent64` |
 | 218 | `set_tid_address` | Threading | ✅ Full | Returns tid |
 | 228 | `clock_gettime` | Time | ✅ Full | CLOCK_MONOTONIC/REALTIME |
@@ -107,10 +116,7 @@ KPIO OS provides a Linux binary compatibility layer that enables running **stati
 
 | # | Syscall | Category | Rationale |
 |---|---------|----------|-----------|
-| 56 | `clone` | Process | Thread/process creation — requires full process model |
-| 57 | `fork` | Process | Process duplication — not required for static binaries |
-| 59 | `execve` | Process | Process replacement — stretch goal for BusyBox shell |
-| 61 | `wait4` | Process | Wait for child — requires fork/exec |
+
 | 41-49 | `socket/*` | Network | Network sockets — separate network phase |
 | 17 | `pread64` | File I/O | Positioned read — future enhancement |
 | 18 | `pwrite64` | File I/O | Positioned write — future enhancement |
@@ -133,10 +139,10 @@ Any syscall not listed above returns `-ENOSYS` (38) and is logged to the serial 
 |-------------|--------|---------------|-------|
 | **C (musl static)** | ✅ Supported | `musl-gcc -static -o hello hello.c` | Primary target; tested with BusyBox |
 | **Rust (musl static)** | ✅ Supported | `cargo build --target x86_64-unknown-linux-musl --release` | String processing, file I/O work |
-| **Go (static)** | ⚠️ Partial | `CGO_ENABLED=0 go build -o hello hello.go` | Needs futex stubs; limit `GOMAXPROCS=1` |
+| **Go (static)** | ⚠️ Partial | `CGO_ENABLED=0 go build -o hello hello.go` | Futex works; limit `GOMAXPROCS=1` (no real threads) |
 | **C (glibc dynamic)** | ❌ Not supported | — | Requires dynamic linker (ld-linux.so) |
 | **Any (dynamic)** | ❌ Not supported | — | Static linking required |
-| **C++ (musl static)** | ⚠️ Partial | `x86_64-linux-musl-g++ -static -o hello hello.cpp` | Basic I/O works; exceptions need signal support |
+| **C++ (musl static)** | ⚠️ Partial | `x86_64-linux-musl-g++ -static -o hello hello.cpp` | Basic I/O works; signal handlers registered but user-space delivery pending |
 
 ### Recommended Build Commands
 
@@ -168,14 +174,14 @@ make LDFLAGS=-static CC=musl-gcc -j$(nproc)
 ## Known Limitations
 
 1. **Static linking only** — No dynamic linking support (no glibc, no ld-linux.so)
-2. **No threading** — `clone()` returns ENOSYS; applications must be single-threaded
-3. **No signal handlers** — `rt_sigaction` is a stub; no user-space signal delivery
+2. **No multi-threading** — `clone()` maps to `fork()` (separate address space); true threads require shared address space support
+3. **No user-space signal delivery** — Signal handlers are registered but delivery to user-space trampoline is not yet implemented
 4. **No file-backed mmap** — Only `MAP_ANONYMOUS` is supported
 5. **No network sockets** — Socket syscalls are not implemented
 6. **No GUI** — No X11, Wayland, or framebuffer support for Linux binaries
 7. **No kernel modules** — Linux .ko files cannot be loaded
 8. **Single user** — All processes run as root (uid=0, gid=0)
-9. **mprotect PTE** — VMA protection is tracked but PTE in-place modification is pending
+9. **fork() uses immediate copy** — Full page copy (not CoW); sufficient for fork+exec pattern
 10. **Go goroutines** — Go runtime requires `clone` for goroutines; limited to `GOMAXPROCS=1`
 
 ---
