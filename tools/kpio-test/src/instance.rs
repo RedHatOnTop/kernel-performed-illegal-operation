@@ -325,7 +325,11 @@ fn spawn_qemu_background(
     stdout_file: std::fs::File,
     stderr_file: std::fs::File,
 ) -> Result<std::process::Child, KpioTestError> {
-    let mut cmd = std::process::Command::new("qemu-system-x86_64");
+    let qemu_bin = crate::health::find_qemu().ok_or_else(|| KpioTestError::QemuNotFound {
+        hint: "qemu-system-x86_64 not found on PATH or in common install locations".to_string(),
+    })?;
+
+    let mut cmd = std::process::Command::new(&qemu_bin);
     cmd.args(args)
         .stdout(stdout_file)
         .stderr(stderr_file);
@@ -347,7 +351,7 @@ fn spawn_qemu_background(
     let child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             KpioTestError::QemuNotFound {
-                hint: "qemu-system-x86_64 not found on PATH".to_string(),
+                hint: format!("QEMU binary at {} could not be executed", qemu_bin.display()),
             }
         } else {
             KpioTestError::Io(e)

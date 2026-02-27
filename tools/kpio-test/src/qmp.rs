@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::KpioTestError;
 
 /// Default timeout for QMP command responses.
+#[allow(dead_code)]
 const QMP_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ── QMP message types ────────────────────────────────────────────────

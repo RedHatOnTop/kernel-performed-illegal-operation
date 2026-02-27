@@ -124,15 +124,51 @@ pub fn validate(report: &HealthReport) -> Result<(), KpioTestError> {
     Ok(())
 }
 
+// ── Known QEMU binary search paths by platform ──────────────────────
+
+#[cfg(target_os = "linux")]
+const QEMU_SEARCH_PATHS: &[&str] = &[
+    "/usr/bin/qemu-system-x86_64",
+    "/usr/local/bin/qemu-system-x86_64",
+];
+
+#[cfg(target_os = "macos")]
+const QEMU_SEARCH_PATHS: &[&str] = &[
+    "/opt/homebrew/bin/qemu-system-x86_64",
+    "/usr/local/bin/qemu-system-x86_64",
+];
+
+#[cfg(target_os = "windows")]
+const QEMU_SEARCH_PATHS: &[&str] = &[
+    "C:\\Program Files\\qemu\\qemu-system-x86_64.exe",
+    "C:\\Program Files (x86)\\qemu\\qemu-system-x86_64.exe",
+];
+
+/// Find the QEMU binary. Checks PATH first, then known install locations.
+pub fn find_qemu() -> Option<PathBuf> {
+    // Try PATH first
+    if let Some(path) = which("qemu-system-x86_64") {
+        return Some(PathBuf::from(path));
+    }
+    // Fall back to known install locations
+    for path in QEMU_SEARCH_PATHS {
+        let p = PathBuf::from(path);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 // ── Individual checks ────────────────────────────────────────────────
 
 fn check_qemu() -> CheckResult {
-    match which("qemu-system-x86_64") {
+    match find_qemu() {
         Some(path) => CheckResult {
             name: "qemu".to_string(),
             passed: true,
             required: true,
-            path: Some(path),
+            path: Some(path.to_string_lossy().to_string()),
             hint: None,
         },
         None => CheckResult {

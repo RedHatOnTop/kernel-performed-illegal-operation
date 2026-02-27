@@ -1,0 +1,67 @@
+name: QEMU Boot Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  boot-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. Install QEMU and OVMF
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+
+      # 2. Cache Cargo build artifacts
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+            tools/kpio-test/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # 3. Build kpio-test
+      - name: Build kpio-test
+        run: cargo build --manifest-path tools/kpio-test/Cargo.toml --release
+
+      # 4. Build kernel image
+      - name: Build kernel
+        run: |
+          ./tools/kpio-test/target/release/kpio-test build --output json > target/build-result.json
+
+      # 5. Create instance and run boot test
+      - name: Create boot instance
+        run: |
+          ./tools/kpio-test/target/release/kpio-test create boot-ci --timeout 60 --output json > target/create-result.json
+
+      - name: Wait for boot
+        run: |
+          ./tools/kpio-test/target/release/kpio-test wait-for boot-ci --pattern "Heap initialized" --timeout 30 --output json > target/wait-result.json
+
+      - name: Verify boot
+        run: |
+          ./tools/kpio-test/target/release/kpio-test verify boot-ci --manifest tools/kpio-test/tests/manifests/default.toml --mode boot --output json > target/verify-result.json
+
+      # 6. Upload JSON artifacts
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-test-results
+          path: target/*-result.json
+
+      # 7. Cleanup — runs regardless of success/failure
+      - name: Destroy all instances
+        if: always()
+        run: ./tools/kpio-test/target/release/kpio-test destroy-all --output json

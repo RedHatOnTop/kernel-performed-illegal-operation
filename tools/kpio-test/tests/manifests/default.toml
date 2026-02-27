@@ -1,0 +1,132 @@
+# Default test manifest for kpio-test verify subcommand.
+# Mirrors the serial patterns from scripts/qemu-test.ps1 for backward compatibility.
+
+[metadata]
+name = "KPIO Default Tests"
+version = "1.0"
+
+[suites.boot]
+timeout = 30
+memory = "512M"
+checks = [
+    { pattern = "Hello, Kernel",          label = "Kernel entry point" },
+    { pattern = "GDT initialized",        label = "GDT init" },
+    { pattern = "IDT initialized",        label = "IDT init" },
+    { pattern = "Physical memory offset",  label = "Physical memory mapping" },
+    { pattern = "Heap initialized",        label = "Heap init" },
+]
+
+[suites.smoke]
+timeout = 45
+memory = "512M"
+checks = [
+    { pattern = "Hello, Kernel",              label = "Kernel entry point" },
+    { pattern = "GDT initialized",            label = "GDT init" },
+    { pattern = "IDT initialized",            label = "IDT init" },
+    { pattern = "Physical memory offset",     label = "Physical memory mapping" },
+    { pattern = "Heap initialized",           label = "Heap init" },
+    { pattern = "Scheduler initialized",      label = "Scheduler init" },
+    { pattern = "Process table initialized",  label = "Process table" },
+    { pattern = "Terminal subsystem ready",   label = "Terminal subsystem" },
+    { pattern = "VFS initialized",            label = "VFS init" },
+    { pattern = "Network stack ready",        label = "Network stack" },
+    { pattern = "APIC initialized",           label = "APIC init" },
+]
+
+[suites.linux]
+timeout = 60
+memory = "512M"
+checks = [
+    { pattern = "Hello, Kernel",              label = "Kernel entry point" },
+    { pattern = "GDT initialized",            label = "GDT init" },
+    { pattern = "IDT initialized",            label = "IDT init" },
+    { pattern = "Physical memory offset",     label = "Physical memory mapping" },
+    { pattern = "Heap initialized",           label = "Heap init" },
+    { pattern = "Scheduler initialized",      label = "Scheduler init" },
+    { pattern = "Process table initialized",  label = "Process table" },
+    { pattern = "Terminal subsystem ready",   label = "Terminal subsystem" },
+    { pattern = "VFS initialized",            label = "VFS init" },
+    { pattern = "Network stack ready",        label = "Network stack" },
+    { pattern = "APIC initialized",           label = "APIC init" },
+    { pattern = "Unrecoverable page fault",   label = "Known ACPI fault (expected)" },
+    { pattern = "System halted",              label = "Proper halt after fault" },
+]
+
+[suites.io]
+timeout = 60
+memory = "512M"
+virtio_net = true
+virtio_blk = "tests/e2e/test-disk.img"
+checks = [
+    { pattern = "Hello, Kernel",                  label = "Kernel entry point" },
+    { pattern = "GDT initialized",                label = "GDT init" },
+    { pattern = "IDT initialized",                label = "IDT init" },
+    { pattern = "Physical memory offset",         label = "Physical memory mapping" },
+    { pattern = "Heap initialized",               label = "Heap init" },
+    { pattern = "Scheduler initialized",          label = "Scheduler init" },
+    { pattern = "Process table initialized",      label = "Process table" },
+    { pattern = "Terminal subsystem ready",       label = "Terminal subsystem" },
+    { pattern = "VFS initialized",                label = "VFS init" },
+    { pattern = "Network stack ready",            label = "Network stack" },
+    { pattern = "APIC initialized",               label = "APIC init" },
+    { pattern = "NIC initialized successfully",   label = "VirtIO NIC init" },
+    { pattern = "Lease acquired",                 label = "DHCP success" },
+    { pattern = "VirtIO Net.*TX:",                label = "Packet TX", regex = true },
+    { pattern = "VFS.*Mounted",                   label = "VFS mount", regex = true },
+    { pattern = "Self-test.*read.*bytes",         label = "VFS read", regex = true },
+    { pattern = "E2E.*PASSED",                    label = "E2E integration test", regex = true },
+]
+
+[suites.process]
+timeout = 60
+memory = "512M"
+checks = [
+    { pattern = "Hello, Kernel",                                    label = "Kernel entry point" },
+    { pattern = "GDT initialized",                                  label = "GDT init" },
+    { pattern = "IDT initialized",                                  label = "IDT init" },
+    { pattern = "Physical memory offset",                           label = "Physical memory mapping" },
+    { pattern = "Heap initialized",                                 label = "Heap init" },
+    { pattern = "Scheduler initialized",                            label = "Scheduler init" },
+    { pattern = "Process table initialized",                        label = "Process table" },
+    { pattern = "Terminal subsystem ready",                         label = "Terminal subsystem" },
+    { pattern = "VFS initialized",                                  label = "VFS init" },
+    { pattern = "Network stack ready",                              label = "Network stack" },
+    { pattern = "APIC initialized",                                 label = "APIC init" },
+    { pattern = "ACPI.*MADT parsed",                                label = "ACPI fix", regex = true },
+    { pattern = "SCHED.*Preemptive test tasks spawned",             label = "Preemptive tasks spawned", regex = true },
+    { pattern = "RING3.*User-space init",                           label = "Ring 3 MSR setup", regex = true },
+    { pattern = "RING3.*Phase 10-3.*configured",                    label = "Ring 3 pipeline", regex = true },
+    { pattern = "PROC.*Phase 10-5",                                 label = "Process test start", regex = true },
+    { pattern = "PROC.*hello-test spawned",                         label = "Hello test spawned", regex = true },
+    { pattern = "PROC.*spin-test spawned",                          label = "Spin test spawned", regex = true },
+    { pattern = "PROC.*exit42-test spawned",                        label = "Exit42 test spawned", regex = true },
+    { pattern = "Kernel initialization complete",                   label = "Preemption works" },
+    { pattern = "PROC.*All process tests PASSED",                   label = "Process E2E", regex = true },
+    { pattern = "SCHED.*context switches",                          label = "Context switches", regex = true },
+]
+
+[suites.full]
+timeout = 90
+memory = "512M"
+virtio_net = true
+virtio_blk = "tests/e2e/test-disk.img"
+checks = [
+    { pattern = "Hello, Kernel",                                    label = "Kernel entry point" },
+    { pattern = "GDT initialized",                                  label = "GDT init" },
+    { pattern = "IDT initialized",                                  label = "IDT init" },
+    { pattern = "Physical memory offset",                           label = "Physical memory mapping" },
+    { pattern = "Heap initialized",                                 label = "Heap init" },
+    { pattern = "Scheduler initialized",                            label = "Scheduler init" },
+    { pattern = "Process table initialized",                        label = "Process table" },
+    { pattern = "Terminal subsystem ready",                         label = "Terminal subsystem" },
+    { pattern = "VFS initialized",                                  label = "VFS init" },
+    { pattern = "Network stack ready",                              label = "Network stack" },
+    { pattern = "APIC initialized",                                 label = "APIC init" },
+    { pattern = "NIC initialized successfully",                     label = "VirtIO NIC init" },
+    { pattern = "Lease acquired",                                   label = "DHCP success" },
+    { pattern = "VirtIO Net.*TX:",                                  label = "Packet TX", regex = true },
+    { pattern = "E2E.*PASSED",                                      label = "E2E integration test", regex = true },
+    { pattern = "SCHED.*Preemptive test tasks spawned",             label = "Preemptive tasks spawned", regex = true },
+    { pattern = "Kernel initialization complete",                   label = "Preemption works" },
+    { pattern = "PROC.*All process tests PASSED",                   label = "Process E2E", regex = true },
+]
