@@ -1,0 +1,10 @@
+# Override parent .cargo/config.toml settings.
+# The root workspace targets x86_64-unknown-none with build-std for the no_std kernel.
+# This tool is a host-target std binary. On stable toolchain, the parent's [unstable]
+# build-std is silently ignored, so we only need to override the build target.
+#
+# IMPORTANT: Always run with `cargo test` from tools/kpio-test/ directory,
+# or use `cargo +stable test --manifest-path tools/kpio-test/Cargo.toml --target x86_64-pc-windows-msvc`.
+
+[build]
+target = "x86_64-pc-windows-msvc"

@@ -13,6 +13,9 @@
 qemu_err.txt
 qemu_out.txt
 
+# Kiro
+.kiro/
+
 # Editors
 .vscode/
 

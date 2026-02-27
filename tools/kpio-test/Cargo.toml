@@ -1,0 +1,36 @@
+[package]
+name = "kpio-test"
+version = "0.1.0"
+edition = "2021"
+authors = ["KPIO Contributors"]
+license = "MIT"
+description = "Stateless cross-platform CLI tool for managing QEMU boot testing of KPIO OS"
+
+# Host-target tool (requires std), builds independently from the kernel workspace
+[workspace]
+
+[[bin]]
+name = "kpio-test"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+image = "0.25"
+image_hasher = "2"
+regex = "1"
+thiserror = "2"
+leptess = { version = "0.14", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["processthreadsapi", "handleapi", "namedpipeapi"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[features]
+default = []
+ocr = ["leptess"]
