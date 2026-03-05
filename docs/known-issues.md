@@ -161,39 +161,29 @@ Boot now shows:
 
 ---
 
-## 6. Timer Callback Not Executed in Interrupt Context
+## 6. ~~Timer Callback Not Executed in Interrupt Context~~ ✅ RESOLVED
 
 | Field       | Detail                                                                 |
 |-------------|------------------------------------------------------------------------|
-| Severity    | Low                                                                    |
+| Severity    | ~~Low~~ → Resolved                                                    |
 | Component   | `kernel/src/interrupts/mod.rs`, `kernel/src/main.rs`                   |
-| Affects     | Boot animation rendering timing (cosmetic only)                       |
-| Status      | **Workaround** — callback driven from main loop instead of ISR        |
+| Status      | **Fixed** in Phase 11-2 (2026-03-05)                                   |
 | Discovered  | Phase 10-2 preemptive scheduling (2026-02-25)                         |
 
-### Symptom
+### Resolution
 
-When the timer callback (`on_boot_animation_tick`) is called directly from
-`timer_interrupt_handler()`, the system hangs after a few ticks.
+Phase 11-2 implemented a lock-free bottom-half work queue
+(`kernel/src/interrupts/workqueue.rs`). Timer, keyboard, and mouse ISRs
+now push `WorkItem` events into a 256-entry ring buffer using atomic
+indices — no Mutex is ever acquired inside interrupt context. The main
+kernel loop calls `workqueue::drain()` each iteration to dispatch
+pending events with interrupts enabled, completely eliminating the
+interrupt-context deadlock.
 
-### Root Cause
-
-The boot animation callback acquires framebuffer and formatting locks. If the
-timer interrupt fires while main-line code already holds one of these locks,
-the ISR spins forever on the lock — a classic interrupt-context deadlock.
-
-### Workaround
-
-The timer callback is no longer called from the interrupt handler. Instead, the
-main kernel loop calls `on_boot_animation_tick()` each iteration, driven by
-`hlt`/wake cycles. This slightly changes the animation cadence but avoids all
-lock contention.
-
-### Permanent Fix (TODO)
-
-Move all lock-dependent callback work to a deferred "bottom-half" mechanism
-(e.g., a software interrupt or work queue) that runs with interrupts enabled
-outside ISR context.
+Boot now shows:
+```
+[WorkQueue] drained N items so far
+```
 
 ---
 
@@ -255,26 +245,37 @@ Phase 10-4 replaced all stub implementations with real functionality:
 
 ---
 
-## 9. fork() Does Immediate Full Page Copy (Not CoW)
+## 9. ~~fork() Does Immediate Full Page Copy (Not CoW)~~ ✅ RESOLVED
 
 | Field       | Detail                                                                 |
 |-------------|------------------------------------------------------------------------|
-| Severity    | Low (performance, not correctness)                                     |
+| Severity    | ~~Low~~ → Resolved                                                    |
 | Component   | `kernel/src/memory/user_page_table.rs` — `clone_user_page_table()`     |
-| Affects     | fork() memory overhead — entire user address space is copied eagerly   |
-| Status      | **Known limitation** — sufficient for fork+exec pattern                |
+| Status      | **Fixed** in Phase 11-1 (2026-03-05)                                   |
 | Discovered  | Phase 10-4 (2026-02-26)                                               |
 
-### Description
+### Resolution
 
-`fork()` currently performs an immediate deep copy of all user-space page frames
-rather than using copy-on-write (CoW). This is correct but wastes memory when the
-child immediately calls `execve()` (the common fork+exec pattern), since the copied
-pages are discarded during `execve()`'s `destroy_user_mappings()` call.
+Phase 11-1 implemented full Copy-on-Write for `fork()`. When
+`clone_user_page_table()` is called, user-space data frames are shared
+between parent and child instead of being eagerly copied. Both PTEs are
+marked read-only with a CoW marker (bit 9 of the PTE, an OS-available
+bit). Writes to shared pages trigger a page fault, which the CoW
+handler resolves by:
+1. Allocating a new physical frame
+2. Copying the 4 KiB data from the shared frame
+3. Remapping the PTE with WRITABLE, clearing the CoW bit
+4. Decrementing the old frame’s reference count (freeing it when
+   the count reaches 0)
+5. Invalidating the TLB entry
 
-### Future Improvement
+Per-frame reference counting is tracked in `memory/refcount.rs` via a
+`BTreeMap<u64, u32>`. The `destroy_user_page_table()` and
+`destroy_user_mappings()` functions are refcount-aware — shared frames
+are only freed when no process references them.
 
-Implement CoW by marking both parent and child PTEs as read-only after fork, and
-handling the resulting page fault by copying only the faulted page on demand. This
-requires a per-frame reference counter and a page fault handler that distinguishes
-CoW faults from genuine protection violations.
+Boot now shows:
+```
+[CoW] fork shared N pages (refcounted)
+[CoW] fault handled at 0x... (copied frame, old refcount=2)
+```

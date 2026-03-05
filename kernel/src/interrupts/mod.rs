@@ -14,6 +14,7 @@ pub mod apic;
 mod idt;
 pub mod ioapic;
 mod pic;
+pub mod workqueue;
 
 use crate::gdt;
 use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
@@ -61,6 +62,10 @@ pub fn timer_ticks() -> u64 {
 }
 
 // ==================== GUI Callback System ====================
+//
+// Callbacks are registered via the workqueue module and dispatched
+// outside interrupt context. These wrapper functions maintain API
+// compatibility with existing code that calls register_*_callback.
 
 /// Keyboard event callback type: (char, scancode, pressed, ctrl, shift, alt)
 pub type KeyCallback = fn(char, u8, bool, bool, bool, bool);
@@ -69,23 +74,19 @@ pub type MouseByteCallback = fn(u8);
 /// Timer callback type
 pub type TimerCallback = fn();
 
-static KEY_CALLBACK: Mutex<Option<KeyCallback>> = Mutex::new(None);
-static MOUSE_CALLBACK: Mutex<Option<MouseByteCallback>> = Mutex::new(None);
-static TIMER_CALLBACK: Mutex<Option<TimerCallback>> = Mutex::new(None);
-
-/// Register keyboard callback
+/// Register keyboard callback (delegates to workqueue).
 pub fn register_key_callback(cb: KeyCallback) {
-    *KEY_CALLBACK.lock() = Some(cb);
+    workqueue::register_key_callback(cb);
 }
 
-/// Register mouse callback
+/// Register mouse callback (delegates to workqueue).
 pub fn register_mouse_callback(cb: MouseByteCallback) {
-    *MOUSE_CALLBACK.lock() = Some(cb);
+    workqueue::register_mouse_callback(cb);
 }
 
-/// Register timer callback
+/// Register timer callback (delegates to workqueue).
 pub fn register_timer_callback(cb: TimerCallback) {
-    *TIMER_CALLBACK.lock() = Some(cb);
+    workqueue::register_timer_callback(cb);
 }
 
 lazy_static! {
@@ -252,9 +253,11 @@ extern "x86-interrupt" fn general_protection_fault_handler(
         );
         // Kill the current user process instead of panicking the kernel.
         crate::scheduler::exit_current(-11); // SIGSEGV
-        // The scheduler will switch to another task; we should not
-        // reach here, but if we do, halt.
-        loop { x86_64::instructions::hlt(); }
+                                             // The scheduler will switch to another task; we should not
+                                             // reach here, but if we do, halt.
+        loop {
+            x86_64::instructions::hlt();
+        }
     }
 
     panic!(
@@ -271,10 +274,50 @@ extern "x86-interrupt" fn page_fault_handler(
 
     let faulting_address = Cr2::read();
 
+    // Extract the raw virtual address.
+    // Cr2::read() returns Result<VirtAddr, VirtAddrNotValid> in x86_64 0.15.
+    // On non-canonical addresses, unwrap the raw value from the error.
+    let fault_addr_u64 = match &faulting_address {
+        Ok(va) => va.as_u64(),
+        Err(e) => e.0,
+    };
+
     // Check if the fault originated in user mode (Ring 3).
     let from_usermode = error_code.contains(PageFaultErrorCode::USER_MODE);
 
     if from_usermode {
+        // Check for Copy-on-Write fault:
+        // A CoW fault is a write (CAUSED_BY_WRITE) to a present page
+        // (PROTECTION_VIOLATION) in user mode, where the PTE has COW_BIT set.
+        let is_cow_candidate = error_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION)
+            && error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE);
+
+        if is_cow_candidate {
+            // Get the current process's CR3 to walk its page table.
+            let cr3 = x86_64::registers::control::Cr3::read()
+                .0
+                .start_address()
+                .as_u64();
+            let fault_addr = fault_addr_u64;
+
+            // Check if the faulting page has the COW_BIT marker.
+            if let Some((_phys, flags)) = crate::memory::user_page_table::read_pte(cr3, fault_addr)
+            {
+                if flags.contains(crate::memory::user_page_table::COW_BIT) {
+                    // Handle the CoW fault — allocate private copy.
+                    if crate::memory::user_page_table::handle_cow_fault(cr3, fault_addr) {
+                        // CoW handled successfully — resume execution.
+                        return;
+                    }
+                    // CoW handler failed (OOM) — fall through to kill.
+                    crate::serial_println!(
+                        "[FAULT] CoW handler failed at {:?} — killing process",
+                        faulting_address
+                    );
+                }
+            }
+        }
+
         crate::serial_println!(
             "[FAULT] User-mode page fault at {:?} (error={:?}, RIP={:#x}) — killing process",
             faulting_address,
@@ -283,8 +326,19 @@ extern "x86-interrupt" fn page_fault_handler(
         );
         // Kill the current user process gracefully.
         crate::scheduler::exit_current(-11); // SIGSEGV
-        // The scheduler will context-switch away; halt if we somehow return.
-        loop { x86_64::instructions::hlt(); }
+                                             // The scheduler will context-switch away; halt if we somehow return.
+        loop {
+            x86_64::instructions::hlt();
+        }
+    }
+
+    // Check for kernel stack overflow (guard page hit).
+    if crate::scheduler::task::is_stack_guard_page(fault_addr_u64) {
+        panic!(
+            "Kernel stack overflow! Guard page hit at {:#x} (RIP={:#x})",
+            fault_addr_u64,
+            stack_frame.instruction_pointer.as_u64()
+        );
     }
 
     crate::serial_println!(
@@ -293,8 +347,6 @@ extern "x86-interrupt" fn page_fault_handler(
         error_code,
         stack_frame
     );
-
-    // TODO: Handle recoverable page faults (demand paging, copy-on-write)
 
     panic!("Unrecoverable page fault");
 }
@@ -314,10 +366,8 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
         );
     }
 
-    // Timer callback (boot animation / GUI rendering) is processed
-    // outside interrupt context via the main loop to avoid lock
-    // contention with the heap allocator and framebuffer.
-    // The main loop checks TIMER_TICKS to drive animation/rendering.
+    // Push a timer tick work item for the main loop to process.
+    workqueue::push(workqueue::WorkItem::TimerTick);
 
     // Send EOI to Local APIC
     apic::end_of_interrupt();
@@ -808,13 +858,13 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
         }
     };
 
-    // Call keyboard callback with modifier state
+    // Push keyboard event to work queue for deferred processing.
     let ctrl_held = CTRL.load(Ordering::SeqCst);
     let shift_held = SHIFT.load(Ordering::SeqCst);
     let alt_held = ALT.load(Ordering::SeqCst);
-    if let Some(cb) = *KEY_CALLBACK.lock() {
-        cb(ch, scancode, pressed, ctrl_held, shift_held, alt_held);
-    }
+    workqueue::push(workqueue::WorkItem::KeyEvent(
+        ch, scancode, pressed, ctrl_held, shift_held, alt_held,
+    ));
 
     // Send EOI to Local APIC.
     apic::end_of_interrupt();
@@ -827,10 +877,8 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
     let mut port: Port<u8> = Port::new(0x60);
     let byte = unsafe { port.read() };
 
-    // Call mouse callback
-    if let Some(cb) = *MOUSE_CALLBACK.lock() {
-        cb(byte);
-    }
+    // Push mouse byte to work queue for deferred processing.
+    workqueue::push(workqueue::WorkItem::MouseByte(byte));
 
     // Send EOI to Local APIC
     apic::end_of_interrupt();

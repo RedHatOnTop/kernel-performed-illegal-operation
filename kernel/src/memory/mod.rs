@@ -13,6 +13,7 @@
 
 pub mod buddy;
 pub mod optimization;
+pub mod refcount;
 pub mod slab;
 pub mod user_page_table;
 
@@ -41,9 +42,7 @@ struct FreeFrameList {
 impl FreeFrameList {
     /// Create a new empty free frame list.
     const fn new() -> Self {
-        Self {
-            frames: Vec::new(),
-        }
+        Self { frames: Vec::new() }
     }
 
     /// Push a freed frame address onto the list.

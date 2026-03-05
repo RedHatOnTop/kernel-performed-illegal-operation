@@ -256,7 +256,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                     storage::MountFlags::READ_ONLY,
                 ) {
                     Ok(()) => {
-                        serial_println!("[VFS] Mounted FAT filesystem on {} at /mnt/test", device_name);
+                        serial_println!(
+                            "[VFS] Mounted FAT filesystem on {} at /mnt/test",
+                            device_name
+                        );
 
                         // Self-test 1: read a file
                         match storage::vfs::open("/mnt/test/HELLO.TXT", storage::OpenFlags::READ) {
@@ -294,17 +297,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                                     entries.len()
                                 );
                                 for entry in &entries {
-                                    let name = core::str::from_utf8(
-                                        &entry.name[..entry.name_len],
-                                    )
-                                    .unwrap_or("?");
+                                    let name = core::str::from_utf8(&entry.name[..entry.name_len])
+                                        .unwrap_or("?");
                                     serial_println!("  - {} ({:?})", name, entry.file_type);
                                 }
                             }
                             Err(e) => {
-                                serial_println!(
-                                    "[VFS] readdir /mnt/test/ failed: {:?}", e
-                                );
+                                serial_println!("[VFS] readdir /mnt/test/ failed: {:?}", e);
                             }
                         }
 
@@ -387,7 +386,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // Check 2: DHCP acquired an IP (network stack has non-zero IP)
         let ip = net::ipv4::get_ip();
         if ip != [0, 0, 0, 0] {
-            serial_println!("[E2E] DHCP lease: OK (IP {}.{}.{}.{})", ip[0], ip[1], ip[2], ip[3]);
+            serial_println!(
+                "[E2E] DHCP lease: OK (IP {}.{}.{}.{})",
+                ip[0],
+                ip[1],
+                ip[2],
+                ip[3]
+            );
         } else {
             serial_println!("[E2E] DHCP lease: FAIL (no IP acquired)");
             e2e_pass = false;
@@ -502,8 +507,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // The APIC timer will preempt the CPU-bound task_A and let
     // task_B run, proving that preemptive context switching works.
     {
-        use scheduler::{Task, TaskId};
         use core::sync::atomic::{AtomicU64, Ordering as AtOrd};
+        use scheduler::{Task, TaskId};
 
         static TASK_A_COUNT: AtomicU64 = AtomicU64::new(0);
         static TASK_B_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -522,7 +527,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             }
             serial_println!("[TASK-A] done");
             scheduler::exit_current(0);
-            loop { x86_64::instructions::hlt(); }
+            loop {
+                x86_64::instructions::hlt();
+            }
         }
 
         fn task_b_entry() -> ! {
@@ -536,7 +543,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             }
             serial_println!("[TASK-B] done");
             scheduler::exit_current(0);
-            loop { x86_64::instructions::hlt(); }
+            loop {
+                x86_64::instructions::hlt();
+            }
         }
 
         serial_println!("[SCHED] Spawning preemptive test tasks...");
@@ -577,21 +586,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
             // Allocate physical frames and map them in the user page table
             use x86_64::structures::paging::PageTableFlags;
-            let code_flags = PageTableFlags::PRESENT
-                | PageTableFlags::USER_ACCESSIBLE;
+            let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
             let stack_flags = PageTableFlags::PRESENT
                 | PageTableFlags::WRITABLE
                 | PageTableFlags::USER_ACCESSIBLE;
 
-            let code_result = memory::user_page_table::map_user_page(
-                user_cr3, user_code_vaddr, code_flags,
-            );
-            let stack_result = memory::user_page_table::map_user_page(
-                user_cr3, user_stack_base, stack_flags,
-            );
+            let code_result =
+                memory::user_page_table::map_user_page(user_cr3, user_code_vaddr, code_flags);
+            let stack_result =
+                memory::user_page_table::map_user_page(user_cr3, user_stack_base, stack_flags);
 
             if let (Ok(code_phys), Ok(_stack_phys)) = (code_result, stack_result) {
-                serial_println!("[RING3] User pages mapped: code={:#x}, stack={:#x}", user_code_vaddr, user_stack_base);
+                serial_println!(
+                    "[RING3] User pages mapped: code={:#x}, stack={:#x}",
+                    user_code_vaddr,
+                    user_stack_base
+                );
 
                 // Write a minimal x86_64 user-space program into the code page:
                 //   mov rax, 60   ; SYS_EXIT
@@ -599,22 +609,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 //   syscall       ; enter kernel via SYSCALL/SYSRET
                 // Tests the full Ring 3 → Ring 0 → Ring 3 pipeline.
                 let user_program: [u8; 16] = [
-                    0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00,  // mov rax, 60
-                    0x48, 0xc7, 0xc7, 0x2a, 0x00, 0x00, 0x00,  // mov rdi, 42
-                    0x0f, 0x05,                                  // syscall
+                    0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00, // mov rax, 60
+                    0x48, 0xc7, 0xc7, 0x2a, 0x00, 0x00, 0x00, // mov rdi, 42
+                    0x0f, 0x05, // syscall
                 ];
                 unsafe {
-                    memory::user_page_table::write_to_phys(
-                        code_phys, 0, &user_program,
-                    );
+                    memory::user_page_table::write_to_phys(code_phys, 0, &user_program);
                 }
 
                 serial_println!("[RING3] User program written (SYS_EXIT 42 via syscall)");
 
                 // Allocate a kernel stack for the user-space task
                 let kernel_stack_size: usize = 32 * 1024; // 32 KiB
-                let mut kernel_stack_vec: alloc::vec::Vec<u8> =
-                    alloc::vec![0u8; kernel_stack_size];
+                let mut kernel_stack_vec: alloc::vec::Vec<u8> = alloc::vec![0u8; kernel_stack_size];
                 let kernel_stack_top_addr =
                     kernel_stack_vec.as_ptr() as u64 + kernel_stack_size as u64;
 
@@ -622,17 +629,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 let user_task = scheduler::Task::new_user_process(
                     "ring3-test",
                     user_cr3,
-                    user_code_vaddr,      // entry point RIP
-                    user_stack_top,       // user RSP
-                    gdt::USER_CS as u16,  // CS = Ring 3 code
-                    gdt::USER_DS as u16,  // SS = Ring 3 data
+                    user_code_vaddr,     // entry point RIP
+                    user_stack_top,      // user RSP
+                    gdt::USER_CS as u16, // CS = Ring 3 code
+                    gdt::USER_DS as u16, // SS = Ring 3 data
                     kernel_stack_top_addr,
                     kernel_stack_vec,
                     1, // pid
                 );
 
                 scheduler::spawn(user_task);
-                serial_println!("[RING3] User-space test task spawned (pid=1, CR3={:#x})", user_cr3);
+                serial_println!(
+                    "[RING3] User-space test task spawned (pid=1, CR3={:#x})",
+                    user_cr3
+                );
                 serial_println!("[RING3] Phase 10-3 self-test: Ring 3 pipeline configured ✓");
             } else {
                 serial_println!("[RING3] FAIL: Could not map user pages");
@@ -690,21 +700,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             if hello_cr3 != 0 {
                 use x86_64::structures::paging::PageTableFlags;
                 let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
-                let stack_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE
+                let stack_flags = PageTableFlags::PRESENT
+                    | PageTableFlags::WRITABLE
                     | PageTableFlags::USER_ACCESSIBLE;
 
                 let code_vaddr: u64 = 0x40_0000;
                 let stack_base: u64 = 0x7F_F000;
                 let stack_top: u64 = 0x80_0000;
 
-                let code_result = memory::user_page_table::map_user_page(hello_cr3, code_vaddr, code_flags);
-                let stack_result = memory::user_page_table::map_user_page(hello_cr3, stack_base, stack_flags);
+                let code_result =
+                    memory::user_page_table::map_user_page(hello_cr3, code_vaddr, code_flags);
+                let stack_result =
+                    memory::user_page_table::map_user_page(hello_cr3, stack_base, stack_flags);
 
                 if let (Ok(code_phys), Ok(_)) = (code_result, stack_result) {
                     unsafe {
-                        memory::user_page_table::write_to_phys(
-                            code_phys, 0, HELLO_PROGRAM,
-                        );
+                        memory::user_page_table::write_to_phys(code_phys, 0, HELLO_PROGRAM);
                     }
                     let ks_size: usize = 32 * 1024;
                     let ks_vec = alloc::vec![0u8; ks_size];
@@ -746,21 +757,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             if spin_cr3 != 0 {
                 use x86_64::structures::paging::PageTableFlags;
                 let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
-                let stack_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE
+                let stack_flags = PageTableFlags::PRESENT
+                    | PageTableFlags::WRITABLE
                     | PageTableFlags::USER_ACCESSIBLE;
 
                 let code_vaddr: u64 = 0x40_0000;
                 let stack_base: u64 = 0x7F_F000;
                 let stack_top: u64 = 0x80_0000;
 
-                let code_result = memory::user_page_table::map_user_page(spin_cr3, code_vaddr, code_flags);
-                let stack_result = memory::user_page_table::map_user_page(spin_cr3, stack_base, stack_flags);
+                let code_result =
+                    memory::user_page_table::map_user_page(spin_cr3, code_vaddr, code_flags);
+                let stack_result =
+                    memory::user_page_table::map_user_page(spin_cr3, stack_base, stack_flags);
 
                 if let (Ok(code_phys), Ok(_)) = (code_result, stack_result) {
                     unsafe {
-                        memory::user_page_table::write_to_phys(
-                            code_phys, 0, SPIN_PROGRAM,
-                        );
+                        memory::user_page_table::write_to_phys(code_phys, 0, SPIN_PROGRAM);
                     }
                     let ks_size: usize = 32 * 1024;
                     let ks_vec = alloc::vec![0u8; ks_size];
@@ -806,21 +818,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             if exit42_cr3 != 0 {
                 use x86_64::structures::paging::PageTableFlags;
                 let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
-                let stack_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE
+                let stack_flags = PageTableFlags::PRESENT
+                    | PageTableFlags::WRITABLE
                     | PageTableFlags::USER_ACCESSIBLE;
 
                 let code_vaddr: u64 = 0x40_0000;
                 let stack_base: u64 = 0x7F_F000;
                 let stack_top: u64 = 0x80_0000;
 
-                let code_result = memory::user_page_table::map_user_page(exit42_cr3, code_vaddr, code_flags);
-                let stack_result = memory::user_page_table::map_user_page(exit42_cr3, stack_base, stack_flags);
+                let code_result =
+                    memory::user_page_table::map_user_page(exit42_cr3, code_vaddr, code_flags);
+                let stack_result =
+                    memory::user_page_table::map_user_page(exit42_cr3, stack_base, stack_flags);
 
                 if let (Ok(code_phys), Ok(_)) = (code_result, stack_result) {
                     unsafe {
-                        memory::user_page_table::write_to_phys(
-                            code_phys, 0, EXIT42_PROGRAM,
-                        );
+                        memory::user_page_table::write_to_phys(code_phys, 0, EXIT42_PROGRAM);
                     }
                     let ks_size: usize = 32 * 1024;
                     let ks_vec = alloc::vec![0u8; ks_size];
@@ -838,7 +851,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                         12, // pid
                     );
                     scheduler::spawn(task);
-                    serial_println!("[PROC] Test 3: exit42-test spawned (pid=12, CR3={:#x})", exit42_cr3);
+                    serial_println!(
+                        "[PROC] Test 3: exit42-test spawned (pid=12, CR3={:#x})",
+                        exit42_cr3
+                    );
                 } else {
                     serial_println!("[PROC] Test 3 FAIL: could not map pages");
                 }
@@ -849,6 +865,131 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             "[PROC] Phase 10-5 tests spawned ({} total tasks, {} context switches so far)",
             scheduler::total_task_count(),
             scheduler::context_switch_count(),
+        );
+    }
+
+    // ── Phase 11: Kernel Hardening — CoW fork integration test ──
+    // Validates the Copy-on-Write fork mechanism end-to-end:
+    //   1. Create a parent user page table with code + data + stack pages
+    //   2. Write initial data to the data page (kernel-side)
+    //   3. Clone the page table → CoW sharing (refcount incremented)
+    //   4. Verify frame refcount > 1
+    //   5. Spawn a child process that writes to the shared data page
+    //      → triggers CoW page fault → handler copies frame
+    // Results are logged so qemu-test.ps1 -Mode hardening can verify them.
+    {
+        serial_println!("[HARDENING] Phase 11: CoW fork integration test");
+
+        // cow-writer: writes 0xCAFEBABE to 0x500000, then SYS_EXIT(0)
+        //   mov dword [0x500000], 0xCAFEBABE   ; C7 04 25 00 00 50 00 BE BA FE CA
+        //   mov rax, 60                         ; 48 C7 C0 3C 00 00 00
+        //   xor rdi, rdi                        ; 48 31 FF
+        //   syscall                             ; 0F 05
+        #[rustfmt::skip]
+        const COW_WRITER: &[u8] = &[
+            0xC7, 0x04, 0x25, 0x00, 0x00, 0x50, 0x00,
+            0xBE, 0xBA, 0xFE, 0xCA,                     // mov dword [0x500000], 0xCAFEBABE
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00,   // mov rax, 60 (SYS_EXIT)
+            0x48, 0x31, 0xFF,                             // xor rdi, rdi
+            0x0F, 0x05,                                   // syscall
+        ];
+
+        let parent_cr3 = match memory::user_page_table::create_user_page_table() {
+            Ok(cr3) => cr3,
+            Err(e) => {
+                serial_println!("[HARDENING] FAIL: parent page table: {}", e);
+                0
+            }
+        };
+
+        if parent_cr3 != 0 {
+            use x86_64::structures::paging::PageTableFlags;
+            let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+            let data_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
+            let stack_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
+
+            let code_vaddr: u64 = 0x40_0000;
+            let data_vaddr: u64 = 0x50_0000;
+            let stack_base: u64 = 0x7F_F000;
+            let stack_top: u64 = 0x80_0000;
+
+            let code_result =
+                memory::user_page_table::map_user_page(parent_cr3, code_vaddr, code_flags);
+            let data_result =
+                memory::user_page_table::map_user_page(parent_cr3, data_vaddr, data_flags);
+            let stack_result =
+                memory::user_page_table::map_user_page(parent_cr3, stack_base, stack_flags);
+
+            if let (Ok(code_phys), Ok(data_phys), Ok(_)) =
+                (code_result, data_result, stack_result)
+            {
+                // Write program and initial data
+                unsafe {
+                    memory::user_page_table::write_to_phys(code_phys, 0, COW_WRITER);
+                    // Write marker pattern to data page
+                    let marker: [u8; 4] = [0xEF, 0xBE, 0xAD, 0xDE]; // 0xDEADBEEF le
+                    memory::user_page_table::write_to_phys(data_phys, 0, &marker);
+                }
+
+                // Clone page table → triggers CoW sharing
+                let child_cr3 = match memory::user_page_table::clone_user_page_table(parent_cr3) {
+                    Ok(cr3) => {
+                        serial_println!("[HARDENING] CoW clone successful: child CR3={:#x}", cr3);
+                        cr3
+                    }
+                    Err(e) => {
+                        serial_println!("[HARDENING] FAIL: CoW clone: {}", e);
+                        0
+                    }
+                };
+
+                if child_cr3 != 0 {
+                    // Verify that the data page refcount is > 1
+                    let refcount = memory::refcount::get(data_phys);
+                    serial_println!(
+                        "[HARDENING] Data frame {:#x} refcount = {} (expected >= 2)",
+                        data_phys,
+                        refcount
+                    );
+
+                    // Spawn a child process using the CoW'd page table.
+                    // When it writes to 0x500000, the CoW fault handler fires.
+                    let ks_size: usize = 32 * 1024;
+                    let ks_vec = alloc::vec![0u8; ks_size];
+                    let ks_top = ks_vec.as_ptr() as u64 + ks_size as u64;
+
+                    let task = scheduler::Task::new_user_process(
+                        "cow-test",
+                        child_cr3,
+                        code_vaddr,
+                        stack_top,
+                        gdt::USER_CS as u16,
+                        gdt::USER_DS as u16,
+                        ks_top,
+                        ks_vec,
+                        20, // pid
+                    );
+                    scheduler::spawn(task);
+                    serial_println!(
+                        "[HARDENING] cow-test spawned (pid=20, CR3={:#x}). \
+                         Child will write to {:#x} → CoW fault expected.",
+                        child_cr3,
+                        data_vaddr
+                    );
+                }
+            } else {
+                serial_println!("[HARDENING] FAIL: could not map parent pages");
+            }
+        }
+
+        // Log stack guard page summary for all tasks
+        serial_println!(
+            "[HARDENING] {} tasks spawned (stack guard pages logged above)",
+            scheduler::total_task_count()
         );
     }
 
@@ -877,20 +1018,28 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         let tasks = scheduler::total_task_count();
         serial_println!(
             "[PROC] All process tests PASSED (tasks={}, ctx_switches={})",
-            tasks, ctx,
+            tasks,
+            ctx,
         );
-        serial_println!(
-            "[SCHED] Final: {} context switches, {} tasks",
-            ctx, tasks,
-        );
+        serial_println!("[SCHED] Final: {} context switches, {} tasks", ctx, tasks,);
     }
 
-    // Main loop: wait for boot animation to complete, then initialize GUI
+    // Main loop: drain deferred work queue + wait for boot animation
     serial_println!("[KPIO] Waiting for boot animation...");
+    let mut total_drained: u64 = 0;
+    let mut drain_logged = false;
     loop {
-        // Drive the boot animation callback from the main loop
-        // (instead of the timer interrupt) to avoid lock contention.
-        on_boot_animation_tick();
+        // Drain all pending ISR work items (timer, keyboard, mouse)
+        // dispatched outside interrupt context — resolves the known
+        // timer callback deadlock (known-issues.md #6).
+        let n = interrupts::workqueue::drain();
+        total_drained += n as u64;
+
+        // Log drain count once (for qemu-test verification)
+        if !drain_logged && total_drained > 0 {
+            serial_println!("[WorkQueue] drained {} items so far", total_drained);
+            drain_logged = true;
+        }
 
         unsafe {
             if BOOT_ANIMATION_COMPLETE && !GUI_INITIALIZED {

@@ -21,6 +21,13 @@ use x86_64::{PhysAddr, VirtAddr};
 // Re-export PageTableFlags for use by syscall handlers
 pub use x86_64::structures::paging::PageTableFlags;
 
+/// Copy-on-Write marker bit.
+///
+/// Uses bit 9 of the PTE, which is one of the three OS-available bits
+/// in the x86_64 page table entry format (bits 9, 10, 11).
+/// The x86_64 crate v0.15 does not export a named constant for this.
+pub const COW_BIT: PageTableFlags = PageTableFlags::from_bits_retain(1 << 9);
+
 /// Physical memory offset (set during kernel init).
 static PHYS_OFFSET: AtomicU64 = AtomicU64::new(0);
 
@@ -81,7 +88,8 @@ pub fn create_user_page_table() -> Result<u64, &'static str> {
     }
 
     // Allocate a physical frame for the new P4 table
-    let l4_phys = crate::memory::allocate_frame().ok_or("Out of memory: cannot allocate P4 frame")?;
+    let l4_phys =
+        crate::memory::allocate_frame().ok_or("Out of memory: cannot allocate P4 frame")?;
 
     // Access the new P4 via physical offset mapping
     let l4_virt = offset + l4_phys as u64;
@@ -174,7 +182,6 @@ pub fn map_user_page(
     let frame_phys =
         crate::memory::allocate_frame().ok_or("Out of memory: cannot allocate user page frame")?;
 
-
     // Zero the frame
     let frame_virt = offset + frame_phys as u64;
     unsafe {
@@ -226,12 +233,8 @@ pub fn map_user_page_at(
                     MapToError::FrameAllocationFailed => {
                         Err("map_to: FrameAllocationFailed (KernelFrameAllocator returned None)")
                     }
-                    MapToError::PageAlreadyMapped(_f) => {
-                        Err("map_to: PageAlreadyMapped")
-                    }
-                    MapToError::ParentEntryHugePage => {
-                        Err("map_to: ParentEntryHugePage")
-                    }
+                    MapToError::PageAlreadyMapped(_f) => Err("map_to: PageAlreadyMapped"),
+                    MapToError::ParentEntryHugePage => Err("map_to: ParentEntryHugePage"),
                 }
             }
         }
@@ -286,7 +289,9 @@ pub fn unmap_user_page(cr3_phys: u64, virt_addr: u64) -> Result<(), &'static str
 
     let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr));
 
-    let (frame, flush) = mapper.unmap(page).map_err(|_| "Failed to unmap user page")?;
+    let (frame, flush) = mapper
+        .unmap(page)
+        .map_err(|_| "Failed to unmap user page")?;
 
     flush.flush();
 
@@ -299,7 +304,8 @@ pub fn unmap_user_page(cr3_phys: u64, virt_addr: u64) -> Result<(), &'static str
 /// Destroy a user-space page table and free all user-space frames.
 ///
 /// Walks P4 entries 0-255 (user space) and recursively frees all page table
-/// frames and mapped data frames. Does NOT free kernel half-space entries.
+/// frames and mapped data frames. CoW-shared frames are only freed when
+/// their reference count drops to 0.
 ///
 /// # Arguments
 ///
@@ -325,7 +331,6 @@ pub fn destroy_user_page_table(cr3_phys: u64) -> Result<(), &'static str> {
             if !l3_entry.flags().contains(PageTableFlags::PRESENT) {
                 continue;
             }
-            // Skip huge pages (1GB)
             if l3_entry.flags().contains(PageTableFlags::HUGE_PAGE) {
                 continue;
             }
@@ -339,7 +344,6 @@ pub fn destroy_user_page_table(cr3_phys: u64) -> Result<(), &'static str> {
                 if !l2_entry.flags().contains(PageTableFlags::PRESENT) {
                     continue;
                 }
-                // Skip huge pages (2MB)
                 if l2_entry.flags().contains(PageTableFlags::HUGE_PAGE) {
                     continue;
                 }
@@ -348,15 +352,19 @@ pub fn destroy_user_page_table(cr3_phys: u64) -> Result<(), &'static str> {
                 let l1_virt = offset + l1_phys.as_u64();
                 let l1_table: &PageTable = unsafe { &*l1_virt.as_mut_ptr::<PageTable>() };
 
-                // Free all mapped data frames in L1
+                // Free or decrement refcount for mapped data frames in L1
                 for l in 0..512 {
                     let l1_entry = &l1_table[l];
                     if l1_entry.flags().contains(PageTableFlags::PRESENT) {
-                        crate::memory::free_frame(l1_entry.addr().as_u64() as usize);
+                        let data_phys = l1_entry.addr().as_u64();
+                        let new_refcount = crate::memory::refcount::decrement(data_phys);
+                        if new_refcount == 0 {
+                            crate::memory::free_frame(data_phys as usize);
+                        }
                     }
                 }
 
-                // Free L1 table frame
+                // Free L1 table frame (always unique per process)
                 crate::memory::free_frame(l1_phys.as_u64() as usize);
             }
 
@@ -405,19 +413,18 @@ unsafe fn current_level_4_table(physical_memory_offset: VirtAddr) -> &'static Pa
     unsafe { &*virt.as_ptr() }
 }
 
-/// Clone a user-space page table (shallow copy).
+/// Clone a user-space page table with Copy-on-Write semantics.
 ///
 /// Creates a new P4 table where:
 /// - Kernel-half entries (256-511) are shared (copied from parent)
 /// - User-half entries (0-255) are deeply copied at the page-table
-///   structure level, but leaf (data) frames are **shared** — both
-///   parent and child PTEs point to the same physical data frames.
+///   structure level (L3/L2/L1 frames are fresh allocations).
+/// - Leaf data frames are **shared** via CoW: both parent and child
+///   PTEs point to the same physical frame, the WRITABLE bit is
+///   cleared, and the COW_BIT marker is set on both PTEs.
 ///
-/// For a true CoW implementation, we would also clear the WRITABLE
-/// bit and set a CoW marker on shared pages.  This simplified version
-/// copies the structure and shares the data frames without CoW
-/// protection (safe for fork+exec patterns where the child immediately
-/// calls execve and replaces its address space).
+/// When either process writes to a CoW page, the page fault handler
+/// allocates a private copy and restores the WRITABLE bit.
 ///
 /// # Arguments
 ///
@@ -438,14 +445,16 @@ pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
     let child_l4_virt = offset + child_l4_phys as u64;
     let child_l4: &mut PageTable = unsafe { &mut *child_l4_virt.as_mut_ptr::<PageTable>() };
 
-    // Access parent P4
+    // Access parent P4 — mutable so we can update PTEs for CoW
     let parent_l4_virt = offset + parent_cr3;
-    let parent_l4: &PageTable = unsafe { &*parent_l4_virt.as_mut_ptr::<PageTable>() };
+    let parent_l4: &mut PageTable = unsafe { &mut *parent_l4_virt.as_mut_ptr::<PageTable>() };
 
     // Copy kernel half (indices 256-511) directly — shared across all processes
     for i in 256..512 {
         child_l4[i] = parent_l4[i].clone();
     }
+
+    let mut shared_pages: u64 = 0;
 
     // Deep-clone user half (indices 0-255)
     for i in 0..256 {
@@ -459,13 +468,11 @@ pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
         let child_l3_phys = crate::memory::allocate_frame()
             .ok_or("Out of memory: cannot allocate child L3 frame")?;
         let child_l3_virt = offset + child_l3_phys as u64;
-        let child_l3: &mut PageTable =
-            unsafe { &mut *child_l3_virt.as_mut_ptr::<PageTable>() };
+        let child_l3: &mut PageTable = unsafe { &mut *child_l3_virt.as_mut_ptr::<PageTable>() };
 
         let parent_l3_phys = parent_entry.addr();
         let parent_l3_virt = offset + parent_l3_phys.as_u64();
-        let parent_l3: &PageTable =
-            unsafe { &*parent_l3_virt.as_mut_ptr::<PageTable>() };
+        let parent_l3: &mut PageTable = unsafe { &mut *parent_l3_virt.as_mut_ptr::<PageTable>() };
 
         for j in 0..512 {
             let parent_l3e = &parent_l3[j];
@@ -483,13 +490,12 @@ pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
             let child_l2_phys = crate::memory::allocate_frame()
                 .ok_or("Out of memory: cannot allocate child L2 frame")?;
             let child_l2_virt = offset + child_l2_phys as u64;
-            let child_l2: &mut PageTable =
-                unsafe { &mut *child_l2_virt.as_mut_ptr::<PageTable>() };
+            let child_l2: &mut PageTable = unsafe { &mut *child_l2_virt.as_mut_ptr::<PageTable>() };
 
             let parent_l2_phys = parent_l3e.addr();
             let parent_l2_virt = offset + parent_l2_phys.as_u64();
-            let parent_l2: &PageTable =
-                unsafe { &*parent_l2_virt.as_mut_ptr::<PageTable>() };
+            let parent_l2: &mut PageTable =
+                unsafe { &mut *parent_l2_virt.as_mut_ptr::<PageTable>() };
 
             for k in 0..512 {
                 let parent_l2e = &parent_l2[k];
@@ -512,32 +518,34 @@ pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
 
                 let parent_l1_phys = parent_l2e.addr();
                 let parent_l1_virt = offset + parent_l1_phys.as_u64();
-                let parent_l1: &PageTable =
-                    unsafe { &*parent_l1_virt.as_mut_ptr::<PageTable>() };
+                let parent_l1: &mut PageTable =
+                    unsafe { &mut *parent_l1_virt.as_mut_ptr::<PageTable>() };
 
-                // Copy L1 entries — leaf data frames are SHARED
-                // (both parent and child point to the same physical data)
+                // CoW: share data frames between parent and child.
+                // Both PTEs are marked read-only + COW_BIT.
                 for l in 0..512 {
                     if parent_l1[l].flags().contains(PageTableFlags::PRESENT) {
-                        // Copy the data frame content to a new frame
-                        // (immediate copy, not CoW — simpler and correct)
-                        let parent_data_phys = parent_l1[l].addr().as_u64();
-                        let new_frame = crate::memory::allocate_frame()
-                            .ok_or("Out of memory: cannot allocate data frame for fork")?;
+                        let data_phys = parent_l1[l].addr().as_u64();
+                        let mut flags = parent_l1[l].flags();
 
-                        // Copy 4KiB of data
-                        let src = (offset + parent_data_phys).as_ptr::<u8>();
-                        let dst = (offset + new_frame as u64).as_mut_ptr::<u8>();
-                        unsafe {
-                            core::ptr::copy_nonoverlapping(src, dst, 4096);
+                        // Mark CoW: clear WRITABLE, set COW_BIT on both PTEs.
+                        // If the page was already CoW (e.g., chained forks),
+                        // just increment the refcount.
+                        let was_writable = flags.contains(PageTableFlags::WRITABLE);
+                        if was_writable {
+                            flags = (flags & !PageTableFlags::WRITABLE) | COW_BIT;
+                            // Update parent PTE to read-only + CoW
+                            parent_l1[l].set_addr(PhysAddr::new(data_phys), flags);
                         }
+                        // If already CoW (not writable + COW_BIT set), just
+                        // share with the same flags.
 
-                        // Map with same flags
-                        child_l1[l] = parent_l1[l].clone();
-                        // Update the physical address to the new frame
-                        use x86_64::structures::paging::page_table::PageTableEntry;
-                        let flags = parent_l1[l].flags();
-                        child_l1[l].set_addr(PhysAddr::new(new_frame as u64), flags);
+                        // Child gets same flags (read-only + CoW marker)
+                        child_l1[l].set_addr(PhysAddr::new(data_phys), flags);
+
+                        // Increment reference count for the shared frame
+                        crate::memory::refcount::increment(data_phys);
+                        shared_pages += 1;
                     } else {
                         child_l1[l].set_unused();
                     }
@@ -545,27 +553,26 @@ pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
 
                 // Set child L2 entry to point to the new L1
                 child_l2[k] = parent_l2[k].clone();
-                child_l2[k].set_addr(
-                    PhysAddr::new(child_l1_phys as u64),
-                    parent_l2[k].flags(),
-                );
+                child_l2[k].set_addr(PhysAddr::new(child_l1_phys as u64), parent_l2[k].flags());
             }
 
             // Set child L3 entry to point to the new L2
             child_l3[j] = parent_l3[j].clone();
-            child_l3[j].set_addr(
-                PhysAddr::new(child_l2_phys as u64),
-                parent_l3[j].flags(),
-            );
+            child_l3[j].set_addr(PhysAddr::new(child_l2_phys as u64), parent_l3[j].flags());
         }
 
         // Set child L4 entry to point to the new L3
         child_l4[i] = parent_l4[i].clone();
-        child_l4[i].set_addr(
-            PhysAddr::new(child_l3_phys as u64),
-            parent_l4[i].flags(),
-        );
+        child_l4[i].set_addr(PhysAddr::new(child_l3_phys as u64), parent_l4[i].flags());
     }
+
+    // Flush TLB for the parent — PTEs were changed (WRITABLE cleared)
+    // SAFETY: we only modified user-space PTEs; a full TLB flush is safe.
+    unsafe {
+        core::arch::asm!("mov cr3, {}", in(reg) parent_cr3, options(nostack, preserves_flags));
+    }
+
+    crate::serial_println!("[CoW] fork shared {} pages (refcounted)", shared_pages);
 
     Ok(child_l4_phys as u64)
 }
@@ -637,6 +644,7 @@ pub fn update_pte_flags(
 ///
 /// This is used by `execve()` to clear the old address space while
 /// keeping the same P4 frame (CR3 stays the same).
+/// CoW-shared frames are only freed when their reference count drops to 0.
 pub fn destroy_user_mappings(cr3_phys: u64) -> Result<(), &'static str> {
     let offset = phys_offset();
     let l4_virt = offset + cr3_phys;
@@ -681,7 +689,11 @@ pub fn destroy_user_mappings(cr3_phys: u64) -> Result<(), &'static str> {
                 for l in 0..512 {
                     let l1_entry = &l1_table[l];
                     if l1_entry.flags().contains(PageTableFlags::PRESENT) {
-                        crate::memory::free_frame(l1_entry.addr().as_u64() as usize);
+                        let data_phys = l1_entry.addr().as_u64();
+                        let new_refcount = crate::memory::refcount::decrement(data_phys);
+                        if new_refcount == 0 {
+                            crate::memory::free_frame(data_phys as usize);
+                        }
                     }
                 }
 
@@ -698,6 +710,183 @@ pub fn destroy_user_mappings(cr3_phys: u64) -> Result<(), &'static str> {
     }
 
     Ok(())
+}
+
+/// Read the L1 (leaf) PTE flags and physical address for a given virtual address.
+///
+/// Walks the page table for `cr3_phys` and returns `(phys_addr, flags)` of
+/// the L1 entry. Returns `None` if any level is not present.
+pub fn read_pte(cr3_phys: u64, virt_addr: u64) -> Option<(u64, PageTableFlags)> {
+    let offset = phys_offset();
+
+    let l4_index = ((virt_addr >> 39) & 0x1FF) as usize;
+    let l3_index = ((virt_addr >> 30) & 0x1FF) as usize;
+    let l2_index = ((virt_addr >> 21) & 0x1FF) as usize;
+    let l1_index = ((virt_addr >> 12) & 0x1FF) as usize;
+
+    // SAFETY: we access page tables via the kernel's physical memory mapping.
+    unsafe {
+        let l4: &PageTable = &*(offset + cr3_phys).as_ptr::<PageTable>();
+        let l4e = &l4[l4_index];
+        if !l4e.flags().contains(PageTableFlags::PRESENT) {
+            return None;
+        }
+
+        let l3: &PageTable = &*(offset + l4e.addr().as_u64()).as_ptr::<PageTable>();
+        let l3e = &l3[l3_index];
+        if !l3e.flags().contains(PageTableFlags::PRESENT) {
+            return None;
+        }
+
+        let l2: &PageTable = &*(offset + l3e.addr().as_u64()).as_ptr::<PageTable>();
+        let l2e = &l2[l2_index];
+        if !l2e.flags().contains(PageTableFlags::PRESENT) {
+            return None;
+        }
+
+        let l1: &PageTable = &*(offset + l2e.addr().as_u64()).as_ptr::<PageTable>();
+        let l1e = &l1[l1_index];
+        if !l1e.flags().contains(PageTableFlags::PRESENT) {
+            return None;
+        }
+
+        Some((l1e.addr().as_u64(), l1e.flags()))
+    }
+}
+
+/// Handle a Copy-on-Write page fault.
+///
+/// Called when a user-mode process writes to a CoW-shared page
+/// (PROTECTION_VIOLATION + CAUSED_BY_WRITE + USER_MODE + COW_BIT set).
+///
+/// 1. Allocates a new physical frame.
+/// 2. Copies the 4 KiB data from the shared frame.
+/// 3. Maps the new frame with WRITABLE, clears COW_BIT.
+/// 4. Decrements the old frame's refcount (frees if count reaches 0).
+/// 5. Invalidates the TLB entry for the faulting address.
+///
+/// # Returns
+///
+/// `true` if the CoW fault was handled successfully, `false` if it failed.
+pub fn handle_cow_fault(cr3_phys: u64, fault_addr: u64) -> bool {
+    let offset = phys_offset();
+
+    let l4_index = ((fault_addr >> 39) & 0x1FF) as usize;
+    let l3_index = ((fault_addr >> 30) & 0x1FF) as usize;
+    let l2_index = ((fault_addr >> 21) & 0x1FF) as usize;
+    let l1_index = ((fault_addr >> 12) & 0x1FF) as usize;
+
+    // Navigate to the L1 PTE.
+    // SAFETY: we access page tables via the kernel's physical memory mapping.
+    let l1e_flags;
+    let old_phys;
+    let l1_table_ptr;
+
+    unsafe {
+        let l4: &PageTable = &*(offset + cr3_phys).as_ptr::<PageTable>();
+        let l4e = &l4[l4_index];
+        if !l4e.flags().contains(PageTableFlags::PRESENT) {
+            return false;
+        }
+
+        let l3: &PageTable = &*(offset + l4e.addr().as_u64()).as_ptr::<PageTable>();
+        let l3e = &l3[l3_index];
+        if !l3e.flags().contains(PageTableFlags::PRESENT) {
+            return false;
+        }
+
+        let l2: &PageTable = &*(offset + l3e.addr().as_u64()).as_ptr::<PageTable>();
+        let l2e = &l2[l2_index];
+        if !l2e.flags().contains(PageTableFlags::PRESENT) {
+            return false;
+        }
+
+        let l1: &PageTable = &*(offset + l2e.addr().as_u64()).as_ptr::<PageTable>();
+        let l1e = &l1[l1_index];
+        if !l1e.flags().contains(PageTableFlags::PRESENT) {
+            return false;
+        }
+
+        l1e_flags = l1e.flags();
+        old_phys = l1e.addr().as_u64();
+        l1_table_ptr = (offset + l2e.addr().as_u64()).as_u64();
+    }
+
+    // Verify this is actually a CoW page.
+    if !l1e_flags.contains(COW_BIT) {
+        return false;
+    }
+
+    // Check if we're the only reference (refcount == 1).
+    // In that case, just restore WRITABLE and clear COW_BIT — no copy needed.
+    let refcount = crate::memory::refcount::get(old_phys);
+    if refcount <= 1 {
+        // We're the sole owner — just make writable again.
+        let new_flags = (l1e_flags | PageTableFlags::WRITABLE) & !COW_BIT;
+        // SAFETY: updating a valid L1 PTE.
+        unsafe {
+            let l1: &mut PageTable = &mut *(l1_table_ptr as *mut PageTable);
+            l1[l1_index].set_addr(PhysAddr::new(old_phys), new_flags);
+        }
+        // Invalidate TLB for this page.
+        let page_addr = fault_addr & !0xFFF;
+        unsafe {
+            core::arch::asm!("invlpg [{}]", in(reg) page_addr, options(nostack, preserves_flags));
+        }
+        crate::serial_println!(
+            "[CoW] fault handled (sole owner, no copy needed) at {:#x}",
+            fault_addr
+        );
+        return true;
+    }
+
+    // Allocate a new frame for the private copy.
+    let new_frame = match crate::memory::allocate_frame() {
+        Some(f) => f as u64,
+        None => {
+            crate::serial_println!(
+                "[CoW] FATAL: out of memory during CoW fault at {:#x}",
+                fault_addr
+            );
+            return false;
+        }
+    };
+
+    // Copy 4 KiB from old frame to new frame.
+    // SAFETY: both frames are valid mapped physical memory.
+    unsafe {
+        let src = (offset + old_phys).as_ptr::<u8>();
+        let dst = (offset + new_frame).as_mut_ptr::<u8>();
+        core::ptr::copy_nonoverlapping(src, dst, 4096);
+    }
+
+    // Update the L1 PTE: point to new frame, restore WRITABLE, clear COW_BIT.
+    let new_flags = (l1e_flags | PageTableFlags::WRITABLE) & !COW_BIT;
+    // SAFETY: updating a valid L1 PTE with the new private frame.
+    unsafe {
+        let l1: &mut PageTable = &mut *(l1_table_ptr as *mut PageTable);
+        l1[l1_index].set_addr(PhysAddr::new(new_frame), new_flags);
+    }
+
+    // Decrement refcount on the old shared frame.
+    let new_refcount = crate::memory::refcount::decrement(old_phys);
+    if new_refcount == 0 {
+        crate::memory::free_frame(old_phys as usize);
+    }
+
+    // Invalidate TLB for this page.
+    let page_addr = fault_addr & !0xFFF;
+    unsafe {
+        core::arch::asm!("invlpg [{}]", in(reg) page_addr, options(nostack, preserves_flags));
+    }
+
+    crate::serial_println!(
+        "[CoW] fault handled at {:#x} (copied frame, old refcount={})",
+        fault_addr,
+        new_refcount + 1
+    );
+
+    true
 }
 
 extern crate alloc;

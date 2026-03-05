@@ -50,13 +50,14 @@
     .\scripts\qemu-test.ps1 -Mode io                 # Full I/O integration test
     .\scripts\qemu-test.ps1 -Mode io -Verbose        # I/O test with serial log
     .\scripts\qemu-test.ps1 -Mode process             # Phase 10 process lifecycle test
+    .\scripts\qemu-test.ps1 -Mode hardening            # Phase 11 kernel hardening test
     .\scripts\qemu-test.ps1 -Mode full -Verbose      # Full verification (verbose)
     .\scripts\qemu-test.ps1 -Mode custom -Expect "GDT initialized","IDT initialized"
     .\scripts\qemu-test.ps1 -NoBuild -NoImage -Mode boot  # Quick retest
 #>
 
 param(
-    [ValidateSet("boot", "smoke", "linux", "full", "io", "process", "custom")]
+    [ValidateSet("boot", "smoke", "linux", "full", "io", "process", "hardening", "custom")]
     [string]$Mode = "boot",
     [int]$Timeout = 45,
     [switch]$Release,
@@ -161,6 +162,17 @@ $ProcessChecks = $SmokeChecks + @(
     @{ Pattern = "Kernel initialization complete";             Label = "Preemption works" },
     @{ Pattern = "PROC.*All process tests PASSED";             Label = "Process E2E" ; IsRegex = $true },
     @{ Pattern = "SCHED.*context switches";                    Label = "Context switches"; IsRegex = $true }
+)
+
+# Hardening checks: Phase 11 CoW fork + work queue + stack guards
+$HardeningChecks = $ProcessChecks + @(
+    @{ Pattern = "CoW.*fork shared.*pages";                     Label = "CoW fork sharing"; IsRegex = $true },
+    @{ Pattern = "CoW.*fault handled";                          Label = "CoW fault handled"; IsRegex = $true },
+    @{ Pattern = "WorkQueue.*drained";                          Label = "Work queue drain"; IsRegex = $true },
+    @{ Pattern = "STACK.*guard page";                           Label = "Stack guard mapped"; IsRegex = $true },
+    @{ Pattern = "HARDENING.*Phase 11";                         Label = "Hardening test start"; IsRegex = $true },
+    @{ Pattern = "HARDENING.*CoW clone successful";             Label = "CoW clone success"; IsRegex = $true },
+    @{ Pattern = "HARDENING.*cow-test spawned";                 Label = "CoW test spawned"; IsRegex = $true }
 )
 
 # ============================================================
@@ -385,7 +397,7 @@ while ($elapsed -lt $Timeout) {
         if ($content) {
             if ($content.Contains("Kernel initialization complete")) {
                 # In process mode, wait longer for delayed test summary
-                $waitSec = if ($Mode -eq "process") { 5 } else { 2 }
+                $waitSec = if ($Mode -eq "process" -or $Mode -eq "hardening") { 5 } else { 2 }
                 Write-Detail "Kernel init complete detected -> waiting ${waitSec}s"
                 Start-Sleep -Seconds $waitSec
                 $earlyExit = $true
@@ -444,7 +456,8 @@ $checks = switch ($Mode) {
     "linux"   { $LinuxChecks }
     "full"    { $LinuxChecks }
     "io"      { $IoChecks }
-    "process" { $ProcessChecks }
+    "process"   { $ProcessChecks }
+    "hardening" { $HardeningChecks }
     "custom"  {
         $Expect | ForEach-Object {
             @{ Pattern = $_; Label = "Custom: $_" }

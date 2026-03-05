@@ -7,8 +7,21 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use super::context::{SwitchContext, setup_initial_stack};
+use super::context::{setup_initial_stack, SwitchContext};
 use super::priority::Priority;
+
+/// Base virtual address for kernel stacks with guard pages.
+///
+/// Located in the kernel high half at P4 index 384, safely above
+/// the bootloader's physical memory mapping (~P4[261]) and below
+/// the kernel heap (P4[296]).
+const STACK_REGION_BASE: u64 = 0xFFFF_C000_0000_0000;
+
+/// Size of one stack slot: guard page (4 KiB) + stack (KERNEL_STACK_SIZE).
+const STACK_SLOT_SIZE: u64 = 4096 + KERNEL_STACK_SIZE as u64;
+
+/// Counter for allocating stack slots (each task gets a unique slot).
+static NEXT_STACK_SLOT: AtomicU64 = AtomicU64::new(0);
 
 /// Unique task identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -127,6 +140,167 @@ pub struct TaskStats {
 /// Default kernel stack size: 16 KiB per task.
 const KERNEL_STACK_SIZE: usize = 16 * 1024;
 
+/// Information about a kernel stack with a guard page.
+///
+/// When dropped, the physical frames should be freed (not implemented
+/// yet — tasks currently live until kernel shutdown).
+#[derive(Debug)]
+pub struct KernelStackGuard {
+    /// Virtual address of the guard page (unmapped, 4 KiB).
+    pub guard_page_virt: u64,
+    /// Virtual address of the stack bottom (first mapped byte).
+    pub stack_bottom_virt: u64,
+    /// Virtual address of the stack top (stack_bottom + stack_size).
+    pub stack_top_virt: u64,
+    /// Number of physical frames allocated for the stack.
+    pub frame_count: usize,
+    /// Physical addresses of allocated frames (for cleanup).
+    pub frames: Vec<u64>,
+}
+
+/// Allocate a kernel stack with a guard page.
+///
+/// Layout (addresses grow upward):
+///   guard_page  (4 KiB, unmapped — faults on access)
+///   stack pages (KERNEL_STACK_SIZE bytes, mapped + WRITABLE)
+///
+/// Returns (stack_top: u64, guard: KernelStackGuard) or panics on OOM.
+fn alloc_kernel_stack_with_guard(task_name: &str) -> (u64, KernelStackGuard) {
+    let slot = NEXT_STACK_SLOT.fetch_add(1, Ordering::Relaxed);
+    let slot_base = STACK_REGION_BASE + slot * STACK_SLOT_SIZE;
+    let guard_virt = slot_base;
+    let stack_bottom_virt = slot_base + 4096; // Right after guard page
+    let stack_pages = KERNEL_STACK_SIZE / 4096; // 4 pages for 16 KiB
+
+    let phys_offset = crate::memory::user_page_table::get_phys_offset();
+
+    // Guard page: intentionally NOT mapped — accessing it causes a page fault.
+    // We don't need to do anything; the page table entry just doesn't exist.
+
+    // Allocate and map stack pages.
+    let mut frames = Vec::with_capacity(stack_pages);
+    for page_idx in 0..stack_pages {
+        let frame_phys = crate::memory::allocate_frame()
+            .expect("alloc_kernel_stack_with_guard: out of physical frames")
+            as u64;
+        frames.push(frame_phys);
+
+        let page_virt = stack_bottom_virt + (page_idx as u64 * 4096);
+
+        // Map this virtual page to the physical frame.
+        // We walk/create the page table entries for this virtual address.
+        // SAFETY: we are mapping kernel-only pages in a region we control.
+        unsafe {
+            map_kernel_page(page_virt, frame_phys, phys_offset);
+        }
+    }
+
+    let stack_top = (stack_bottom_virt + KERNEL_STACK_SIZE as u64) & !0xF;
+
+    crate::serial_println!(
+        "[STACK] guard page at {:#x}, stack {:#x}-{:#x} for '{}'",
+        guard_virt,
+        stack_bottom_virt,
+        stack_top,
+        task_name
+    );
+
+    let guard = KernelStackGuard {
+        guard_page_virt: guard_virt,
+        stack_bottom_virt,
+        stack_top_virt: stack_top,
+        frame_count: stack_pages,
+        frames,
+    };
+
+    (stack_top, guard)
+}
+
+/// Map a single 4 KiB page in the kernel's page table.
+///
+/// Creates intermediate page table entries as needed.
+///
+/// # Safety
+///
+/// The caller must ensure the virtual address is in a safe kernel region.
+unsafe fn map_kernel_page(virt: u64, phys: u64, phys_offset: u64) {
+    use x86_64::registers::control::Cr3;
+
+    let cr3 = Cr3::read().0.start_address().as_u64();
+
+    let l4_idx = ((virt >> 39) & 0x1FF) as usize;
+    let l3_idx = ((virt >> 30) & 0x1FF) as usize;
+    let l2_idx = ((virt >> 21) & 0x1FF) as usize;
+    let l1_idx = ((virt >> 12) & 0x1FF) as usize;
+
+    let flags_present_write: u64 = 0x03; // PRESENT | WRITABLE
+
+    // SAFETY: All pointer arithmetic and dereferences below operate on
+    // page table entries accessed via the kernel's physical memory
+    // mapping (phys_offset + physical_address). The caller guarantees
+    // the virtual address is in a safe kernel region, and the page
+    // table frames are either read from CR3 (the active page table)
+    // or freshly allocated via allocate_frame().
+
+    // Walk or create page table entries.
+    let l4_table = (phys_offset + cr3) as *mut u64;
+    let l4_entry = unsafe { l4_table.add(l4_idx) };
+    if unsafe { *l4_entry } & 1 == 0 {
+        // Allocate L3 table
+        let l3_frame =
+            crate::memory::allocate_frame().expect("map_kernel_page: OOM for L3 table") as u64;
+        unsafe { core::ptr::write_bytes((phys_offset + l3_frame) as *mut u8, 0, 4096) };
+        unsafe { *l4_entry = l3_frame | flags_present_write };
+    }
+
+    let l3_phys = unsafe { *l4_entry } & 0x000F_FFFF_FFFF_F000;
+    let l3_table = (phys_offset + l3_phys) as *mut u64;
+    let l3_entry = unsafe { l3_table.add(l3_idx) };
+    if unsafe { *l3_entry } & 1 == 0 {
+        // Allocate L2 table
+        let l2_frame =
+            crate::memory::allocate_frame().expect("map_kernel_page: OOM for L2 table") as u64;
+        unsafe { core::ptr::write_bytes((phys_offset + l2_frame) as *mut u8, 0, 4096) };
+        unsafe { *l3_entry = l2_frame | flags_present_write };
+    }
+
+    let l2_phys = unsafe { *l3_entry } & 0x000F_FFFF_FFFF_F000;
+    let l2_table = (phys_offset + l2_phys) as *mut u64;
+    let l2_entry = unsafe { l2_table.add(l2_idx) };
+    if unsafe { *l2_entry } & 1 == 0 {
+        // Allocate L1 table
+        let l1_frame =
+            crate::memory::allocate_frame().expect("map_kernel_page: OOM for L1 table") as u64;
+        unsafe { core::ptr::write_bytes((phys_offset + l1_frame) as *mut u8, 0, 4096) };
+        unsafe { *l2_entry = l1_frame | flags_present_write };
+    }
+
+    let l1_phys = unsafe { *l2_entry } & 0x000F_FFFF_FFFF_F000;
+    let l1_table = (phys_offset + l1_phys) as *mut u64;
+    let l1_entry = unsafe { l1_table.add(l1_idx) };
+    // Map: PRESENT | WRITABLE | NO_EXECUTE
+    unsafe { *l1_entry = phys | flags_present_write | (1u64 << 63) }; // NX bit
+
+    // Invalidate the TLB for this page
+    unsafe {
+        core::arch::asm!("invlpg [{}]", in(reg) virt, options(nostack, preserves_flags));
+    }
+}
+
+/// Check if a faulting address is in the kernel stack guard region.
+///
+/// Returns `true` if the address falls within a guard page.
+/// Called from the page fault handler to provide a clear panic message.
+pub fn is_stack_guard_page(addr: u64) -> bool {
+    if addr < STACK_REGION_BASE {
+        return false;
+    }
+    let offset = addr - STACK_REGION_BASE;
+    let slot_offset = offset % STACK_SLOT_SIZE;
+    // Guard page is the first 4 KiB of each slot.
+    slot_offset < 4096
+}
+
 /// A task in the system.
 pub struct Task {
     /// Unique task ID.
@@ -154,7 +328,11 @@ pub struct Task {
     /// Parent task ID (if any).
     parent: Option<TaskId>,
     /// Owned kernel stack allocation (kept alive for the task's lifetime).
+    /// Either a Vec<u8> (legacy, for user-process kernel stacks) or
+    /// a KernelStackGuard (frame-allocated with guard page).
     _kernel_stack: Option<Vec<u8>>,
+    /// Guard page info for kernel tasks (None for user processes).
+    _stack_guard: Option<KernelStackGuard>,
     /// CR3 page table root for user-space processes.
     /// 0 means "use current kernel CR3" (kernel tasks).
     cr3: u64,
@@ -175,19 +353,15 @@ impl Task {
     pub fn new_kernel(name: &str, entry: u64, _stack_top_legacy: u64) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(2);
 
-        // Allocate a dedicated kernel stack for this task.
-        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
-        stack.resize(KERNEL_STACK_SIZE, 0u8);
-        let stack_bottom = stack.as_ptr() as u64;
-        // Stack grows downward — top is bottom + size, 16-byte aligned.
-        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
+        // Allocate a kernel stack with guard page.
+        let (stack_top, stack_guard) = alloc_kernel_stack_with_guard(name);
 
         let mut context = TaskContext::default();
         context.rip = entry;
         context.rsp = stack_top;
         context.rflags = 0x202; // IF flag set
-        context.cs = 0x08;     // Kernel code segment
-        context.ss = 0x10;     // Kernel data segment
+        context.cs = 0x08; // Kernel code segment
+        context.ss = 0x10; // Kernel data segment
 
         // Prepare the stack: push the entry point as a fake
         // return address.  When `switch_context()` restores RSP
@@ -195,7 +369,7 @@ impl Task {
         let initial_rsp = setup_initial_stack(stack_top, entry);
 
         let switch_ctx = SwitchContext {
-            rip: entry,          // informational only
+            rip: entry, // informational only
             rsp: initial_rsp,
             rbp: 0,
             rbx: 0,
@@ -218,7 +392,8 @@ impl Task {
             stack_top,
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
-            _kernel_stack: Some(stack),
+            _kernel_stack: None,
+            _stack_guard: Some(stack_guard),
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
@@ -229,11 +404,8 @@ impl Task {
     pub fn new_wasm(name: &str, _stack_top_legacy: u64) -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(2);
 
-        // Allocate dedicated kernel stack.
-        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
-        stack.resize(KERNEL_STACK_SIZE, 0u8);
-        let stack_bottom = stack.as_ptr() as u64;
-        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
+        // Allocate kernel stack with guard page.
+        let (stack_top, stack_guard) = alloc_kernel_stack_with_guard(name);
 
         let mut context = TaskContext::default();
         context.rsp = stack_top;
@@ -254,7 +426,8 @@ impl Task {
             stack_top,
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
-            _kernel_stack: Some(stack),
+            _kernel_stack: None,
+            _stack_guard: Some(stack_guard),
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
@@ -266,16 +439,13 @@ impl Task {
     /// The idle task gets its own stack but uses a dedicated
     /// idle-loop entry point.
     pub fn new_idle() -> Self {
-        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
-        stack.resize(KERNEL_STACK_SIZE, 0u8);
-        let stack_bottom = stack.as_ptr() as u64;
-        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
+        let (stack_top, stack_guard) = alloc_kernel_stack_with_guard("idle");
 
         let idle_entry = idle_task_entry as *const () as u64;
         let initial_rsp = setup_initial_stack(stack_top, idle_entry);
 
         let switch_ctx = SwitchContext {
-            rip: idle_entry,     // informational only
+            rip: idle_entry, // informational only
             rsp: initial_rsp,
             rbp: 0,
             rbx: 0,
@@ -298,7 +468,8 @@ impl Task {
             stack_top,
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
-            _kernel_stack: Some(stack),
+            _kernel_stack: None,
+            _stack_guard: Some(stack_guard),
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
@@ -311,12 +482,8 @@ impl Task {
     /// its own kernel stack.  The first context switch will save
     /// the actual register state into its `SwitchContext`.
     pub fn new_boot_task() -> Self {
-        // Allocate a kernel stack for the boot task so that
-        // saved RSP always points to dedicated memory.
-        let mut stack = Vec::with_capacity(KERNEL_STACK_SIZE);
-        stack.resize(KERNEL_STACK_SIZE, 0u8);
-        let stack_bottom = stack.as_ptr() as u64;
-        let stack_top = (stack_bottom + KERNEL_STACK_SIZE as u64) & !0xF;
+        // Allocate a kernel stack with guard page for the boot task.
+        let (stack_top, stack_guard) = alloc_kernel_stack_with_guard("kernel-main");
 
         Task {
             id: TaskId::KERNEL,
@@ -331,7 +498,8 @@ impl Task {
             stack_top,
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
-            _kernel_stack: Some(stack),
+            _kernel_stack: None,
+            _stack_guard: Some(stack_guard),
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
@@ -526,6 +694,7 @@ impl Task {
             stack_size: KERNEL_STACK_SIZE,
             parent: None,
             _kernel_stack: Some(kernel_stack),
+            _stack_guard: None,
             cr3,
             kernel_stack_top_addr: kernel_stack_top,
             process_pid: pid,
@@ -567,13 +736,20 @@ pub struct UserEntryContext {
 fn user_process_entry_trampoline() -> ! {
     // r12 was restored by switch_context and contains the UserEntryContext pointer
     let ctx_ptr: u64;
-    unsafe { core::arch::asm!("mov {}, r12", out(reg) ctx_ptr); }
+    unsafe {
+        core::arch::asm!("mov {}, r12", out(reg) ctx_ptr);
+    }
 
     // Take ownership of the heap-allocated UserEntryContext
     let ctx = unsafe { *alloc::boxed::Box::from_raw(ctx_ptr as *mut UserEntryContext) };
 
-    crate::serial_println!("[PROC] Entering Ring 3: RIP={:#x} RSP={:#x} CS={:#x} SS={:#x}",
-        ctx.rip, ctx.rsp, ctx.cs, ctx.ss);
+    crate::serial_println!(
+        "[PROC] Entering Ring 3: RIP={:#x} RSP={:#x} CS={:#x} SS={:#x}",
+        ctx.rip,
+        ctx.rsp,
+        ctx.cs,
+        ctx.ss
+    );
 
     // Enable interrupts before entering user space (timer must fire for preemption)
     x86_64::instructions::interrupts::enable();
