@@ -16,9 +16,10 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::linux::{
-    copy_to_user, read_user_string, validate_user_ptr,
+    copy_from_user, copy_to_user, read_user_string, validate_user_ptr,
     AT_FDCWD, EACCES, EBADF, EFAULT, EINVAL, EISDIR, EMFILE, ENOENT, ENOSYS, ENOTDIR,
     EPIPE, ERANGE, ESRCH, ESPIPE, EEXIST,
 };
@@ -28,6 +29,85 @@ use crate::process::table::{
     MAX_HEAP_SIZE, PROCESS_TABLE,
 };
 use crate::serial;
+
+// ─── Execve context: new RIP/RSP/RFLAGS for syscall return ──────────
+
+/// New execution context set by `sys_execve()` and consumed by the
+/// syscall return path in `linux_syscall_entry` assembly.
+///
+/// When `sys_execve()` succeeds, it stores the new entry point, stack
+/// pointer, and RFLAGS here. The assembly epilogue checks
+/// `EXECVE_PENDING` and, if non-zero, overwrites the saved RCX (RIP),
+/// user RSP, and R11 (RFLAGS) with these values before `sysretq`.
+///
+/// # Safety
+///
+/// Single-CPU only. For SMP, this must move into `PerCpuData`.
+pub static EXECVE_PENDING: AtomicU64 = AtomicU64::new(0);
+pub static EXECVE_NEW_RIP: AtomicU64 = AtomicU64::new(0);
+pub static EXECVE_NEW_RSP: AtomicU64 = AtomicU64::new(0);
+pub static EXECVE_NEW_RFLAGS: AtomicU64 = AtomicU64::new(0);
+
+/// Set the execve pending context. Called by `sys_execve` on success.
+fn set_execve_context(rip: u64, rsp: u64, rflags: u64) {
+    EXECVE_NEW_RIP.store(rip, Ordering::Release);
+    EXECVE_NEW_RSP.store(rsp, Ordering::Release);
+    EXECVE_NEW_RFLAGS.store(rflags, Ordering::Release);
+    // Set pending LAST — the assembly checks this flag.
+    EXECVE_PENDING.store(1, Ordering::Release);
+}
+
+/// Clear the execve pending context. Called by the assembly after
+/// consuming the new context. Also exposed for emergency cleanup.
+pub fn clear_execve_context() {
+    EXECVE_PENDING.store(0, Ordering::Release);
+}
+
+/// Read a NULL-terminated array of user-space string pointers.
+///
+/// Walks a `const char *const argv[]` style array from user memory:
+/// each element is a 64-bit pointer to a NUL-terminated string,
+/// terminated by a NULL pointer sentinel.
+///
+/// # Parameters
+/// - `array_ptr`: user-space address of the pointer array
+/// - `max_entries`: maximum number of strings to read (prevents DoS)
+///
+/// Returns `Err(-EFAULT)` on bad pointer, `Err(-EINVAL)` on bad UTF-8.
+fn read_user_string_array(array_ptr: u64, max_entries: usize) -> Result<Vec<String>, i64> {
+    use super::linux::{read_user_string, validate_user_ptr, EFAULT};
+
+    // NULL array pointer means empty list (POSIX allows it)
+    if array_ptr == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut result = Vec::new();
+
+    for i in 0..max_entries {
+        let ptr_addr = array_ptr + (i as u64) * 8;
+
+        // Validate the pointer slot itself
+        validate_user_ptr(ptr_addr, 8)?;
+
+        // Read the pointer value
+        let mut ptr_buf = [0u8; 8];
+        copy_from_user(&mut ptr_buf, ptr_addr)?;
+        let str_ptr = u64::from_le_bytes(ptr_buf);
+
+        // NULL sentinel terminates the array
+        if str_ptr == 0 {
+            break;
+        }
+
+        // Read the string at this pointer
+        let s = read_user_string(str_ptr, PATH_MAX)?;
+        result.push(s);
+    }
+
+    Ok(result)
+}
+
 use crate::vfs;
 
 /// Maximum path length we'll accept from userspace.
@@ -968,7 +1048,10 @@ pub fn sys_fork() -> i64 {
 /// `execve(path, argv, envp)` → 0 or -errno
 ///
 /// Replaces the current process image with a new ELF binary.
-pub fn sys_execve(path_ptr: u64, _argv_ptr: u64, _envp_ptr: u64) -> i64 {
+/// On success, the syscall assembly epilogue detects `EXECVE_PENDING`
+/// and overwrites the saved return frame (RCX/R11/RSP) with the new
+/// entry point, RFLAGS, and stack pointer before executing `sysretq`.
+pub fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> i64 {
     use super::linux::read_user_string;
 
     // Read path from user space
@@ -978,6 +1061,31 @@ pub fn sys_execve(path_ptr: u64, _argv_ptr: u64, _envp_ptr: u64) -> i64 {
     };
 
     crate::serial_println!("[KPIO/execve] execve(\"{}\")", path);
+
+    // ── Parse argv from user memory ──
+    let args = match read_user_string_array(argv_ptr, 256) {
+        Ok(v) => {
+            if v.is_empty() {
+                // If argv is empty, use the path as argv[0] (POSIX convention)
+                alloc::vec![alloc::string::String::from(&*path)]
+            } else {
+                v
+            }
+        }
+        Err(_) => alloc::vec![alloc::string::String::from(&*path)],
+    };
+
+    // ── Parse envp from user memory ──
+    let envp = match read_user_string_array(envp_ptr, 256) {
+        Ok(v) => v,
+        Err(_) => alloc::vec![],
+    };
+
+    crate::serial_println!(
+        "[KPIO/execve] argv={}, envp={}",
+        args.len(),
+        envp.len()
+    );
 
     let pid = match current_pid() {
         Some(p) => p,
@@ -1004,11 +1112,23 @@ pub fn sys_execve(path_ptr: u64, _argv_ptr: u64, _envp_ptr: u64) -> i64 {
     };
 
     // Get the current CR3
+    // Get CR3: try process table first, fall back to CPU register
     let cr3 = match PROCESS_TABLE.with_process_mut(pid, |proc| {
         proc.linux_memory.as_ref().map(|m| m.cr3)
     }) {
         Some(Some(cr3)) => cr3,
-        _ => return -(super::linux::ENOMEM),
+        _ => {
+            // No process table entry — read CR3 directly from CPU.
+            // This handles test binaries spawned without full process
+            // table registration (e.g., raw Task::new_user_process).
+            let (frame, _flags) = x86_64::registers::control::Cr3::read();
+            let hw_cr3 = frame.start_address().as_u64();
+            crate::serial_println!(
+                "[KPIO/execve] No process table for pid={}, using HW CR3={:#x}",
+                pid.0, hw_cr3,
+            );
+            hw_cr3
+        }
     };
 
     // Destroy old user-space mappings (keep kernel half)
@@ -1034,19 +1154,15 @@ pub fn sys_execve(path_ptr: u64, _argv_ptr: u64, _envp_ptr: u64) -> i64 {
             }
         };
 
-    // Build args/envp for new program
-    let args = alloc::vec![alloc::string::String::from(&path)];
-    let envp: alloc::vec::Vec<alloc::string::String> = alloc::vec![];
-
     // Create UserProgram for auxv
     let user_program = crate::loader::program::UserProgram::new(
-        alloc::string::String::from(&path),
+        alloc::string::String::from(&*path),
         loaded,
         args.clone(),
         envp.clone(),
     );
 
-    // Set up new user stack
+    // Set up new user stack with args/envp/auxv
     let initial_sp = match crate::loader::segment_loader::setup_user_stack(
         cr3,
         load_result.initial_sp,
@@ -1064,7 +1180,7 @@ pub fn sys_execve(path_ptr: u64, _argv_ptr: u64, _envp_ptr: u64) -> i64 {
 
     // Update process state
     PROCESS_TABLE.with_process_mut(pid, |proc| {
-        proc.name = alloc::string::String::from(&path);
+        proc.name = alloc::string::String::from(&*path);
         proc.program = Some(user_program);
 
         // Update linux memory state
@@ -1086,15 +1202,12 @@ pub fn sys_execve(path_ptr: u64, _argv_ptr: u64, _envp_ptr: u64) -> i64 {
         initial_sp
     );
 
-    // The execve effectively replaces the process image.
-    // We can't easily modify the current task's return context
-    // from here, so we rely on the scheduler task mechanism.
-    // For a full implementation, we'd modify the saved syscall
-    // return frame (RCX/R11/RSP on the kernel stack) to point
-    // to the new entry point.
-    //
-    // For now, we signal success. The process will need to be
-    // re-entered via the scheduler with the new entry point.
+    // Set the execve pending context for the assembly epilogue.
+    // RFLAGS = 0x202 (IF=1, reserved bit 1 set) — standard for user mode.
+    set_execve_context(load_result.entry_point, initial_sp, 0x202);
+
+    // Return value is irrelevant — the assembly epilogue will override
+    // the return frame with the new entry point. We return 0 for clarity.
     0
 }
 
@@ -2399,7 +2512,6 @@ fn resolve_path(path: &str) -> String {
 
 use spin::Mutex;
 use alloc::collections::BTreeMap;
-use core::sync::atomic::{AtomicU64, Ordering};
 
 /// A kernel pipe: a circular buffer with read/write cursors.
 struct PipeBuffer {

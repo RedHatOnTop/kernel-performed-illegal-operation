@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 7.0.0  
-**Last Updated:** 2026-03-05  
-**Status:** Phase 11 Complete ✅ (11-1 ✅, 11-2 ✅, 11-3 ✅, 11-4 ✅)
+**Document Version:** 7.1.0  
+**Last Updated:** 2026-03-06  
+**Status:** Phase 12 In Progress (12-1 ✅)
 
 ---
 
@@ -10,7 +10,9 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 11 (Kernel Hardening) completed 2026-03-05. All four sub-phases are done. Sub-phase 11-1 (Copy-on-Write Fork) — `fork()` now shares user-space data frames instead of eagerly copying; writes trigger CoW page faults via bit-9 PTE marker, per-frame reference counting in `memory/refcount.rs`, `clone_user_page_table()` rewritten for CoW sharing, `handle_cow_fault()` allocates private copies on demand. Sub-phase 11-2 (Bottom-Half Work Queue) — lock-free 256-entry ring buffer (`interrupts/workqueue.rs`) eliminates ISR deadlocks; timer/keyboard/mouse callbacks dispatched outside interrupt context via `drain()` in the main loop; known issue #6 (timer callback deadlock) permanently resolved. Sub-phase 11-3 (Stack Guard Pages) — kernel stacks allocated from raw physical frames at `0xFFFF_C000_0000_0000` (P4 index 384) with unmapped guard pages; page fault handler detects guard hits and panics with task name. Sub-phase 11-4 (Integration Test) — `qemu-test.ps1 -Mode hardening` validates CoW fork sharing, CoW fault handling, work queue drain, and stack guard mapping. See [Phase 11 Plan](../plans/PHASE_11_KERNEL_HARDENING_PLAN.md).
+**Update:** Phase 12-1 (Fix execve Return Path) completed 2026-03-06. `sys_execve()` now correctly redirects SYSCALL return to the new ELF entry point. Implementation uses `EXECVE_PENDING` AtomicU64 statics checked in `ring3_syscall_entry` assembly epilogue — if set, `sysretq` is redirected to new RIP/RSP/RFLAGS instead of the original caller. Inline ELF64 loader in `ring3_syscall_dispatch` handles minimal PT_LOAD segment mapping with page reuse via `read_pte()`. QEMU test confirms "EXECVE OK" from target binary with exit code 42. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+
+**Previous:** Phase 11 (Kernel Hardening) completed 2026-03-05. All four sub-phases are done. Sub-phase 11-1 (Copy-on-Write Fork) — `fork()` now shares user-space data frames instead of eagerly copying; writes trigger CoW page faults via bit-9 PTE marker, per-frame reference counting in `memory/refcount.rs`, `clone_user_page_table()` rewritten for CoW sharing, `handle_cow_fault()` allocates private copies on demand. Sub-phase 11-2 (Bottom-Half Work Queue) — lock-free 256-entry ring buffer (`interrupts/workqueue.rs`) eliminates ISR deadlocks; timer/keyboard/mouse callbacks dispatched outside interrupt context via `drain()` in the main loop; known issue #6 (timer callback deadlock) permanently resolved. Sub-phase 11-3 (Stack Guard Pages) — kernel stacks allocated from raw physical frames at `0xFFFF_C000_0000_0000` (P4 index 384) with unmapped guard pages; page fault handler detects guard hits and panics with task name. Sub-phase 11-4 (Integration Test) — `qemu-test.ps1 -Mode hardening` validates CoW fork sharing, CoW fault handling, work queue drain, and stack guard mapping. See [Phase 11 Plan](../plans/PHASE_11_KERNEL_HARDENING_PLAN.md).
 
 **Previous:** Phase 10 (Preemptive Kernel & User-Space Isolation) completed 2026-02-26. All five sub-phases are done. Sub-phase 10-1 (stability fixes) — ACPI misaligned pointer derefs fixed, VFS `seek(SeekFrom::End)` bug fixed, VirtIO MMIO `MRG_RXBUF` feature negotiation corrected. Sub-phase 10-2 (preemptive scheduling) — real context switching via APIC timer, per-task kernel stacks, `setup_initial_stack()`, preemption guards, interrupt-safe `try_lock()`. Sub-phase 10-3 (Ring 3 user-space isolation) — SYSCALL/SYSRET via IA32_LSTAR with SWAPGS per-CPU stack switching, per-process CR3 page tables, TSS RSP0 update on context switch, graceful user-mode fault handling. Sub-phase 10-4 (core process syscalls) — `fork()` with full address-space copy, `execve()` with ELF reload and user-mapping teardown, `wait4()` with zombie reaping, `mprotect()` with real PTE flag updates and TLB flush, `rt_sigaction`/`rt_sigprocmask` signal handling, futex WAIT/WAKE with per-address wait queues. Sub-phase 10-5 (integration & validation) — automated QEMU process lifecycle tests (`qemu-test.ps1 -Mode process`), embedded test programs (hello Ring 3, spin preemption, multi-process isolation), Phase 10 documentation. See [Phase 10 Plan](../plans/PHASE_10_PREEMPTIVE_USERSPACE_PLAN.md).
 
@@ -528,6 +530,7 @@ Prepare the system for production use with security, stability, and performance 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 7.1.0 | 2026-03-06 | Phase 12-1 complete — execve return path fixed (EXECVE_PENDING assembly epilogue, inline ELF loader) |
 | 7.0.0 | 2026-03-05 | Phase 11 complete — kernel hardening (CoW fork, work queue, stack guards, integration test) |
 | 6.8.0 | 2026-02-26 | Phase 10 complete — 10-5 integration tests and documentation |
 | 6.7.0 | 2026-02-26 | Phase 10-4 complete — core process syscalls (fork, execve, wait4, mprotect, signals, futex) |

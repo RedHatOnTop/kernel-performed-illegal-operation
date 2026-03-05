@@ -22,7 +22,7 @@
 //! in `syscall/linux.rs` and is referenced via `extern "C"` linkage
 //! at link time.
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 // ─── Per-CPU Data ────────────────────────────────────────────────────
 
@@ -75,6 +75,32 @@ static mut PER_CPU_ARRAY: [PerCpuData; MAX_CPUS] = {
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
+// ─── Execve context (shared between dispatch and assembly) ───────────
+
+/// When set to 1, the assembly epilogue in `ring3_syscall_entry` will
+/// redirect `sysretq` to the new entry point instead of returning to
+/// the original caller.
+pub static EXECVE_PENDING: AtomicU64 = AtomicU64::new(0);
+pub static EXECVE_NEW_RIP: AtomicU64 = AtomicU64::new(0);
+pub static EXECVE_NEW_RSP: AtomicU64 = AtomicU64::new(0);
+pub static EXECVE_NEW_RFLAGS: AtomicU64 = AtomicU64::new(0);
+
+fn set_execve_context(rip: u64, rsp: u64, rflags: u64) {
+    EXECVE_NEW_RIP.store(rip, Ordering::SeqCst);
+    EXECVE_NEW_RSP.store(rsp, Ordering::SeqCst);
+    EXECVE_NEW_RFLAGS.store(rflags, Ordering::SeqCst);
+    // Pending must be last (release fence).
+    EXECVE_PENDING.store(1, Ordering::SeqCst);
+}
+
+#[allow(dead_code)]
+fn clear_execve_context() {
+    EXECVE_PENDING.store(0, Ordering::SeqCst);
+    EXECVE_NEW_RIP.store(0, Ordering::SeqCst);
+    EXECVE_NEW_RSP.store(0, Ordering::SeqCst);
+    EXECVE_NEW_RFLAGS.store(0, Ordering::SeqCst);
+}
+
 // ─── Minimal syscall entry ───────────────────────────────────────────
 
 /// Minimal Linux-compatible syscall entry point for Ring 3 testing.
@@ -114,6 +140,17 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
         "mov rdi, rax",        // nr = syscall number
         // 6. Call Rust dispatcher — returns result in RAX
         "call ring3_syscall_dispatch",
+
+        // ── Execve pending check ─────────────────────────────────
+        // If ring3_syscall_dispatch set EXECVE_PENDING, we must NOT
+        // return to the old caller.  Instead we redirect sysretq to
+        // the new entry point / stack.
+        "lea r8, [rip + {execve_pending}]",
+        "mov r8, [r8]",
+        "test r8, r8",
+        "jnz 2f",
+
+        // ── Normal return path ───────────────────────────────────
         // 7. Restore registers
         "pop rdx",
         "pop rsi",
@@ -127,12 +164,54 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
         // 10. Swap back to user GS and return
         "swapgs",
         "sysretq",
+
+        // ── Execve return path (label 2) ─────────────────────────
+        // Clear pending flag
+        "2:",
+        "lea r8, [rip + {execve_pending}]",
+        "mov qword ptr [r8], 0",
+        // Load new entry point → RCX (sysretq jumps to RCX)
+        "lea r8, [rip + {execve_new_rip}]",
+        "mov rcx, [r8]",
+        // Load new user RSP → r14 (temp)
+        "lea r8, [rip + {execve_new_rsp}]",
+        "mov r14, [r8]",
+        // Load new RFLAGS → R11 (sysretq loads RFLAGS from R11)
+        "lea r8, [rip + {execve_new_rflags}]",
+        "mov r11, [r8]",
+        // Discard saved frame (5 pushes × 8 bytes = 40)
+        "add rsp, 40",
+        // Clear in-syscall flag
+        "mov qword ptr gs:[32], 0",
+        // Set user RSP to the new stack
+        "mov rsp, r14",
+        // Swap back to user GS
+        "swapgs",
+        // Zero all GPRs except RCX (new RIP) and R11 (new RFLAGS)
+        "xor rax, rax",
+        "xor rbx, rbx",
+        "xor rdx, rdx",
+        "xor rsi, rsi",
+        "xor rdi, rdi",
+        "xor rbp, rbp",
+        "xor r8, r8",
+        "xor r9, r9",
+        "xor r10, r10",
+        "xor r12, r12",
+        "xor r13, r13",
+        "xor r14, r14",
+        "xor r15, r15",
+        "sysretq",
+        execve_pending = sym EXECVE_PENDING,
+        execve_new_rip = sym EXECVE_NEW_RIP,
+        execve_new_rsp = sym EXECVE_NEW_RSP,
+        execve_new_rflags = sym EXECVE_NEW_RFLAGS,
     );
 }
 
 /// Rust dispatcher called from the minimal syscall entry point.
 ///
-/// Handles SYS_EXIT (60), SYS_WRITE (1), and a few stubs.
+/// Handles SYS_EXIT (60), SYS_WRITE (1), SYS_EXECVE (59), and stubs.
 /// Returns value in RAX (negative = -errno).
 #[no_mangle]
 extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64 {
@@ -149,6 +228,8 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64
             }
             count as i64
         }
+        // SYS_EXECVE (pathname=a1, argv=a2, envp=_a3)
+        59 => handle_execve(a1),
         // SYS_EXIT (status=a1) / SYS_EXIT_GROUP (231)
         60 | 231 => {
             crate::serial_println!("[RING3] SYS_EXIT called with status={}", a1 as i64);
@@ -166,6 +247,189 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64
             -38 // -ENOSYS
         }
     }
+}
+
+// ─── Execve handler ─────────────────────────────────────────────────
+
+/// Minimal `execve` implementation for the binary-crate syscall path.
+///
+/// Reads the pathname from user memory, loads the ELF from VFS,
+/// maps PT_LOAD segments into the current user address space, sets
+/// up a fresh user stack, and sets the EXECVE_PENDING context so that
+/// the assembly epilogue in `ring3_syscall_entry` redirects `sysretq`
+/// to the new entry point.
+fn handle_execve(pathname_ptr: u64) -> i64 {
+    use x86_64::structures::paging::PageTableFlags;
+
+    // 1. Read pathname from user memory
+    if pathname_ptr == 0 || pathname_ptr >= 0x0000_8000_0000_0000 {
+        crate::serial_println!("[EXECVE] EFAULT: bad pathname pointer {:#x}", pathname_ptr);
+        return -14; // -EFAULT
+    }
+    let pathname = unsafe {
+        let mut ptr = pathname_ptr as *const u8;
+        let mut bytes = alloc::vec::Vec::new();
+        for _ in 0..256 {
+            let b = *ptr;
+            if b == 0 {
+                break;
+            }
+            bytes.push(b);
+            ptr = ptr.add(1);
+        }
+        match alloc::string::String::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(_) => return -22, // -EINVAL
+        }
+    };
+    crate::serial_println!("[EXECVE] execve({:?})", pathname);
+
+    // 2. Read ELF binary from VFS
+    let elf_data = match crate::vfs::read_all(&pathname) {
+        Ok(data) => data,
+        Err(e) => {
+            crate::serial_println!("[EXECVE] File not found: {} ({:?})", pathname, e);
+            return -2; // -ENOENT
+        }
+    };
+    crate::serial_println!("[EXECVE] Loaded {} bytes from VFS", elf_data.len());
+
+    // 3. Minimal ELF64 header parse
+    if elf_data.len() < 64 || elf_data[0..4] != [0x7F, b'E', b'L', b'F'] {
+        crate::serial_println!("[EXECVE] ENOEXEC: invalid ELF magic");
+        return -8; // -ENOEXEC
+    }
+    let entry_point = u64::from_le_bytes(elf_data[24..32].try_into().unwrap());
+    let phoff = u64::from_le_bytes(elf_data[32..40].try_into().unwrap()) as usize;
+    let phentsize = u16::from_le_bytes(elf_data[54..56].try_into().unwrap()) as usize;
+    let phnum = u16::from_le_bytes(elf_data[56..58].try_into().unwrap()) as usize;
+    crate::serial_println!(
+        "[EXECVE] ELF: entry={:#x}, phoff={}, phentsize={}, phnum={}",
+        entry_point, phoff, phentsize, phnum,
+    );
+
+    // 4. Get current CR3 (we're running on the caller's page table)
+    let (cr3_frame, _) = x86_64::registers::control::Cr3::read();
+    let cr3 = cr3_frame.start_address().as_u64();
+    crate::serial_println!("[EXECVE] CR3={:#x}", cr3);
+
+    // 5. Map PT_LOAD segments into the user page table.
+    //    Instead of destroy+recreate (which hangs due to frame-pool
+    //    lock contention under SFMASK IF=0), we reuse existing pages
+    //    when already mapped and only allocate new ones as needed.
+    let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+    let writable_flags = code_flags | PageTableFlags::WRITABLE;
+
+    for i in 0..phnum {
+        let off = phoff + i * phentsize;
+        if off + 56 > elf_data.len() {
+            break;
+        }
+        let p_type = u32::from_le_bytes(elf_data[off..off + 4].try_into().unwrap());
+        if p_type != 1 {
+            continue; // only PT_LOAD
+        }
+        let p_flags = u32::from_le_bytes(elf_data[off + 4..off + 8].try_into().unwrap());
+        let p_offset = u64::from_le_bytes(elf_data[off + 8..off + 16].try_into().unwrap()) as usize;
+        let p_vaddr = u64::from_le_bytes(elf_data[off + 16..off + 24].try_into().unwrap());
+        let p_filesz = u64::from_le_bytes(elf_data[off + 32..off + 40].try_into().unwrap()) as usize;
+        let p_memsz = u64::from_le_bytes(elf_data[off + 40..off + 48].try_into().unwrap()) as usize;
+
+        let flags = if p_flags & 2 != 0 { writable_flags } else { code_flags };
+
+        // Map each page in the segment's virtual range
+        let page_start = p_vaddr & !0xFFF;
+        let page_end = (p_vaddr + p_memsz as u64 + 0xFFF) & !0xFFF;
+        let mut addr = page_start;
+        while addr < page_end {
+            // Try to reuse an existing mapping; allocate a new page only
+            // when the virtual address is not already mapped.
+            let phys = if let Some((existing_phys, _)) =
+                crate::memory::user_page_table::read_pte(cr3, addr)
+            {
+                // Zero the existing page before writing new data
+                let offset = crate::memory::user_page_table::get_phys_offset();
+                let page_virt = offset + existing_phys;
+                unsafe {
+                    core::ptr::write_bytes(page_virt as *mut u8, 0, 4096);
+                }
+                existing_phys
+            } else {
+                match crate::memory::user_page_table::map_user_page(cr3, addr, flags) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        crate::serial_println!(
+                            "[EXECVE] map_user_page({:#x}) failed: {}", addr, e,
+                        );
+                        return -12; // -ENOMEM
+                    }
+                }
+            };
+
+            // Calculate which slice of file data to copy into this page.
+            // The segment starts at file offset p_offset, virtual address
+            // p_vaddr.  For the page at `addr`, the corresponding segment
+            // byte index is `addr - p_vaddr` (if addr >= p_vaddr).
+            let seg_byte = if addr >= p_vaddr {
+                (addr - p_vaddr) as usize
+            } else {
+                0
+            };
+            let in_page = if p_vaddr > addr {
+                (p_vaddr - addr) as usize
+            } else {
+                0
+            };
+            let copy_len = p_filesz.saturating_sub(seg_byte).min(0x1000 - in_page);
+
+            if copy_len > 0 {
+                let src_start = p_offset + seg_byte;
+                if src_start + copy_len <= elf_data.len() {
+                    // SAFETY: phys page was zeroed above (or by map_user_page);
+                    // we write the ELF file data into it.
+                    unsafe {
+                        crate::memory::user_page_table::write_to_phys(
+                            phys,
+                            in_page,
+                            &elf_data[src_start..src_start + copy_len],
+                        );
+                    }
+                }
+            }
+
+            addr += 0x1000;
+        }
+        crate::serial_println!(
+            "[EXECVE] PT_LOAD: vaddr={:#x} memsz={:#x} filesz={:#x} flags={:#x}",
+            p_vaddr, p_memsz, p_filesz, p_flags,
+        );
+    }
+
+    // 7. Setup a fresh user stack (one page below 0x800000).
+    //    Reuse the existing mapping if present.
+    let stack_top: u64 = 0x80_0000;
+    let stack_base = stack_top - 0x1000;
+    if let Some((stack_phys, _)) = crate::memory::user_page_table::read_pte(cr3, stack_base) {
+        // Zero the existing stack page
+        let offset = crate::memory::user_page_table::get_phys_offset();
+        let stack_virt = offset + stack_phys;
+        unsafe {
+            core::ptr::write_bytes(stack_virt as *mut u8, 0, 4096);
+        }
+    } else if let Err(e) =
+        crate::memory::user_page_table::map_user_page(cr3, stack_base, writable_flags)
+    {
+        crate::serial_println!("[EXECVE] stack mapping failed: {}", e);
+        return -12; // -ENOMEM
+    }
+
+    // 8. Tell the assembly epilogue to redirect sysretq
+    set_execve_context(entry_point, stack_top, 0x202);
+    crate::serial_println!(
+        "[EXECVE] Success: new_rip={:#x} new_rsp={:#x} (CR3={:#x})",
+        entry_point, stack_top, cr3,
+    );
+    0
 }
 
 // ─── MSR constants ───────────────────────────────────────────────────

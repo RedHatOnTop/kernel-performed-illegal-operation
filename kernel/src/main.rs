@@ -868,6 +868,215 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         );
     }
 
+    // ── Phase 12-1: execve() return path integration test ────────
+    // Validates the fixed execve() syscall flow:
+    //   1. Register a target ELF binary in VFS at /bin/exec-target
+    //   2. Spawn a caller process that invokes execve("/bin/exec-target", NULL, NULL)
+    //   3. The assembly epilogue detects EXECVE_PENDING and redirects
+    //      sysretq to the new entry point
+    //   4. The new process image writes "EXECVE OK" via SYS_WRITE
+    //      and exits with code 42
+    // Results are logged for qemu-test.ps1 verification.
+    {
+        serial_println!("[EXECVE] Phase 12-1: execve return path integration test");
+
+        // ── Build a minimal ELF binary containing the exec target ──
+        // This program writes "EXECVE OK\n" to fd 1 (serial/stdout)
+        // then calls SYS_EXIT(42).
+        //
+        // Machine code (x86_64, mapped at vaddr 0x400078 = entry point):
+        //   mov rax, 1           ; SYS_WRITE
+        //   mov rdi, 1           ; fd = stdout
+        //   lea rsi, [rip+0x19]  ; pointer to "EXECVE OK\n"
+        //   mov rdx, 10          ; length
+        //   syscall
+        //   mov rax, 60          ; SYS_EXIT
+        //   mov rdi, 42          ; exit code = 42
+        //   syscall
+        //   db "EXECVE OK\n"
+        #[rustfmt::skip]
+        const EXEC_TARGET_CODE: &[u8] = &[
+            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1 (SYS_WRITE)
+            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1 (stdout)
+            0x48, 0x8D, 0x35, 0x19, 0x00, 0x00, 0x00, // lea rsi, [rip+0x19]
+            0x48, 0xC7, 0xC2, 0x0A, 0x00, 0x00, 0x00, // mov rdx, 10
+            0x0F, 0x05,                                 // syscall (write)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00, // mov rax, 60 (SYS_EXIT)
+            0x48, 0xC7, 0xC7, 0x2A, 0x00, 0x00, 0x00, // mov rdi, 42
+            0x0F, 0x05,                                 // syscall (exit)
+            // "EXECVE OK\n" (10 bytes)
+            b'E', b'X', b'E', b'C', b'V', b'E', b' ', b'O', b'K', b'\n',
+        ];
+
+        // Build minimal ELF64 wrapping the code above.
+        // Layout: 64-byte ELF header + 56-byte program header + code
+        // Entry point = 0x400078 (code starts right after headers)
+        let elf_header_size: usize = 64;
+        let phdr_size: usize = 56;
+        let code_offset = elf_header_size + phdr_size; // 120
+        let total_size = code_offset + EXEC_TARGET_CODE.len();
+        let entry_point: u64 = 0x400000 + code_offset as u64; // 0x400078
+
+        let mut elf_binary = alloc::vec![0u8; total_size];
+
+        // ELF header
+        elf_binary[0..4].copy_from_slice(&[0x7F, b'E', b'L', b'F']); // magic
+        elf_binary[4] = 2;   // ELFCLASS64
+        elf_binary[5] = 1;   // ELFDATA2LSB
+        elf_binary[6] = 1;   // EV_CURRENT
+        // e_type = ET_EXEC (2)
+        elf_binary[16..18].copy_from_slice(&2u16.to_le_bytes());
+        // e_machine = EM_X86_64 (62)
+        elf_binary[18..20].copy_from_slice(&62u16.to_le_bytes());
+        // e_version = 1
+        elf_binary[20..24].copy_from_slice(&1u32.to_le_bytes());
+        // e_entry
+        elf_binary[24..32].copy_from_slice(&entry_point.to_le_bytes());
+        // e_phoff = 64
+        elf_binary[32..40].copy_from_slice(&64u64.to_le_bytes());
+        // e_ehsize = 64
+        elf_binary[52..54].copy_from_slice(&64u16.to_le_bytes());
+        // e_phentsize = 56
+        elf_binary[54..56].copy_from_slice(&56u16.to_le_bytes());
+        // e_phnum = 1
+        elf_binary[56..58].copy_from_slice(&1u16.to_le_bytes());
+
+        // Program header (PT_LOAD at offset 64)
+        // p_type = PT_LOAD (1)
+        elf_binary[64..68].copy_from_slice(&1u32.to_le_bytes());
+        // p_flags = PF_R | PF_X (5)
+        elf_binary[68..72].copy_from_slice(&5u32.to_le_bytes());
+        // p_offset = 0
+        elf_binary[72..80].copy_from_slice(&0u64.to_le_bytes());
+        // p_vaddr = 0x400000
+        elf_binary[80..88].copy_from_slice(&0x400000u64.to_le_bytes());
+        // p_paddr = 0x400000
+        elf_binary[88..96].copy_from_slice(&0x400000u64.to_le_bytes());
+        // p_filesz = total_size
+        elf_binary[96..104].copy_from_slice(&(total_size as u64).to_le_bytes());
+        // p_memsz = total_size
+        elf_binary[104..112].copy_from_slice(&(total_size as u64).to_le_bytes());
+        // p_align = 0x1000
+        elf_binary[112..120].copy_from_slice(&0x1000u64.to_le_bytes());
+
+        // Code payload
+        elf_binary[code_offset..].copy_from_slice(EXEC_TARGET_CODE);
+
+        // Register the target binary in VFS
+        match vfs::write_all("/bin/exec-target", &elf_binary) {
+            Ok(()) => {
+                serial_println!(
+                    "[EXECVE] Registered /bin/exec-target in VFS ({} bytes, entry={:#x})",
+                    total_size,
+                    entry_point,
+                );
+            }
+            Err(e) => {
+                serial_println!("[EXECVE] FAIL: Could not register exec target: {:?}", e);
+            }
+        }
+
+        // ── Build the caller process ──
+        // Machine code that calls execve("/bin/exec-target", NULL, NULL).
+        // If execve succeeds, execution continues in the target binary above.
+        // If it fails (shouldn't happen), exits with code 99.
+        //
+        //   mov rax, 59              ; SYS_EXECVE
+        //   lea rdi, [rip+0x18]      ; path = "/bin/exec-target"
+        //   xor rsi, rsi             ; argv = NULL
+        //   xor rdx, rdx             ; envp = NULL
+        //   syscall
+        //   ; fallthrough on failure:
+        //   mov rax, 60              ; SYS_EXIT
+        //   mov rdi, 99              ; exit code 99 = execve failed
+        //   syscall
+        //   db "/bin/exec-target", 0
+        #[rustfmt::skip]
+        const EXECVE_CALLER: &[u8] = &[
+            0x48, 0xC7, 0xC0, 0x3B, 0x00, 0x00, 0x00, // mov rax, 59 (SYS_EXECVE)
+            0x48, 0x8D, 0x3D, 0x18, 0x00, 0x00, 0x00, // lea rdi, [rip+0x18]
+            0x48, 0x31, 0xF6,                           // xor rsi, rsi (argv=NULL)
+            0x48, 0x31, 0xD2,                           // xor rdx, rdx (envp=NULL)
+            0x0F, 0x05,                                 // syscall (execve)
+            // fallthrough if execve failed:
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00, // mov rax, 60 (SYS_EXIT)
+            0x48, 0xC7, 0xC7, 0x63, 0x00, 0x00, 0x00, // mov rdi, 99
+            0x0F, 0x05,                                 // syscall (exit)
+            // "/bin/exec-target\0" (17 bytes)
+            b'/', b'b', b'i', b'n', b'/', b'e', b'x', b'e', b'c',
+            b'-', b't', b'a', b'r', b'g', b'e', b't', 0x00,
+        ];
+
+        // Create user page table and load the caller
+        let exec_cr3 = match memory::user_page_table::create_user_page_table() {
+            Ok(cr3) => cr3,
+            Err(e) => {
+                serial_println!("[EXECVE] FAIL: page table: {}", e);
+                0
+            }
+        };
+
+        if exec_cr3 != 0 {
+            use x86_64::structures::paging::PageTableFlags;
+            let code_flags =
+                PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+            let stack_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
+
+            let code_vaddr: u64 = 0x40_0000;
+            let stack_top: u64 = 0x80_0000;
+            let stack_base: u64 = stack_top - 0x1000;
+
+            let code_result =
+                memory::user_page_table::map_user_page(exec_cr3, code_vaddr, code_flags);
+            let stack_result =
+                memory::user_page_table::map_user_page(exec_cr3, stack_base, stack_flags);
+
+            if let (Ok(code_phys), Ok(_)) = (code_result, stack_result) {
+                // Write the caller program into the code page
+                unsafe {
+                    memory::user_page_table::write_to_phys(code_phys, 0, EXECVE_CALLER);
+                }
+
+                // Allocate kernel stack and spawn the task.
+                // Note: no process table entry is created here; sys_execve
+                // falls back to reading CR3 from the CPU register.
+                let ks_size: usize = 32 * 1024;
+                let ks_vec = alloc::vec![0u8; ks_size];
+                let ks_top = ks_vec.as_ptr() as u64 + ks_size as u64;
+
+                let task = scheduler::Task::new_user_process(
+                    "execve-caller",
+                    exec_cr3,
+                    code_vaddr,
+                    stack_top,
+                    gdt::USER_CS as u16,
+                    gdt::USER_DS as u16,
+                    ks_top,
+                    ks_vec,
+                    30, // pid
+                );
+                scheduler::spawn(task);
+                serial_println!(
+                    "[EXECVE] execve-caller spawned (pid=30, CR3={:#x}). \
+                     Will call execve(\"/bin/exec-target\").",
+                    exec_cr3,
+                );
+
+                // Give the scheduler time to run the execve-caller task.
+                // APIC timer fires at ~100 Hz, so 300 HLTs ≈ 3 seconds.
+                serial_println!("[EXECVE] Waiting for execve-caller to execute...");
+                for _ in 0..300 {
+                    x86_64::instructions::hlt();
+                }
+                serial_println!("[EXECVE] Wait complete.");
+            } else {
+                serial_println!("[EXECVE] FAIL: could not map caller pages");
+            }
+        }
+    }
+
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:
     //   1. Create a parent user page table with code + data + stack pages

@@ -206,10 +206,19 @@ pub unsafe extern "C" fn linux_syscall_entry() {
 
         // RAX now holds the return value
 
-        // ----- Step 5: clear in-syscall flag -----
+        // ----- Step 5: check execve pending -----
+        // If sys_execve() set EXECVE_PENDING, we need to override the
+        // return context (RIP/RSP/RFLAGS) before returning to userspace.
+        "lea r15, [rip + {execve_pending}]",
+        "mov r14, [r15]",           // r14 = EXECVE_PENDING value
+        "test r14, r14",
+        "jnz 2f",                   // jump to execve path if pending
+
+        // ----- Normal return path -----
+        // ----- Step 6: clear in-syscall flag -----
         "mov qword ptr gs:[32], 0",
 
-        // ----- Step 6: restore registers -----
+        // ----- Step 7: restore registers -----
         "pop r15",
         "pop r14",
         "pop r13",
@@ -226,9 +235,62 @@ pub unsafe extern "C" fn linux_syscall_entry() {
         // Pop user RSP
         "pop rsp",
 
-        // ----- Step 7: return to userspace -----
+        // ----- Step 8: return to userspace -----
         "swapgs",
         "sysretq",
+
+        // ----- Execve return path -----
+        // The new process image is loaded. Override saved frame with
+        // new entry point, stack pointer, and RFLAGS.
+        "2:",
+
+        // Clear EXECVE_PENDING first
+        "mov qword ptr [r15], 0",
+
+        // Load new RIP → RCX (sysretq jumps to RCX)
+        "lea r14, [rip + {execve_new_rip}]",
+        "mov rcx, [r14]",
+
+        // Load new RSP
+        "lea r14, [rip + {execve_new_rsp}]",
+        "mov r14, [r14]",           // r14 = new user RSP (temporarily)
+
+        // Load new RFLAGS → R11 (sysretq loads RFLAGS from R11)
+        "lea r15, [rip + {execve_new_rflags}]",
+        "mov r11, [r15]",
+
+        // Clear in-syscall flag
+        "mov qword ptr gs:[32], 0",
+
+        // Discard entire saved frame (16 slots)
+        "add rsp, 16*8",
+
+        // Zero general-purpose registers (clean slate for new process)
+        "xor rax, rax",
+        "xor rdi, rdi",
+        "xor rsi, rsi",
+        "xor rdx, rdx",
+        "xor r8, r8",
+        "xor r9, r9",
+        "xor r10, r10",
+        "xor rbx, rbx",
+        "xor rbp, rbp",
+        "xor r12, r12",
+        "xor r13, r13",
+        "xor r15, r15",
+
+        // Set new user RSP from r14
+        "mov rsp, r14",
+        "xor r14, r14",
+
+        // Return to new process entry point
+        "swapgs",
+        "sysretq",
+
+        execve_pending = sym super::linux_handlers::EXECVE_PENDING,
+        execve_new_rip = sym super::linux_handlers::EXECVE_NEW_RIP,
+        execve_new_rsp = sym super::linux_handlers::EXECVE_NEW_RSP,
+        execve_new_rflags = sym super::linux_handlers::EXECVE_NEW_RFLAGS,
     );
 }
 
