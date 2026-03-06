@@ -1,15 +1,22 @@
 //! Process Manager
 //!
 //! High-level process management including creation, loading, and lifecycle.
+//! `spawn_from_vfs()` loads an ELF binary from the VFS, creates a user page
+//! table, loads segments, allocates a kernel stack, and enqueues the new
+//! process for scheduling.
 
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use super::context::ProcessContext;
-use super::table::{Process, ProcessId, ProcessState, Thread, ThreadId, PROCESS_TABLE};
+use super::table::{
+    LinuxMemoryInfo, Process, ProcessId, ProcessState, Thread, ThreadId, Vma, MMAP_BASE,
+    PROCESS_TABLE,
+};
 use crate::loader::elf::{Elf64Loader, ElfError};
 use crate::loader::program::UserProgram;
+use crate::loader::segment_loader::{self, SegmentLoadError};
 
 /// Kernel stack size (16KB)
 const KERNEL_STACK_SIZE: usize = 16 * 1024;
@@ -21,6 +28,9 @@ const USER_CS: u16 = crate::gdt::USER_CS;
 /// User data segment selector (Ring 3) — from GDT
 /// GDT index 3, byte offset 0x18, RPL 3 → 0x1B
 const USER_DS: u16 = crate::gdt::USER_DS;
+
+/// Kernel stack allocation size for user-space process tasks (32 KiB).
+const USER_KERNEL_STACK_SIZE: usize = 32 * 1024;
 
 /// Process creation error
 #[derive(Debug)]
@@ -35,11 +45,21 @@ pub enum ProcessError {
     InvalidArgument(&'static str),
     /// Parent process not found
     ParentNotFound,
+    /// VFS error (file not found, I/O error, etc.)
+    VfsError(&'static str),
+    /// Segment loading error
+    SegmentLoadError(SegmentLoadError),
 }
 
 impl From<ElfError> for ProcessError {
     fn from(e: ElfError) -> Self {
         ProcessError::ElfError(e)
+    }
+}
+
+impl From<SegmentLoadError> for ProcessError {
+    fn from(e: SegmentLoadError) -> Self {
+        ProcessError::SegmentLoadError(e)
     }
 }
 
@@ -63,19 +83,146 @@ impl ProcessManager {
         crate::serial_println!("[KPIO] Process manager initialized");
     }
 
-    /// Create a new process from ELF binary
+    /// Spawn a new process by loading an ELF binary from the VFS.
+    ///
+    /// This is the primary process creation entry point.  It performs
+    /// the full pipeline: VFS read → ELF parse → page table creation →
+    /// segment loading → kernel stack allocation → scheduler enqueue.
     ///
     /// # Arguments
     ///
-    /// * `name` - Process name
-    /// * `binary` - ELF binary data
-    /// * `args` - Command line arguments
-    /// * `envp` - Environment variables
-    /// * `parent` - Parent process ID
+    /// * `path` - VFS path to the ELF binary (e.g., "/test/hello")
     ///
     /// # Returns
     ///
-    /// Process ID of the new process
+    /// `Ok(ProcessId)` of the newly created process.
+    pub fn spawn_from_vfs(&self, path: &str) -> Result<ProcessId, ProcessError> {
+        self.spawn_from_vfs_with_args(path, Vec::new(), Vec::new())
+    }
+
+    /// Spawn a new process from a VFS path with arguments and environment.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - VFS path to the ELF binary
+    /// * `argv` - Command-line arguments (argv[0] is typically the program name)
+    /// * `envp` - Environment variables (KEY=VALUE strings)
+    pub fn spawn_from_vfs_with_args(
+        &self,
+        path: &str,
+        argv: Vec<String>,
+        envp: Vec<String>,
+    ) -> Result<ProcessId, ProcessError> {
+        // 1. Check process limit
+        if PROCESS_TABLE.count() >= self.max_processes {
+            return Err(ProcessError::ProcessLimitReached);
+        }
+
+        // 2. Read ELF bytes from VFS
+        let elf_bytes = crate::vfs::read_all(path).map_err(|_| ProcessError::VfsError("failed to read ELF from VFS"))?;
+        if elf_bytes.is_empty() {
+            return Err(ProcessError::VfsError("empty ELF binary"));
+        }
+
+        // 3. Parse ELF
+        let loaded = Elf64Loader::parse(&elf_bytes)?;
+
+        // 4. Create user page table
+        let cr3 = crate::memory::user_page_table::create_user_page_table()
+            .map_err(|_| ProcessError::OutOfMemory)?;
+
+        // 5. Load ELF segments into the page table
+        let pie_base = if loaded.is_pie {
+            crate::loader::program::layout::PIE_BASE
+        } else {
+            0
+        };
+        let load_result = segment_loader::load_elf_segments(cr3, &loaded, &elf_bytes, pie_base)?;
+
+        crate::serial_println!(
+            "[SPAWN] loaded '{}' pid=pending cr3={:#x} entry={:#x} sp={:#x} brk={:#x} ({} pages)",
+            path,
+            cr3,
+            load_result.entry_point,
+            load_result.initial_sp,
+            load_result.brk_start,
+            load_result.pages_mapped,
+        );
+
+        // 6. Allocate kernel stack for the new process
+        let kernel_stack_vec: Vec<u8> = vec![0u8; USER_KERNEL_STACK_SIZE];
+        let kernel_stack_top = kernel_stack_vec.as_ptr() as u64 + USER_KERNEL_STACK_SIZE as u64;
+
+        // 7. Create Process entry
+        let name = extract_name_from_path(path);
+        let mut process = Process::new(name.clone(), ProcessId::KERNEL, cr3);
+
+        // 8. Set up Linux memory info (brk, mmap)
+        process.linux_memory = Some(LinuxMemoryInfo {
+            cr3,
+            brk_start: load_result.brk_start,
+            brk_current: load_result.brk_start,
+            vma_list: Vec::new(),
+            mmap_next_addr: MMAP_BASE,
+        });
+
+        let pid = process.pid;
+
+        // 9. Create user program metadata
+        let user_program = UserProgram::new(name.clone(), loaded, argv, envp);
+
+        // 10. Create main thread (for ProcessTable bookkeeping)
+        let context = ProcessContext::new_user(
+            load_result.entry_point,
+            load_result.initial_sp,
+            USER_CS,
+            USER_DS,
+        );
+        let main_thread = Thread {
+            tid: ThreadId::new(),
+            state: ProcessState::Ready,
+            context,
+            kernel_stack: kernel_stack_top,
+            kernel_stack_size: USER_KERNEL_STACK_SIZE,
+            user_stack: load_result.initial_sp,
+            user_stack_size: crate::loader::program::layout::USER_STACK_SIZE as usize,
+            tls: 0,
+        };
+        process.add_thread(main_thread);
+        process.program = Some(user_program);
+        process.set_ready();
+
+        // 11. Register in process table
+        PROCESS_TABLE.add(process);
+
+        // 12. Create scheduler task and enqueue
+        let task = crate::scheduler::Task::new_user_process(
+            &name,
+            cr3,
+            load_result.entry_point,
+            load_result.initial_sp,
+            USER_CS,
+            USER_DS,
+            kernel_stack_top,
+            kernel_stack_vec,
+            pid.as_u64(),
+        );
+        crate::scheduler::spawn(task);
+
+        crate::serial_println!(
+            "[SPAWN] loaded '{}' pid={} cr3={:#x}",
+            path,
+            pid,
+            cr3,
+        );
+
+        Ok(pid)
+    }
+
+    /// Create a new process from an in-memory ELF binary (legacy API).
+    ///
+    /// This is the original `spawn()` that takes raw ELF bytes.
+    /// Prefer `spawn_from_vfs()` for loading from the filesystem.
     pub fn spawn(
         &self,
         name: String,
@@ -213,6 +360,17 @@ impl ProcessManager {
             });
         });
         result
+    }
+}
+
+/// Extract a short process name from a VFS path.
+///
+/// e.g., "/test/hello" → "hello", "/bin/init" → "init"
+fn extract_name_from_path(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    match trimmed.rsplit_once('/') {
+        Some((_, name)) if !name.is_empty() => String::from(name),
+        _ => String::from(trimmed),
     }
 }
 

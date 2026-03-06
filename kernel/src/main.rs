@@ -38,9 +38,11 @@ mod graphics;
 mod gui;
 mod hw;
 mod interrupts;
+mod loader;
 mod memory;
 mod net;
 mod panic;
+mod process;
 mod scheduler;
 mod serial;
 mod terminal;
@@ -1200,6 +1202,112 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 serial_println!("[FORK] FAIL: could not map fork test pages");
             }
         }
+    }
+
+    // ── Phase 12-3: ProcessManager::spawn_from_vfs() integration test ─
+    // Validates the full spawn-from-VFS pipeline:
+    //   1. Build a minimal ELF binary that writes "SPAWN OK\n" + SYS_EXIT(0)
+    //   2. Register it in VFS at /bin/spawn-test
+    //   3. Call ProcessManager::spawn_from_vfs("/bin/spawn-test")
+    //   4. Verify the process runs in Ring 3 and produces serial output
+    {
+        serial_println!("[SPAWN] Phase 12-3: ProcessManager::spawn_from_vfs() integration test");
+
+        // Machine code (x86_64, mapped at vaddr 0x400078 = entry point):
+        //   mov rax, 1           ; SYS_WRITE
+        //   mov rdi, 1           ; fd = stdout
+        //   lea rsi, [rip+0x15]  ; pointer to "SPAWN OK\n"
+        //   mov rdx, 9           ; length
+        //   syscall
+        //   mov rax, 60          ; SYS_EXIT
+        //   xor rdi, rdi         ; exit code = 0
+        //   syscall
+        //   db "SPAWN OK\n"
+        #[rustfmt::skip]
+        const SPAWN_TEST_CODE: &[u8] = &[
+            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1 (SYS_WRITE)
+            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1 (stdout)
+            0x48, 0x8D, 0x35, 0x15, 0x00, 0x00, 0x00, // lea rsi, [rip+0x15]
+            0x48, 0xC7, 0xC2, 0x09, 0x00, 0x00, 0x00, // mov rdx, 9
+            0x0F, 0x05,                                 // syscall (write)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00, // mov rax, 60 (SYS_EXIT)
+            0x48, 0x31, 0xFF,                           // xor rdi, rdi
+            0x0F, 0x05,                                 // syscall (exit)
+            // "SPAWN OK\n" (9 bytes)
+            b'S', b'P', b'A', b'W', b'N', b' ', b'O', b'K', b'\n',
+        ];
+
+        // Build minimal ELF64 wrapping the spawn test code.
+        let elf_header_size: usize = 64;
+        let phdr_size: usize = 56;
+        let code_offset = elf_header_size + phdr_size; // 120
+        let total_size = code_offset + SPAWN_TEST_CODE.len();
+        let entry_point: u64 = 0x400000 + code_offset as u64; // 0x400078
+
+        let mut elf_binary = alloc::vec![0u8; total_size];
+
+        // ELF header
+        elf_binary[0..4].copy_from_slice(&[0x7F, b'E', b'L', b'F']); // magic
+        elf_binary[4] = 2;   // ELFCLASS64
+        elf_binary[5] = 1;   // ELFDATA2LSB
+        elf_binary[6] = 1;   // EV_CURRENT
+        elf_binary[16..18].copy_from_slice(&2u16.to_le_bytes()); // ET_EXEC
+        elf_binary[18..20].copy_from_slice(&62u16.to_le_bytes()); // EM_X86_64
+        elf_binary[20..24].copy_from_slice(&1u32.to_le_bytes()); // e_version
+        elf_binary[24..32].copy_from_slice(&entry_point.to_le_bytes());
+        elf_binary[32..40].copy_from_slice(&64u64.to_le_bytes()); // e_phoff
+        elf_binary[52..54].copy_from_slice(&64u16.to_le_bytes()); // e_ehsize
+        elf_binary[54..56].copy_from_slice(&56u16.to_le_bytes()); // e_phentsize
+        elf_binary[56..58].copy_from_slice(&1u16.to_le_bytes());  // e_phnum
+
+        // Program header (PT_LOAD)
+        elf_binary[64..68].copy_from_slice(&1u32.to_le_bytes());  // PT_LOAD
+        elf_binary[68..72].copy_from_slice(&5u32.to_le_bytes());  // PF_R | PF_X
+        elf_binary[72..80].copy_from_slice(&0u64.to_le_bytes());  // p_offset
+        elf_binary[80..88].copy_from_slice(&0x400000u64.to_le_bytes()); // p_vaddr
+        elf_binary[88..96].copy_from_slice(&0x400000u64.to_le_bytes()); // p_paddr
+        elf_binary[96..104].copy_from_slice(&(total_size as u64).to_le_bytes()); // p_filesz
+        elf_binary[104..112].copy_from_slice(&(total_size as u64).to_le_bytes()); // p_memsz
+        elf_binary[112..120].copy_from_slice(&0x1000u64.to_le_bytes()); // p_align
+
+        // Code payload
+        elf_binary[code_offset..].copy_from_slice(SPAWN_TEST_CODE);
+
+        // Register in VFS at /bin/spawn-test
+        match vfs::write_all("/bin/spawn-test", &elf_binary) {
+            Ok(()) => {
+                serial_println!(
+                    "[SPAWN] Registered /bin/spawn-test in VFS ({} bytes, entry={:#x})",
+                    total_size,
+                    entry_point,
+                );
+            }
+            Err(e) => {
+                serial_println!("[SPAWN] FAIL: Could not register /bin/spawn-test: {:?}", e);
+            }
+        }
+
+        // Spawn via ProcessManager
+        match crate::process::manager::PROCESS_MANAGER.spawn_from_vfs("/bin/spawn-test") {
+            Ok(pid) => {
+                serial_println!(
+                    "[SPAWN] spawn_from_vfs(\"/bin/spawn-test\") succeeded: pid={}",
+                    pid,
+                );
+            }
+            Err(e) => {
+                serial_println!(
+                    "[SPAWN] FAIL: spawn_from_vfs(\"/bin/spawn-test\") failed: {:?}",
+                    e,
+                );
+            }
+        }
+
+        // Wait for the spawned process to execute.
+        for _ in 0..300 {
+            x86_64::instructions::hlt();
+        }
+        serial_println!("[SPAWN] Phase 12-3 wait complete.");
     }
 
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──

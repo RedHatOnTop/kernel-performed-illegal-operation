@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 7.2.0  
+**Document Version:** 7.3.0  
 **Last Updated:** 2026-03-06  
-**Status:** Phase 12 In Progress (12-1 ✅, 12-2 ✅)
+**Status:** Phase 12 In Progress (12-1 ✅, 12-2 ✅, 12-3 ✅)
 
 ---
 
@@ -10,7 +10,9 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 12-2 (Fix fork Child Return) completed 2026-03-06. After `fork()`, the child now resumes from the exact instruction after the parent's `syscall` with RAX=0. Implementation saves the parent's user RIP/RSP/RFLAGS to AtomicU64 statics in `ring3_syscall_entry` assembly, `Task::new_forked_process()` creates a child whose first context-switch enters `fork_child_trampoline()` which `iretq`s to Ring 3 at the saved call-site with all GPRs zeroed (RAX=0 = child fork return). CoW page table clone via `clone_user_page_table()` (bugfix: only P4[0] deep-cloned, P4[1-255] shallow-copied to avoid cloning kernel lower-half entries). QEMU test: parent receives child PID 50, child receives 0, both print to serial. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+**Update:** Phase 12-3 (ProcessManager::spawn from VFS) completed 2026-03-06. `spawn_from_vfs(path)` reads an ELF binary from the in-memory VFS, parses it with `Elf64Loader`, creates a per-process page table via `create_user_page_table()`, loads PT_LOAD segments via `load_elf_segments()`, allocates a 32 KiB kernel stack, registers the process in `PROCESS_TABLE` with `LinuxMemoryInfo` (CR3, brk, mmap base), creates a `Task::new_user_process()`, and enqueues it via `scheduler::spawn()`. Integration test: minimal 171-byte ELF64 at `/bin/spawn-test` writes "SPAWN OK\n" + SYS_EXIT(0). QEMU test: pid=2, cr3=0xd434000, 17 pages mapped. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+
+**Previous:** Phase 12-2 (Fix fork Child Return) completed 2026-03-06. After `fork()`, the child now resumes from the exact instruction after the parent's `syscall` with RAX=0. Implementation saves the parent's user RIP/RSP/RFLAGS to AtomicU64 statics in `ring3_syscall_entry` assembly, `Task::new_forked_process()` creates a child whose first context-switch enters `fork_child_trampoline()` which `iretq`s to Ring 3 at the saved call-site with all GPRs zeroed (RAX=0 = child fork return). CoW page table clone via `clone_user_page_table()` (bugfix: only P4[0] deep-cloned, P4[1-255] shallow-copied to avoid cloning kernel lower-half entries). QEMU test: parent receives child PID 50, child receives 0, both print to serial. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
 **Previous:** Phase 12-1 (Fix execve Return Path) completed 2026-03-06. `sys_execve()` now correctly redirects SYSCALL return to the new ELF entry point. Implementation uses `EXECVE_PENDING` AtomicU64 statics checked in `ring3_syscall_entry` assembly epilogue — if set, `sysretq` is redirected to new RIP/RSP/RFLAGS instead of the original caller. Inline ELF64 loader in `ring3_syscall_dispatch` handles minimal PT_LOAD segment mapping with page reuse via `read_pte()`. QEMU test confirms "EXECVE OK" from target binary with exit code 42. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
@@ -532,6 +534,7 @@ Prepare the system for production use with security, stability, and performance 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 7.3.0 | 2026-03-06 | Phase 12-3 complete — ProcessManager::spawn_from_vfs() loads ELF from VFS, creates page table, loads segments, spawns process |
 | 7.2.0 | 2026-03-06 | Phase 12-2 complete — fork child return fixed (iretq trampoline, CoW clone bugfix) |
 | 7.1.0 | 2026-03-06 | Phase 12-1 complete — execve return path fixed (EXECVE_PENDING assembly epilogue, inline ELF loader) |
 | 7.0.0 | 2026-03-05 | Phase 11 complete — kernel hardening (CoW fork, work queue, stack guards, integration test) |
