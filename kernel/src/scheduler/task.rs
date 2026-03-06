@@ -721,6 +721,193 @@ pub struct UserEntryContext {
     pub ss: u64,
 }
 
+/// Context for the fork child trampoline — the child resumes at the
+/// parent's post-syscall instruction with RAX = 0.
+#[repr(C)]
+pub struct ForkChildContext {
+    /// User-mode instruction pointer (instruction after parent's `syscall`)
+    pub rip: u64,
+    /// User code-segment selector (Ring 3)
+    pub cs: u64,
+    /// User RFLAGS at the time of the fork syscall
+    pub rflags: u64,
+    /// User-mode stack pointer at the time of the fork syscall
+    pub rsp: u64,
+    /// User stack-segment selector (Ring 3)
+    pub ss: u64,
+}
+
+impl Task {
+    /// Create a new task for a fork() child process.
+    ///
+    /// Unlike `new_user_process()` which starts at an ELF entry point,
+    /// this task resumes execution at the exact instruction after the
+    /// parent's `syscall` (i.e. the fork call-site) with RAX = 0.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Task name
+    /// * `cr3` - Physical address of the child's CoW page table
+    /// * `user_rip` - User-mode RIP (instruction after parent's syscall)
+    /// * `user_rsp` - User-mode RSP at the time of the fork
+    /// * `user_rflags` - User RFLAGS at the time of the fork
+    /// * `kernel_stack_top` - Top of the child's kernel stack
+    /// * `kernel_stack` - Owned kernel stack allocation
+    /// * `pid` - Child process ID
+    pub fn new_forked_process(
+        name: &str,
+        cr3: u64,
+        user_rip: u64,
+        user_rsp: u64,
+        user_rflags: u64,
+        kernel_stack_top: u64,
+        kernel_stack: Vec<u8>,
+        pid: u64,
+    ) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(200);
+
+        let ctx = ForkChildContext {
+            rip: user_rip,
+            cs: crate::gdt::USER_CS as u64,
+            rflags: user_rflags,
+            rsp: user_rsp,
+            ss: crate::gdt::USER_DS as u64,
+        };
+        let ctx_ptr = alloc::boxed::Box::into_raw(alloc::boxed::Box::new(ctx)) as u64;
+
+        let trampoline_addr = fork_child_trampoline as *const () as u64;
+        let initial_rsp = setup_initial_stack(kernel_stack_top, trampoline_addr);
+
+        let switch_ctx = SwitchContext {
+            rip: trampoline_addr,
+            rsp: initial_rsp,
+            rbp: 0,
+            rbx: 0,
+            r12: ctx_ptr,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+        };
+
+        Task {
+            id: TaskId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
+            name: String::from(name),
+            task_type: TaskType::UserProcess,
+            state: TaskState::Ready,
+            priority: Priority::Normal,
+            context: TaskContext::default(),
+            switch_ctx,
+            stats: TaskStats::default(),
+            exit_code: None,
+            stack_top: kernel_stack_top,
+            stack_size: KERNEL_STACK_SIZE,
+            parent: None,
+            _kernel_stack: Some(kernel_stack),
+            _stack_guard: None,
+            cr3,
+            kernel_stack_top_addr: kernel_stack_top,
+            process_pid: pid,
+        }
+    }
+}
+
+/// Fork child trampoline — entered when the scheduler first switches
+/// to a forked child task.
+///
+/// Reads a `ForkChildContext` from `r12` (set by `SwitchContext`),
+/// fixes the SWAPGS state, zeros all GPRs (including RAX → 0, the
+/// fork return value for the child), and enters Ring 3 via `iretq`.
+fn fork_child_trampoline() -> ! {
+    // r12 was restored by switch_context: pointer to heap-allocated ForkChildContext
+    let ctx_ptr: u64;
+    // SAFETY: r12 was set by SwitchContext and contains a valid ForkChildContext pointer.
+    unsafe {
+        core::arch::asm!("mov {}, r12", out(reg) ctx_ptr);
+    }
+
+    // SAFETY: ctx_ptr is a valid heap-allocated ForkChildContext from new_forked_process().
+    let ctx = unsafe { *alloc::boxed::Box::from_raw(ctx_ptr as *mut ForkChildContext) };
+
+    crate::serial_println!(
+        "[FORK] child {} running, fork returned 0 (RIP={:#x} RSP={:#x})",
+        // Read PID from per-CPU data (offset 16 = current_pid)
+        {
+            use x86_64::registers::model_specific::Msr;
+            // SAFETY: Reading KERNEL_GS_BASE / GS_BASE MSRs to locate
+            // per-CPU data.  These are always valid to read in Ring 0.
+            let mut gs = unsafe { Msr::new(0xC000_0102).read() };
+            if gs == 0 {
+                gs = unsafe { Msr::new(0xC000_0101).read() };
+            }
+            if gs != 0 {
+                // SAFETY: per-CPU data is valid; offset 16 = current_pid.
+                unsafe { *((gs as *const u64).add(2)) }
+            } else {
+                0
+            }
+        },
+        ctx.rip,
+        ctx.rsp,
+    );
+
+    // Enable interrupts before entering user space.
+    x86_64::instructions::interrupts::enable();
+
+    // Fix SWAPGS state — same logic as user_process_entry_trampoline.
+    // After schedule() → switch_context(), the MSRs may be inverted.
+    // SAFETY: Reading MSR and conditionally executing swapgs to fix the
+    // GS_BASE / KERNEL_GS_BASE ordering before iretq to Ring 3.
+    unsafe {
+        use x86_64::registers::model_specific::Msr;
+        const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
+        let kgs = Msr::new(IA32_KERNEL_GS_BASE).read();
+        if kgs == 0 {
+            core::arch::asm!("swapgs", options(nomem, nostack));
+        }
+    }
+
+    // Enter Ring 3 via iretq.
+    // Push the iretq frame first, then zero ALL general-purpose registers
+    // (RAX = 0 is the fork return value for the child), then execute iretq.
+    // SAFETY: ctx contains valid Ring 3 segment selectors, RIP, RSP, and
+    // RFLAGS.  The iretq frame is well-formed for a Ring 3 return.
+    unsafe {
+        core::arch::asm!(
+            // Build iretq stack frame
+            "push {ss}",
+            "push {rsp_val}",
+            "push {rflags}",
+            "push {cs}",
+            "push {rip}",
+            // Zero all GPRs — RAX=0 is the fork() return value for child.
+            // The iretq frame on the stack is untouched because these are
+            // register operations only.
+            "xor rax, rax",
+            "xor rbx, rbx",
+            "xor rcx, rcx",
+            "xor rdx, rdx",
+            "xor rsi, rsi",
+            "xor rdi, rdi",
+            "xor rbp, rbp",
+            "xor r8, r8",
+            "xor r9, r9",
+            "xor r10, r10",
+            "xor r11, r11",
+            "xor r12, r12",
+            "xor r13, r13",
+            "xor r14, r14",
+            "xor r15, r15",
+            "iretq",
+            ss = in(reg) ctx.ss,
+            rsp_val = in(reg) ctx.rsp,
+            rflags = in(reg) ctx.rflags,
+            cs = in(reg) ctx.cs,
+            rip = in(reg) ctx.rip,
+            options(noreturn),
+        );
+    }
+}
+
 /// User-space process entry trampoline.
 ///
 /// This function is the initial entry point for user-space tasks.

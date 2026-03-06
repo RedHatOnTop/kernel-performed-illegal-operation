@@ -85,6 +85,17 @@ pub static EXECVE_NEW_RIP: AtomicU64 = AtomicU64::new(0);
 pub static EXECVE_NEW_RSP: AtomicU64 = AtomicU64::new(0);
 pub static EXECVE_NEW_RFLAGS: AtomicU64 = AtomicU64::new(0);
 
+// ─── Saved syscall frame for fork() ──────────────────────────────────
+
+/// Saved user-mode RIP (from RCX on SYSCALL entry) — the instruction
+/// after the `syscall` in user space.  Read by `sys_fork()` so the
+/// child can resume at the same instruction as the parent.
+pub static SYSCALL_SAVED_USER_RIP: AtomicU64 = AtomicU64::new(0);
+/// Saved user-mode RSP (from per-CPU scratch gs:[8]).
+pub static SYSCALL_SAVED_USER_RSP: AtomicU64 = AtomicU64::new(0);
+/// Saved user-mode RFLAGS (from R11 on SYSCALL entry).
+pub static SYSCALL_SAVED_USER_RFLAGS: AtomicU64 = AtomicU64::new(0);
+
 fn set_execve_context(rip: u64, rsp: u64, rflags: u64) {
     EXECVE_NEW_RIP.store(rip, Ordering::SeqCst);
     EXECVE_NEW_RSP.store(rsp, Ordering::SeqCst);
@@ -130,7 +141,21 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
         "push rdi",             // arg1
         "push rsi",             // arg2
         "push rdx",             // arg3
-        // 5. Set up System V calling convention for ring3_syscall_dispatch:
+        // 5. Save user-mode state so that fork() can build the child's
+        //    return frame.  The pushed values are:
+        //      [RSP+32] = RCX = user RIP
+        //      [RSP+24] = R11 = user RFLAGS
+        //    and gs:[8] holds the saved user RSP.
+        "lea r8, [rip + {saved_user_rip}]",
+        "mov r9, [rsp+32]",
+        "mov [r8], r9",
+        "lea r8, [rip + {saved_user_rflags}]",
+        "mov r9, [rsp+24]",
+        "mov [r8], r9",
+        "lea r8, [rip + {saved_user_rsp}]",
+        "mov r9, gs:[8]",
+        "mov [r8], r9",
+        // 6. Set up System V calling convention for ring3_syscall_dispatch:
         //    rdi = nr (from rax), rsi = a1 (from rdi), rdx = a2 (from rsi),
         //    rcx = a3 (from rdx)
         //    NOTE: we use the original register values, not the pushed copies.
@@ -138,7 +163,7 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
         "mov rdx, rsi",        // a2 = original rsi
         "mov rsi, rdi",        // a1 = original rdi
         "mov rdi, rax",        // nr = syscall number
-        // 6. Call Rust dispatcher — returns result in RAX
+        // 7. Call Rust dispatcher — returns result in RAX
         "call ring3_syscall_dispatch",
 
         // ── Execve pending check ─────────────────────────────────
@@ -151,17 +176,17 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
         "jnz 2f",
 
         // ── Normal return path ───────────────────────────────────
-        // 7. Restore registers
+        // 8. Restore registers
         "pop rdx",
         "pop rsi",
         "pop rdi",
         "pop r11",              // user RFLAGS
         "pop rcx",              // user RIP
-        // 8. Clear in-syscall flag
+        // 9. Clear in-syscall flag
         "mov qword ptr gs:[32], 0",
-        // 9. Restore user RSP from per-CPU scratch
+        // 10. Restore user RSP from per-CPU scratch
         "mov rsp, gs:[8]",
-        // 10. Swap back to user GS and return
+        // 11. Swap back to user GS and return
         "swapgs",
         "sysretq",
 
@@ -206,6 +231,9 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
         execve_new_rip = sym EXECVE_NEW_RIP,
         execve_new_rsp = sym EXECVE_NEW_RSP,
         execve_new_rflags = sym EXECVE_NEW_RFLAGS,
+        saved_user_rip = sym SYSCALL_SAVED_USER_RIP,
+        saved_user_rsp = sym SYSCALL_SAVED_USER_RSP,
+        saved_user_rflags = sym SYSCALL_SAVED_USER_RFLAGS,
     );
 }
 
@@ -228,6 +256,8 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64
             }
             count as i64
         }
+        // SYS_FORK
+        57 => handle_fork(),
         // SYS_EXECVE (pathname=a1, argv=a2, envp=_a3)
         59 => handle_execve(a1),
         // SYS_EXIT (status=a1) / SYS_EXIT_GROUP (231)
@@ -247,6 +277,80 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64
             -38 // -ENOSYS
         }
     }
+}
+
+// ─── Fork handler ────────────────────────────────────────────────────
+
+/// Minimal `fork` implementation for the binary-crate syscall path.
+///
+/// Reads the parent's saved user-mode state (RIP, RSP, RFLAGS) from
+/// the statics populated by the assembly prologue, clones the page
+/// table with Copy-on-Write, and spawns a child task whose trampoline
+/// enters Ring 3 at the instruction after the parent's `syscall` with
+/// RAX = 0.
+fn handle_fork() -> i64 {
+    use crate::memory::user_page_table;
+
+    // 1. Read parent's saved user-mode state.
+    let user_rip = SYSCALL_SAVED_USER_RIP.load(Ordering::SeqCst);
+    let user_rsp = SYSCALL_SAVED_USER_RSP.load(Ordering::SeqCst);
+    let user_rflags = SYSCALL_SAVED_USER_RFLAGS.load(Ordering::SeqCst);
+
+    if user_rip == 0 || user_rsp == 0 {
+        crate::serial_println!("[FORK] EFAULT: saved user frame is zero");
+        return -14; // -EFAULT
+    }
+
+    // 2. Get current CR3.
+    let (cr3_frame, _) = x86_64::registers::control::Cr3::read();
+    let parent_cr3 = cr3_frame.start_address().as_u64();
+
+    crate::serial_println!(
+        "[FORK] parent user_rip={:#x} user_rsp={:#x} rflags={:#x} cr3={:#x}",
+        user_rip, user_rsp, user_rflags, parent_cr3,
+    );
+
+    // 3. Clone page table with CoW.
+    let child_cr3 = match user_page_table::clone_user_page_table(parent_cr3) {
+        Ok(cr3) => cr3,
+        Err(e) => {
+            crate::serial_println!("[FORK] page table clone failed: {}", e);
+            return -12; // -ENOMEM
+        }
+    };
+
+    // 4. Allocate kernel stack for the child.
+    let kernel_stack_size: usize = 32 * 1024;
+    let mut kernel_stack = alloc::vec::Vec::with_capacity(kernel_stack_size);
+    kernel_stack.resize(kernel_stack_size, 0u8);
+    let kernel_stack_bottom = kernel_stack.as_ptr() as u64;
+    let kernel_stack_top = (kernel_stack_bottom + kernel_stack_size as u64) & !0xF;
+
+    // 5. Assign a PID for the child.
+    //    Simple atomic counter — sufficient for testing.
+    static NEXT_FORK_PID: AtomicU64 = AtomicU64::new(50);
+    let child_pid = NEXT_FORK_PID.fetch_add(1, Ordering::Relaxed);
+
+    // 6. Create the child task with fork-specific trampoline.
+    let child_task = super::task::Task::new_forked_process(
+        "fork-child",
+        child_cr3,
+        user_rip,
+        user_rsp,
+        user_rflags,
+        kernel_stack_top,
+        kernel_stack,
+        child_pid,
+    );
+
+    super::spawn(child_task);
+
+    crate::serial_println!(
+        "[FORK] parent={} child={} (CoW CR3={:#x})",
+        "current", child_pid, child_cr3,
+    );
+
+    child_pid as i64
 }
 
 // ─── Execve handler ─────────────────────────────────────────────────

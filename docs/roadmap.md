@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 7.1.0  
+**Document Version:** 7.2.0  
 **Last Updated:** 2026-03-06  
-**Status:** Phase 12 In Progress (12-1 ✅)
+**Status:** Phase 12 In Progress (12-1 ✅, 12-2 ✅)
 
 ---
 
@@ -10,7 +10,9 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 12-1 (Fix execve Return Path) completed 2026-03-06. `sys_execve()` now correctly redirects SYSCALL return to the new ELF entry point. Implementation uses `EXECVE_PENDING` AtomicU64 statics checked in `ring3_syscall_entry` assembly epilogue — if set, `sysretq` is redirected to new RIP/RSP/RFLAGS instead of the original caller. Inline ELF64 loader in `ring3_syscall_dispatch` handles minimal PT_LOAD segment mapping with page reuse via `read_pte()`. QEMU test confirms "EXECVE OK" from target binary with exit code 42. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+**Update:** Phase 12-2 (Fix fork Child Return) completed 2026-03-06. After `fork()`, the child now resumes from the exact instruction after the parent's `syscall` with RAX=0. Implementation saves the parent's user RIP/RSP/RFLAGS to AtomicU64 statics in `ring3_syscall_entry` assembly, `Task::new_forked_process()` creates a child whose first context-switch enters `fork_child_trampoline()` which `iretq`s to Ring 3 at the saved call-site with all GPRs zeroed (RAX=0 = child fork return). CoW page table clone via `clone_user_page_table()` (bugfix: only P4[0] deep-cloned, P4[1-255] shallow-copied to avoid cloning kernel lower-half entries). QEMU test: parent receives child PID 50, child receives 0, both print to serial. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+
+**Previous:** Phase 12-1 (Fix execve Return Path) completed 2026-03-06. `sys_execve()` now correctly redirects SYSCALL return to the new ELF entry point. Implementation uses `EXECVE_PENDING` AtomicU64 statics checked in `ring3_syscall_entry` assembly epilogue — if set, `sysretq` is redirected to new RIP/RSP/RFLAGS instead of the original caller. Inline ELF64 loader in `ring3_syscall_dispatch` handles minimal PT_LOAD segment mapping with page reuse via `read_pte()`. QEMU test confirms "EXECVE OK" from target binary with exit code 42. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
 **Previous:** Phase 11 (Kernel Hardening) completed 2026-03-05. All four sub-phases are done. Sub-phase 11-1 (Copy-on-Write Fork) — `fork()` now shares user-space data frames instead of eagerly copying; writes trigger CoW page faults via bit-9 PTE marker, per-frame reference counting in `memory/refcount.rs`, `clone_user_page_table()` rewritten for CoW sharing, `handle_cow_fault()` allocates private copies on demand. Sub-phase 11-2 (Bottom-Half Work Queue) — lock-free 256-entry ring buffer (`interrupts/workqueue.rs`) eliminates ISR deadlocks; timer/keyboard/mouse callbacks dispatched outside interrupt context via `drain()` in the main loop; known issue #6 (timer callback deadlock) permanently resolved. Sub-phase 11-3 (Stack Guard Pages) — kernel stacks allocated from raw physical frames at `0xFFFF_C000_0000_0000` (P4 index 384) with unmapped guard pages; page fault handler detects guard hits and panics with task name. Sub-phase 11-4 (Integration Test) — `qemu-test.ps1 -Mode hardening` validates CoW fork sharing, CoW fault handling, work queue drain, and stack guard mapping. See [Phase 11 Plan](../plans/PHASE_11_KERNEL_HARDENING_PLAN.md).
 
@@ -530,6 +532,7 @@ Prepare the system for production use with security, stability, and performance 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 7.2.0 | 2026-03-06 | Phase 12-2 complete — fork child return fixed (iretq trampoline, CoW clone bugfix) |
 | 7.1.0 | 2026-03-06 | Phase 12-1 complete — execve return path fixed (EXECVE_PENDING assembly epilogue, inline ELF loader) |
 | 7.0.0 | 2026-03-05 | Phase 11 complete — kernel hardening (CoW fork, work queue, stack guards, integration test) |
 | 6.8.0 | 2026-02-26 | Phase 10 complete — 10-5 integration tests and documentation |

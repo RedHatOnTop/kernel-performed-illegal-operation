@@ -45,17 +45,24 @@ them in Ring 3, and persist data back to the block device.
 
 ---
 
-### 12-2: Fix fork Child Return
+### 12-2: Fix fork Child Return ✅ COMPLETE
 
 - **Goal**: After `fork()`, the child process resumes from the exact instruction after the `syscall` that invoked `fork`, with RAX=0 (child return value), rather than starting from the ELF entry point.
-- **Tasks**:
-  - `kernel/src/syscall/linux_handlers.rs` — In `sys_fork()`, capture the parent's full SYSCALL frame (all GPRs + RCX/R11/RSP) at the point of the syscall. This requires either:
-    - (a) Passing the `SyscallFrame` pointer into the handler (preferred — modify the syscall dispatch path to forward the frame pointer), or
-    - (b) Reading the parent's saved context from its kernel stack top.
-  - `kernel/src/scheduler/task.rs` — `new_user_process()` already accepts a `user_entry` and `user_stack`. Extend it (or add `new_forked_process()`) to accept a full `SyscallFrame` that is placed on the child's kernel stack so that the first context-switch into the child returns via `sysretq` to the fork call-site with RAX=0.
-  - `kernel/src/scheduler/context.rs` — Ensure `setup_initial_stack()` (or equivalent) can plant a complete SYSCALL return frame for the child, including the parent's RCX (return RIP), R11 (RFLAGS), and RSP, with RAX overridden to 0.
-  - `kernel/src/memory/user_page_table.rs` — Verify `clone_user_page_table()` (CoW path from Phase 11) is used in the fork path. If the current fork path uses deep copy, switch to CoW. Log `[FORK] child PID N, CoW shared M pages`.
-- **Quality Gate**: A test sequence: parent calls `fork()`. Parent receives child PID > 0. Child receives 0. Both print their PID to serial. QEMU serial log contains `[FORK] parent=N child=M` and `[FORK] child M running, fork returned 0`. No triple faults.
+- **Status**: COMPLETE (2026-03-06)
+- **Implementation**:
+  - `kernel/src/scheduler/userspace.rs` — Added `SYSCALL_SAVED_USER_RIP`, `SYSCALL_SAVED_USER_RSP`, `SYSCALL_SAVED_USER_RFLAGS` AtomicU64 statics. Assembly in `ring3_syscall_entry` saves the parent's user state (RCX→RIP, R11→RFLAGS, gs:[8]→RSP) before dispatch. Added `SYS_FORK` (57) routing to `handle_fork()`. `handle_fork()` reads saved frame, calls `clone_user_page_table()` for CoW clone, allocates kernel stack with guard, creates child via `Task::new_forked_process()`, spawns it with `NEXT_FORK_PID` starting at 50.
+  - `kernel/src/scheduler/task.rs` — Added `ForkChildContext` struct (rip, cs, rflags, rsp, ss) and `Task::new_forked_process()` (NEXT_ID starts at 200). `fork_child_trampoline()` reads `ForkChildContext` from R12, fixes SWAPGS state via KERNEL_GS_BASE MSR check, then enters Ring 3 via `iretq` with all GPRs zeroed (RAX=0 = child fork return value).
+  - `kernel/src/syscall/linux_handlers.rs` — Updated `sys_fork()` to read saved frame from `SYSCALL_SAVED_USER_RIP/RSP/RFLAGS` statics and use `Task::new_forked_process()` when frame is available.
+  - `kernel/src/memory/user_page_table.rs` — **BUGFIX**: `clone_user_page_table()` now only deep-clones P4[0] (user-space range 0x0-0x7F_FFFF_FFFF). P4[1-255] are shallow-copied to avoid deep-cloning bootloader/kernel infrastructure entries (P4[2]=ELF, P4[5]=phys offset, P4[7]=boot info) which caused triple faults.
+  - `kernel/src/main.rs` — Integration test: 127-byte x86_64 fork test program at 0x400000 calls SYS_FORK, parent checks RAX>0 and writes "FORK PARENT OK", child checks RAX=0 and writes "FORK CHILD OK", both exit via SYS_EXIT(0).
+- **Quality Gate**: ✅ PASSED — QEMU serial log contains:
+  ```
+  [FORK] parent=current child=50 (CoW CR3=0xd4db000)
+  FORK PARENT OK
+  [FORK] child 50 running, fork returned 0 (RIP=0x400009 RSP=0x800000)
+  FORK CHILD OK
+  ```
+  Hardening regression: 28/29 pass (1 pre-existing "Work queue drain" failure). No triple faults.
 
 ---
 

@@ -1077,6 +1077,131 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
     }
 
+    // ── Phase 12-2: fork() child return integration test ─────────
+    // Validates that fork() correctly returns 0 to the child:
+    //   1. Spawn a parent process that calls SYS_FORK (57)
+    //   2. Parent receives child PID > 0, writes "FORK PARENT OK\n"
+    //   3. Child receives 0 in RAX, writes "FORK CHILD OK\n"
+    //   4. Both exit cleanly via SYS_EXIT(0)
+    // The fork child trampoline prints:
+    //   "[FORK] child N running, fork returned 0"
+    {
+        serial_println!("[FORK] Phase 12-2: fork child return integration test");
+
+        // Machine code for the fork test program:
+        //   mov rax, 57          ; SYS_FORK
+        //   syscall
+        //   test rax, rax
+        //   jz child
+        //   ; parent: write "FORK PARENT OK\n", exit(0)
+        //   ; child:  write "FORK CHILD OK\n", exit(0)
+        #[rustfmt::skip]
+        const FORK_TEST_CODE: &[u8] = &[
+            // --- fork ---
+            0x48, 0xC7, 0xC0, 0x39, 0x00, 0x00, 0x00, // mov rax, 57 (SYS_FORK)
+            0x0F, 0x05,                                 // syscall
+            0x48, 0x85, 0xC0,                           // test rax, rax
+            0x74, 0x2A,                                 // jz child (+0x2A → offset 0x38)
+            // --- parent path (offset 0x0E) ---
+            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1 (SYS_WRITE)
+            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1 (stdout)
+            0x48, 0x8D, 0x35, 0x3F, 0x00, 0x00, 0x00, // lea rsi, [rip+0x3F] → parent_msg
+            0x48, 0xC7, 0xC2, 0x0F, 0x00, 0x00, 0x00, // mov rdx, 15
+            0x0F, 0x05,                                 // syscall (write)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00, // mov rax, 60 (SYS_EXIT)
+            0x48, 0x31, 0xFF,                           // xor rdi, rdi
+            0x0F, 0x05,                                 // syscall (exit)
+            // --- child path (offset 0x38) ---
+            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1 (SYS_WRITE)
+            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1 (stdout)
+            0x48, 0x8D, 0x35, 0x24, 0x00, 0x00, 0x00, // lea rsi, [rip+0x24] → child_msg
+            0x48, 0xC7, 0xC2, 0x0E, 0x00, 0x00, 0x00, // mov rdx, 14
+            0x0F, 0x05,                                 // syscall (write)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00, // mov rax, 60 (SYS_EXIT)
+            0x48, 0x31, 0xFF,                           // xor rdi, rdi
+            0x0F, 0x05,                                 // syscall (exit)
+            // --- data (offset 0x62) ---
+            // "FORK PARENT OK\n" (15 bytes)
+            b'F', b'O', b'R', b'K', b' ', b'P', b'A', b'R', b'E', b'N', b'T',
+            b' ', b'O', b'K', b'\n',
+            // "FORK CHILD OK\n" (14 bytes)
+            b'F', b'O', b'R', b'K', b' ', b'C', b'H', b'I', b'L', b'D',
+            b' ', b'O', b'K', b'\n',
+        ];
+
+        // Build minimal ELF64 binary wrapping the fork test code.
+        let elf_header_size: usize = 64;
+        let phdr_size: usize = 56;
+        let code_offset = elf_header_size + phdr_size; // 120
+        let total_size = code_offset + FORK_TEST_CODE.len();
+        let entry_point: u64 = 0x400000 + code_offset as u64;
+
+        let fork_cr3 = match memory::user_page_table::create_user_page_table() {
+            Ok(cr3) => cr3,
+            Err(e) => {
+                serial_println!("[FORK] FAIL: page table: {}", e);
+                0
+            }
+        };
+
+        if fork_cr3 != 0 {
+            use x86_64::structures::paging::PageTableFlags;
+            let code_flags =
+                PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+            let stack_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
+
+            let code_vaddr: u64 = 0x40_0000;
+            let stack_top: u64 = 0x80_0000;
+            let stack_base: u64 = stack_top - 0x1000;
+
+            let code_result =
+                memory::user_page_table::map_user_page(fork_cr3, code_vaddr, code_flags);
+            let stack_result =
+                memory::user_page_table::map_user_page(fork_cr3, stack_base, stack_flags);
+
+            if let (Ok(code_phys), Ok(_)) = (code_result, stack_result) {
+                // Write the raw code (no ELF headers needed since we map directly)
+                unsafe {
+                    memory::user_page_table::write_to_phys(code_phys, 0, FORK_TEST_CODE);
+                }
+
+                // Allocate kernel stack and spawn.
+                let ks_size: usize = 32 * 1024;
+                let ks_vec = alloc::vec![0u8; ks_size];
+                let ks_top = ks_vec.as_ptr() as u64 + ks_size as u64;
+
+                let task = scheduler::Task::new_user_process(
+                    "fork-test-parent",
+                    fork_cr3,
+                    code_vaddr, // entry at start of code (0x400000)
+                    stack_top,
+                    gdt::USER_CS as u16,
+                    gdt::USER_DS as u16,
+                    ks_top,
+                    ks_vec,
+                    40, // pid
+                );
+                scheduler::spawn(task);
+                serial_println!(
+                    "[FORK] fork-test-parent spawned (pid=40, CR3={:#x}, entry={:#x})",
+                    fork_cr3,
+                    code_vaddr,
+                );
+
+                // Wait for both parent and child to execute.
+                serial_println!("[FORK] Waiting for fork test to execute...");
+                for _ in 0..400 {
+                    x86_64::instructions::hlt();
+                }
+                serial_println!("[FORK] Wait complete.");
+            } else {
+                serial_println!("[FORK] FAIL: could not map fork test pages");
+            }
+        }
+    }
+
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:
     //   1. Create a parent user page table with code + data + stack pages

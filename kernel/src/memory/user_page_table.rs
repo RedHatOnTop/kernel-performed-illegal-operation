@@ -454,15 +454,24 @@ pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
         child_l4[i] = parent_l4[i].clone();
     }
 
+    // Copy kernel lower-half entries (indices 1-255) as shallow copies.
+    // These contain bootloader/kernel infrastructure (ELF, phys offset,
+    // boot info) and must NOT be deep-cloned — they share page table
+    // structure with the kernel.  Only P4[0] contains user-space pages
+    // that need CoW treatment.
+    for i in 1..256 {
+        child_l4[i] = parent_l4[i].clone();
+    }
+
     let mut shared_pages: u64 = 0;
 
-    // Deep-clone user half (indices 0-255)
-    for i in 0..256 {
+    // Deep-clone P4[0] only (user-space ELF range: 0x0–0x7F_FFFF_FFFF)
+    {
+        let i = 0;
         let parent_entry = &parent_l4[i];
         if !parent_entry.flags().contains(PageTableFlags::PRESENT) {
             child_l4[i].set_unused();
-            continue;
-        }
+        } else {
 
         // Allocate child L3
         let child_l3_phys = crate::memory::allocate_frame()
@@ -564,7 +573,8 @@ pub fn clone_user_page_table(parent_cr3: u64) -> Result<u64, &'static str> {
         // Set child L4 entry to point to the new L3
         child_l4[i] = parent_l4[i].clone();
         child_l4[i].set_addr(PhysAddr::new(child_l3_phys as u64), parent_l4[i].flags());
-    }
+        } // else (P4[0] present)
+    } // Deep-clone P4[0] block
 
     // Flush TLB for the parent — PTEs were changed (WRITABLE cleared)
     // SAFETY: we only modified user-space PTEs; a full TLB flush is safe.

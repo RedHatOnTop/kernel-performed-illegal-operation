@@ -974,64 +974,59 @@ pub fn sys_fork() -> i64 {
     // Add child to process table
     let _added_pid = PROCESS_TABLE.add(child);
 
-    // Create a scheduler task for the child process
-    // The child task needs its own kernel stack and will start
-    // at a trampoline that immediately returns 0 from the syscall
+    // Create a scheduler task for the child process.
+    // Read the parent's saved user-mode state from the statics
+    // populated by the assembly prologue in ring3_syscall_entry.
     let kernel_stack_size = 16 * 1024usize;
     let mut kernel_stack = alloc::vec::Vec::with_capacity(kernel_stack_size);
     kernel_stack.resize(kernel_stack_size, 0u8);
     let kernel_stack_bottom = kernel_stack.as_ptr() as u64;
     let kernel_stack_top = (kernel_stack_bottom + kernel_stack_size as u64) & !0xF;
 
-    // Retrieve parent's current execution state to build the child's
-    // user-mode context.  The child will return to the same RIP as
-    // the parent but with RAX=0 (fork returns 0 in child).
-    //
-    // Because the child immediately enters Ring 3 at the same
-    // instruction following the SYSCALL in the parent, we build
-    // a UserEntryContext for the trampoline (same mechanism as
-    // new_user_process).
-    //
-    // For a full implementation, we would capture the parent's
-    // exact register state and replicate it.  For now, the child
-    // uses a stub entry that executes SYS_EXIT(0).
-    //
-    // We still need current user RSP/RIP from the parent.
-    // Since we're in the syscall handler, the parent's RCX (RIP)
-    // and R11 (RFLAGS) were saved by the SYSCALL instruction.
-    // However, we don't have direct access to those here.
-    //
-    // Strategy: create a kernel-side task that the scheduler
-    // can switch to.  The child task enters Ring 3 via the
-    // trampoline with entry_point = parent_rip, rsp = parent_rsp.
-    // Since we can't easily recover those from here, we use a
-    // simpler approach: the child inherits the parent's entry
-    // point from the ELF (stored in the process) and a fresh
-    // user stack.  This works for fork+exec patterns.
+    let user_rip = crate::scheduler::userspace::SYSCALL_SAVED_USER_RIP
+        .load(Ordering::SeqCst);
+    let user_rsp = crate::scheduler::userspace::SYSCALL_SAVED_USER_RSP
+        .load(Ordering::SeqCst);
+    let user_rflags = crate::scheduler::userspace::SYSCALL_SAVED_USER_RFLAGS
+        .load(Ordering::SeqCst);
 
-    // Get entry point from parent's program if available
-    let entry_point = PROCESS_TABLE
-        .with_process_mut(parent_pid, |proc| {
-            proc.program
-                .as_ref()
-                .map(|p| p.entry_point)
-                .unwrap_or(0x400000)
-        })
-        .unwrap_or(0x400000);
+    let child_task = if user_rip != 0 && user_rsp != 0 {
+        // Use fork-specific trampoline: child resumes at the instruction
+        // after the parent's syscall with RAX = 0.
+        crate::scheduler::task::Task::new_forked_process(
+            &child_name,
+            child_cr3,
+            user_rip,
+            user_rsp,
+            user_rflags,
+            kernel_stack_top,
+            kernel_stack,
+            child_pid.0,
+        )
+    } else {
+        // Fallback: no saved frame (shouldn't happen for real fork calls).
+        // Use ELF entry point — legacy behavior for fork+exec patterns.
+        let entry_point = PROCESS_TABLE
+            .with_process_mut(parent_pid, |proc| {
+                proc.program
+                    .as_ref()
+                    .map(|p| p.entry_point)
+                    .unwrap_or(0x400000)
+            })
+            .unwrap_or(0x400000);
 
-    // The child task for the scheduler
-    // Use the user process entry mechanism from task.rs
-    let child_task = crate::scheduler::task::Task::new_user_process(
-        &child_name,
-        child_cr3,
-        entry_point,
-        0x7FFF_FFFF_E000, // user stack top
-        crate::gdt::USER_CS,
-        crate::gdt::USER_DS,
-        kernel_stack_top,
-        kernel_stack,
-        child_pid.0,
-    );
+        crate::scheduler::task::Task::new_user_process(
+            &child_name,
+            child_cr3,
+            entry_point,
+            0x7FFF_FFFF_E000,
+            crate::gdt::USER_CS,
+            crate::gdt::USER_DS,
+            kernel_stack_top,
+            kernel_stack,
+            child_pid.0,
+        )
+    };
 
     crate::scheduler::spawn(child_task);
 
