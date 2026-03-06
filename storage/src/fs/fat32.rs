@@ -1,8 +1,9 @@
-//! FAT32 filesystem implementation (read-focused).
+//! FAT32 filesystem implementation with read and write support.
 
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
 use crate::driver::BlockDevice;
@@ -218,13 +219,17 @@ struct OpenFile {
     first_cluster: u32,
     size: u64,
     is_dir: bool,
+    /// Start cluster of the parent directory containing this file's dir entry.
+    parent_dir_cluster: u32,
+    /// Byte offset of the 32-byte dir entry within the parent directory's cluster chain.
+    dir_entry_chain_offset: u32,
 }
 
 pub struct Fat32Filesystem {
     device: &'static dyn BlockDevice,
     bpb: Fat32Bpb,
     read_only: bool,
-    free_clusters: u32,
+    free_clusters: AtomicU32,
     open_files: RwLock<[Option<OpenFile>; 128]>,
 }
 
@@ -245,8 +250,8 @@ impl Fat32Filesystem {
         Ok(Self {
             device,
             bpb,
-            read_only: true,
-            free_clusters: 0,
+            read_only: false,
+            free_clusters: AtomicU32::new(0),
             open_files: RwLock::new([None; 128]),
         })
     }
@@ -474,6 +479,369 @@ impl Fat32Filesystem {
 
          Ok(read_total)
      }
+
+     // ── Write support helpers ───────────────────────────────────────
+
+     fn write_sector(&self, sector: u32, data: &[u8]) -> Result<(), StorageError> {
+         if self.read_only {
+             return Err(StorageError::ReadOnly);
+         }
+         self.device.write_blocks(sector as u64, data)?;
+         Ok(())
+     }
+
+     fn write_fat_entry(&self, cluster: u32, value: u32) -> Result<(), StorageError> {
+         let fat_offset = cluster as usize * 4;
+         let bps = self.bps();
+         let fat_sector = self.bpb.reserved_sectors as u32 + (fat_offset / bps) as u32;
+         let entry_offset = fat_offset % bps;
+
+         let mut sector_buf = vec![0u8; bps];
+         self.read_sector(fat_sector, &mut sector_buf)?;
+
+         // Preserve upper 4 bits of existing entry per FAT32 spec.
+         let existing_hi = sector_buf[entry_offset + 3] & 0xF0;
+         let bytes = value.to_le_bytes();
+         sector_buf[entry_offset] = bytes[0];
+         sector_buf[entry_offset + 1] = bytes[1];
+         sector_buf[entry_offset + 2] = bytes[2];
+         sector_buf[entry_offset + 3] = (bytes[3] & 0x0F) | existing_hi;
+
+         self.write_sector(fat_sector, &sector_buf)?;
+
+         // Mirror to backup FAT if present.
+         if self.bpb.num_fats == 2 {
+             let backup_sector = fat_sector + self.bpb.fat_size_32;
+             self.write_sector(backup_sector, &sector_buf)?;
+         }
+
+         Ok(())
+     }
+
+     fn alloc_cluster(&self) -> Result<u32, StorageError> {
+         let total = self.bpb.total_clusters();
+         for cluster in 2..total + 2 {
+             let entry = self.read_fat_entry(cluster)?;
+             if entry == 0 {
+                 // Mark as end-of-chain.
+                 self.write_fat_entry(cluster, 0x0FFF_FFFF)?;
+                 self.free_clusters.fetch_sub(1, Ordering::Relaxed);
+
+                 // Zero the new cluster.
+                 let zero_buf = vec![0u8; self.bps()];
+                 let first_sector = self.bpb.cluster_to_sector(cluster);
+                 for i in 0..self.bpb.sectors_per_cluster as u32 {
+                     self.write_sector(first_sector + i, &zero_buf)?;
+                 }
+                 return Ok(cluster);
+             }
+         }
+         Err(StorageError::NoSpace)
+     }
+
+     fn extend_chain(&self, last_cluster: u32, new_cluster: u32) -> Result<(), StorageError> {
+         self.write_fat_entry(last_cluster, new_cluster)
+     }
+
+     fn free_chain(&self, start_cluster: u32) -> Result<(), StorageError> {
+         if start_cluster < 2 {
+             return Ok(());
+         }
+         let mut cluster = start_cluster;
+         for _ in 0..0x10_0000 {
+             let next = self.read_fat_entry(cluster)?;
+             self.write_fat_entry(cluster, 0)?;
+             self.free_clusters.fetch_add(1, Ordering::Relaxed);
+             if next >= fat_entry::EOC_MIN || next < 2 {
+                 break;
+             }
+             cluster = next;
+         }
+         Ok(())
+     }
+
+     /// Split a path into (parent_dir, filename).
+     fn split_parent_name(path: &str) -> Result<(&str, &str), StorageError> {
+         let path = path.trim_end_matches('/');
+         if path.is_empty() || path == "/" {
+             return Err(StorageError::InvalidPath);
+         }
+         if let Some(pos) = path.rfind('/') {
+             let parent = if pos == 0 { "/" } else { &path[..pos] };
+             let name = &path[pos + 1..];
+             if name.is_empty() {
+                 return Err(StorageError::InvalidName);
+             }
+             Ok((parent, name))
+         } else {
+             Ok(("/", path))
+         }
+     }
+
+     /// Convert a filename to FAT32 8.3 short name format (uppercase, space-padded).
+     fn make_short_name(name: &str) -> Result<[u8; 11], StorageError> {
+         if name.is_empty() || name.len() > 12 {
+             return Err(StorageError::InvalidName);
+         }
+         let mut result = [b' '; 11];
+         let (base, ext) = if let Some(dot_pos) = name.rfind('.') {
+             (&name[..dot_pos], &name[dot_pos + 1..])
+         } else {
+             (name, "")
+         };
+         if base.is_empty() || base.len() > 8 || ext.len() > 3 {
+             return Err(StorageError::InvalidName);
+         }
+         for (i, &b) in base.as_bytes().iter().enumerate().take(8) {
+             result[i] = b.to_ascii_uppercase();
+         }
+         for (i, &b) in ext.as_bytes().iter().enumerate().take(3) {
+             result[8 + i] = b.to_ascii_uppercase();
+         }
+         Ok(result)
+     }
+
+     /// Get the start cluster of a directory given its path.
+     fn parent_cluster(&self, parent_path: &str) -> Result<u32, StorageError> {
+         if parent_path == "/" {
+             Ok(self.bpb.root_cluster)
+         } else {
+             let entry = self.resolve_path(parent_path)?;
+             if !entry.is_dir() {
+                 return Err(StorageError::NotADirectory);
+             }
+             Ok(entry.first_cluster())
+         }
+     }
+
+     /// Compare two 11-byte FAT short names (case-insensitive).
+     fn names_match(a: &[u8; 11], b: &[u8; 11]) -> bool {
+         for i in 0..11 {
+             if a[i].to_ascii_uppercase() != b[i].to_ascii_uppercase() {
+                 return false;
+             }
+         }
+         true
+     }
+
+     /// Find a directory entry by short name within a directory cluster chain.
+     /// Returns (entry, byte_offset_within_chain).
+     fn find_entry_in_dir(
+         &self,
+         dir_cluster: u32,
+         target: &[u8; 11],
+     ) -> Result<(Fat32DirEntry, u32), StorageError> {
+         let mut cluster = dir_cluster;
+         let cluster_size = self.cluster_size();
+         let entries_per_cluster = cluster_size / Fat32DirEntry::SIZE;
+         let mut chain_offset: u32 = 0;
+
+         for _ in 0..4096 {
+             let mut cluster_buf = vec![0u8; cluster_size];
+             self.read_cluster(cluster, &mut cluster_buf)?;
+
+             for i in 0..entries_per_cluster {
+                 let offset = i * Fat32DirEntry::SIZE;
+                 // SAFETY: Reading a packed 32-byte struct from an aligned buffer slice.
+                 let entry: Fat32DirEntry = unsafe {
+                     core::ptr::read_unaligned(cluster_buf[offset..].as_ptr() as *const _)
+                 };
+                 if entry.is_last() {
+                     return Err(StorageError::FileNotFound);
+                 }
+                 if entry.is_free() || entry.is_long_name() || entry.is_volume_label() {
+                     continue;
+                 }
+                 if Self::names_match(&entry.name, target) {
+                     return Ok((entry, chain_offset + offset as u32));
+                 }
+             }
+
+             chain_offset += cluster_size as u32;
+             let next = self.read_fat_entry(cluster)?;
+             if next >= fat_entry::EOC_MIN || next == fat_entry::BAD {
+                 break;
+             }
+             if next < 2 {
+                 return Err(StorageError::Corrupted);
+             }
+             cluster = next;
+         }
+
+         Err(StorageError::FileNotFound)
+     }
+
+     /// Find a free 32-byte slot in a directory's cluster chain.
+     /// Returns the byte offset within the chain. Extends the chain if full.
+     fn find_free_dir_slot(&self, dir_cluster: u32) -> Result<u32, StorageError> {
+         let mut cluster = dir_cluster;
+         let cluster_size = self.cluster_size();
+         let entries_per_cluster = cluster_size / Fat32DirEntry::SIZE;
+         let mut chain_offset: u32 = 0;
+
+         for _ in 0..4096 {
+             let mut cluster_buf = vec![0u8; cluster_size];
+             self.read_cluster(cluster, &mut cluster_buf)?;
+
+             for i in 0..entries_per_cluster {
+                 let offset = i * Fat32DirEntry::SIZE;
+                 let first_byte = cluster_buf[offset];
+                 if first_byte == Fat32DirEntry::DELETED || first_byte == Fat32DirEntry::LAST {
+                     return Ok(chain_offset + offset as u32);
+                 }
+             }
+
+             chain_offset += cluster_size as u32;
+             let next = self.read_fat_entry(cluster)?;
+             if next >= fat_entry::EOC_MIN {
+                 // Directory full — extend with a new cluster.
+                 let new_cluster = self.alloc_cluster()?;
+                 self.extend_chain(cluster, new_cluster)?;
+                 return Ok(chain_offset);
+             }
+             if next < 2 {
+                 return Err(StorageError::Corrupted);
+             }
+             cluster = next;
+         }
+
+         Err(StorageError::NoSpace)
+     }
+
+     /// Convert a chain byte-offset to (actual_cluster, disk_sector, offset_within_sector).
+     fn chain_offset_to_sector(
+         &self,
+         start_cluster: u32,
+         chain_byte_offset: u32,
+     ) -> Result<(u32, u32, usize), StorageError> {
+         let cluster_size = self.cluster_size();
+         let cluster_index = chain_byte_offset as usize / cluster_size;
+         let intra = chain_byte_offset as usize % cluster_size;
+
+         let mut cluster = start_cluster;
+         for _ in 0..cluster_index {
+             let next = self.read_fat_entry(cluster)?;
+             if next >= fat_entry::EOC_MIN || next < 2 {
+                 return Err(StorageError::Corrupted);
+             }
+             cluster = next;
+         }
+
+         let bps = self.bps();
+         let sector_in_cluster = intra / bps;
+         let offset_in_sector = intra % bps;
+         let sector = self.bpb.cluster_to_sector(cluster) + sector_in_cluster as u32;
+
+         Ok((cluster, sector, offset_in_sector))
+     }
+
+     /// Write a raw 32-byte directory entry at the given chain byte-offset.
+     fn write_dir_entry_at(
+         &self,
+         dir_cluster: u32,
+         chain_byte_offset: u32,
+         entry: &Fat32DirEntry,
+     ) -> Result<(), StorageError> {
+         let (_cluster, sector, offset_in_sector) =
+             self.chain_offset_to_sector(dir_cluster, chain_byte_offset)?;
+
+         let bps = self.bps();
+         let mut sector_buf = vec![0u8; bps];
+         self.read_sector(sector, &mut sector_buf)?;
+
+         // SAFETY: Reinterpreting a packed repr(C) struct as raw bytes.
+         let entry_bytes: &[u8] = unsafe {
+             core::slice::from_raw_parts(
+                 entry as *const Fat32DirEntry as *const u8,
+                 Fat32DirEntry::SIZE,
+             )
+         };
+         sector_buf[offset_in_sector..offset_in_sector + Fat32DirEntry::SIZE]
+             .copy_from_slice(entry_bytes);
+
+         self.write_sector(sector, &sector_buf)
+     }
+
+     /// Update the first-cluster field of a directory entry on disk.
+     fn update_dir_entry_cluster(
+         &self,
+         dir_cluster: u32,
+         chain_byte_offset: u32,
+         first_cluster: u32,
+     ) -> Result<(), StorageError> {
+         let (_cluster, sector, ofs) =
+             self.chain_offset_to_sector(dir_cluster, chain_byte_offset)?;
+
+         let bps = self.bps();
+         let mut sector_buf = vec![0u8; bps];
+         self.read_sector(sector, &mut sector_buf)?;
+
+         // fst_clus_hi is at byte 20, fst_clus_lo is at byte 26 within the 32-byte entry.
+         sector_buf[ofs + 20..ofs + 22]
+             .copy_from_slice(&((first_cluster >> 16) as u16).to_le_bytes());
+         sector_buf[ofs + 26..ofs + 28]
+             .copy_from_slice(&((first_cluster & 0xFFFF) as u16).to_le_bytes());
+
+         self.write_sector(sector, &sector_buf)
+     }
+
+     /// Update the file_size field of a directory entry on disk.
+     fn update_dir_entry_size(
+         &self,
+         dir_cluster: u32,
+         chain_byte_offset: u32,
+         size: u32,
+     ) -> Result<(), StorageError> {
+         let (_cluster, sector, ofs) =
+             self.chain_offset_to_sector(dir_cluster, chain_byte_offset)?;
+
+         let bps = self.bps();
+         let mut sector_buf = vec![0u8; bps];
+         self.read_sector(sector, &mut sector_buf)?;
+
+         // file_size is at byte 28 within the 32-byte entry.
+         sector_buf[ofs + 28..ofs + 32].copy_from_slice(&size.to_le_bytes());
+
+         self.write_sector(sector, &sector_buf)
+     }
+
+     /// Mark a directory entry as deleted (first byte = 0xE5) on disk.
+     fn mark_dir_entry_deleted(
+         &self,
+         dir_cluster: u32,
+         chain_byte_offset: u32,
+     ) -> Result<(), StorageError> {
+         let (_cluster, sector, ofs) =
+             self.chain_offset_to_sector(dir_cluster, chain_byte_offset)?;
+
+         let bps = self.bps();
+         let mut sector_buf = vec![0u8; bps];
+         self.read_sector(sector, &mut sector_buf)?;
+
+         sector_buf[ofs] = Fat32DirEntry::DELETED;
+
+         self.write_sector(sector, &sector_buf)
+     }
+
+     /// Count existing clusters in a chain and return (count, last_cluster).
+     fn count_chain(&self, first_cluster: u32) -> Result<(u32, u32), StorageError> {
+         if first_cluster < 2 {
+             return Ok((0, 0));
+         }
+         let mut count = 0u32;
+         let mut last = first_cluster;
+         let mut cluster = first_cluster;
+         for _ in 0..0x10_0000 {
+             count += 1;
+             last = cluster;
+             let next = self.read_fat_entry(cluster)?;
+             if next >= fat_entry::EOC_MIN || next < 2 {
+                 break;
+             }
+             cluster = next;
+         }
+         Ok((count, last))
+     }
  }
 
  impl Default for Fat32Filesystem {
@@ -548,7 +916,7 @@ impl Fat32Filesystem {
                  fs_type: [0; 8],
              },
              read_only: true,
-             free_clusters: 0,
+             free_clusters: AtomicU32::new(0),
              open_files: RwLock::new([None; 128]),
          }
      }
@@ -564,8 +932,8 @@ impl Fat32Filesystem {
              fs_type: 0x4D44,
              block_size: self.bpb.cluster_size(),
              total_blocks: self.bpb.total_clusters() as u64,
-             free_blocks: self.free_clusters as u64,
-             available_blocks: self.free_clusters as u64,
+             free_blocks: self.free_clusters.load(Ordering::Relaxed) as u64,
+             available_blocks: self.free_clusters.load(Ordering::Relaxed) as u64,
              total_inodes: 0,
              free_inodes: 0,
              fs_id: self.bpb.volume_id as u64,
@@ -610,24 +978,176 @@ impl Fat32Filesystem {
          Ok(entries.split_off(offset as usize))
      }
 
-     fn create(&self, _path: &str, _mode: u16) -> Result<u64, StorageError> {
-         Err(StorageError::ReadOnly)
+     fn create(&self, path: &str, _mode: u16) -> Result<u64, StorageError> {
+         if self.read_only {
+             return Err(StorageError::ReadOnly);
+         }
+         // Fail if already exists.
+         if self.resolve_path(path).is_ok() {
+             return Err(StorageError::AlreadyExists);
+         }
+
+         let (parent_path, name) = Self::split_parent_name(path)?;
+         let short_name = Self::make_short_name(name)?;
+         let parent_cluster = self.parent_cluster(parent_path)?;
+
+         let slot_offset = self.find_free_dir_slot(parent_cluster)?;
+
+         let entry = Fat32DirEntry {
+             name: short_name,
+             attr: 0x20, // ARCHIVE
+             nt_res: 0,
+             crt_time_tenth: 0,
+             crt_time: 0,
+             crt_date: 0,
+             lst_acc_date: 0,
+             fst_clus_hi: 0,
+             wrt_time: 0,
+             wrt_date: 0,
+             fst_clus_lo: 0,
+             file_size: 0,
+         };
+
+         self.write_dir_entry_at(parent_cluster, slot_offset, &entry)?;
+
+         // Return a synthetic inode: encode parent cluster + offset.
+         Ok((parent_cluster as u64) << 32 | slot_offset as u64)
      }
 
-     fn mkdir(&self, _path: &str, _mode: u16) -> Result<(), StorageError> {
-         Err(StorageError::ReadOnly)
+     fn mkdir(&self, path: &str, _mode: u16) -> Result<(), StorageError> {
+         if self.read_only {
+             return Err(StorageError::ReadOnly);
+         }
+         if self.resolve_path(path).is_ok() {
+             return Err(StorageError::AlreadyExists);
+         }
+
+         let (parent_path, name) = Self::split_parent_name(path)?;
+         let short_name = Self::make_short_name(name)?;
+         let parent_cluster = self.parent_cluster(parent_path)?;
+
+         // Allocate a cluster for the new directory.
+         let dir_cluster = self.alloc_cluster()?;
+
+         // Create "." entry.
+         let mut dot_name = [b' '; 11];
+         dot_name[0] = b'.';
+         let dot = Fat32DirEntry {
+             name: dot_name,
+             attr: Fat32DirEntry::ATTR_DIRECTORY,
+             nt_res: 0,
+             crt_time_tenth: 0,
+             crt_time: 0,
+             crt_date: 0,
+             lst_acc_date: 0,
+             fst_clus_hi: (dir_cluster >> 16) as u16,
+             wrt_time: 0,
+             wrt_date: 0,
+             fst_clus_lo: (dir_cluster & 0xFFFF) as u16,
+             file_size: 0,
+         };
+         self.write_dir_entry_at(dir_cluster, 0, &dot)?;
+
+         // Create ".." entry.
+         let mut dotdot_name = [b' '; 11];
+         dotdot_name[0] = b'.';
+         dotdot_name[1] = b'.';
+         let parent_for_dotdot = if parent_cluster == self.bpb.root_cluster {
+             0
+         } else {
+             parent_cluster
+         };
+         let dotdot = Fat32DirEntry {
+             name: dotdot_name,
+             attr: Fat32DirEntry::ATTR_DIRECTORY,
+             nt_res: 0,
+             crt_time_tenth: 0,
+             crt_time: 0,
+             crt_date: 0,
+             lst_acc_date: 0,
+             fst_clus_hi: (parent_for_dotdot >> 16) as u16,
+             wrt_time: 0,
+             wrt_date: 0,
+             fst_clus_lo: (parent_for_dotdot & 0xFFFF) as u16,
+             file_size: 0,
+         };
+         self.write_dir_entry_at(dir_cluster, Fat32DirEntry::SIZE as u32, &dotdot)?;
+
+         // Add entry in parent directory.
+         let slot_offset = self.find_free_dir_slot(parent_cluster)?;
+         let parent_entry = Fat32DirEntry {
+             name: short_name,
+             attr: Fat32DirEntry::ATTR_DIRECTORY,
+             nt_res: 0,
+             crt_time_tenth: 0,
+             crt_time: 0,
+             crt_date: 0,
+             lst_acc_date: 0,
+             fst_clus_hi: (dir_cluster >> 16) as u16,
+             wrt_time: 0,
+             wrt_date: 0,
+             fst_clus_lo: (dir_cluster & 0xFFFF) as u16,
+             file_size: 0,
+         };
+         self.write_dir_entry_at(parent_cluster, slot_offset, &parent_entry)?;
+
+         Ok(())
      }
 
-     fn unlink(&self, _path: &str) -> Result<(), StorageError> {
-         Err(StorageError::ReadOnly)
+     fn unlink(&self, path: &str) -> Result<(), StorageError> {
+         if self.read_only {
+             return Err(StorageError::ReadOnly);
+         }
+
+         let (parent_path, name) = Self::split_parent_name(path)?;
+         let short_name = Self::make_short_name(name)?;
+         let parent_cluster = self.parent_cluster(parent_path)?;
+
+         let (entry, offset) = self.find_entry_in_dir(parent_cluster, &short_name)?;
+         if entry.is_dir() {
+             return Err(StorageError::NotAFile);
+         }
+
+         // Free the cluster chain.
+         self.free_chain(entry.first_cluster())?;
+
+         // Mark directory entry as deleted.
+         self.mark_dir_entry_deleted(parent_cluster, offset)?;
+
+         Ok(())
      }
 
-     fn rmdir(&self, _path: &str) -> Result<(), StorageError> {
-         Err(StorageError::ReadOnly)
+     fn rmdir(&self, path: &str) -> Result<(), StorageError> {
+         if self.read_only {
+             return Err(StorageError::ReadOnly);
+         }
+
+         let (parent_path, name) = Self::split_parent_name(path)?;
+         let short_name = Self::make_short_name(name)?;
+         let parent_cluster = self.parent_cluster(parent_path)?;
+
+         let (entry, offset) = self.find_entry_in_dir(parent_cluster, &short_name)?;
+         if !entry.is_dir() {
+             return Err(StorageError::NotADirectory);
+         }
+
+         // Check that directory is empty (only . and .. allowed).
+         let children = self.read_dir_entries(entry.first_cluster())?;
+         if !children.is_empty() {
+             return Err(StorageError::DirectoryNotEmpty);
+         }
+
+         // Free the directory's cluster chain.
+         self.free_chain(entry.first_cluster())?;
+
+         // Mark the parent's dir entry as deleted.
+         self.mark_dir_entry_deleted(parent_cluster, offset)?;
+
+         Ok(())
      }
 
      fn rename(&self, _old: &str, _new: &str) -> Result<(), StorageError> {
-         Err(StorageError::ReadOnly)
+         Err(StorageError::Unsupported)
      }
 
      fn symlink(&self, _target: &str, _link: &str) -> Result<(), StorageError> {
@@ -647,7 +1167,33 @@ impl Fat32Filesystem {
      }
 
      fn open(&self, path: &str, flags: OpenFlags) -> Result<u64, StorageError> {
-         let entry = self.resolve_path(path)?;
+         // Handle CREATE: if file does not exist and CREATE is requested, create it.
+         let (entry, parent_cluster, entry_offset) = match self.resolve_path(path) {
+             Ok(e) => {
+                 // File exists — find its parent and offset for tracking.
+                 let (parent_path, name) =
+                     Self::split_parent_name(path).unwrap_or(("/", ""));
+                 let pclus = self.parent_cluster(parent_path).unwrap_or(self.bpb.root_cluster);
+                 let short = Self::make_short_name(name).unwrap_or([b' '; 11]);
+                 let (_found, off) = self.find_entry_in_dir(pclus, &short).unwrap_or((e, 0));
+                 (e, pclus, off)
+             }
+             Err(StorageError::FileNotFound) if flags.contains(OpenFlags::CREATE) => {
+                 if self.read_only {
+                     return Err(StorageError::ReadOnly);
+                 }
+                 self.create(path, 0o644)?;
+                 let e = self.resolve_path(path)?;
+                 let (parent_path, name) =
+                     Self::split_parent_name(path).unwrap_or(("/", ""));
+                 let pclus = self.parent_cluster(parent_path).unwrap_or(self.bpb.root_cluster);
+                 let short = Self::make_short_name(name).unwrap_or([b' '; 11]);
+                 let (_found, off) = self.find_entry_in_dir(pclus, &short).unwrap_or((e, 0));
+                 (e, pclus, off)
+             }
+             Err(e) => return Err(e),
+         };
+
          let is_dir = entry.is_dir();
 
          if is_dir && !flags.contains(OpenFlags::DIRECTORY) {
@@ -657,10 +1203,24 @@ impl Fat32Filesystem {
              return Err(StorageError::NotADirectory);
          }
 
+         // Handle TRUNCATE on existing file.
+         let (first_cluster, size) = if flags.contains(OpenFlags::TRUNCATE) && !is_dir {
+             if entry.first_cluster() >= 2 {
+                 self.free_chain(entry.first_cluster())?;
+                 self.update_dir_entry_cluster(parent_cluster, entry_offset, 0)?;
+                 self.update_dir_entry_size(parent_cluster, entry_offset, 0)?;
+             }
+             (0, 0u64)
+         } else {
+             (entry.first_cluster(), entry.file_size as u64)
+         };
+
          self.alloc_handle(OpenFile {
-             first_cluster: entry.first_cluster(),
-             size: entry.file_size as u64,
+             first_cluster,
+             size,
              is_dir,
+             parent_dir_cluster: parent_cluster,
+             dir_entry_chain_offset: entry_offset,
          })
      }
 
@@ -673,20 +1233,167 @@ impl Fat32Filesystem {
          self.read_file_data(file, offset, buffer)
      }
 
-     fn write(&self, _handle: u64, _offset: u64, _data: &[u8]) -> Result<usize, StorageError> {
-         Err(StorageError::ReadOnly)
+     fn write(&self, handle: u64, offset: u64, data: &[u8]) -> Result<usize, StorageError> {
+         if self.read_only {
+             return Err(StorageError::ReadOnly);
+         }
+         if data.is_empty() {
+             return Ok(0);
+         }
+
+         let mut files = self.open_files.write();
+         let file = files
+             .get_mut(handle as usize)
+             .ok_or(StorageError::InvalidFd)?
+             .as_mut()
+             .ok_or(StorageError::InvalidFd)?;
+
+         if file.is_dir {
+             return Err(StorageError::NotAFile);
+         }
+
+         let write_end = offset + data.len() as u64;
+         let cluster_size = self.cluster_size() as u64;
+         let needed_clusters = ((write_end + cluster_size - 1) / cluster_size) as u32;
+
+         // Count current clusters.
+         let (mut current_clusters, mut last_cluster) = self.count_chain(file.first_cluster)?;
+
+         // Allocate first cluster if file has none.
+         if file.first_cluster < 2 && needed_clusters > 0 {
+             let new_cluster = self.alloc_cluster()?;
+             file.first_cluster = new_cluster;
+             last_cluster = new_cluster;
+             current_clusters = 1;
+             self.update_dir_entry_cluster(
+                 file.parent_dir_cluster,
+                 file.dir_entry_chain_offset,
+                 new_cluster,
+             )?;
+         }
+
+         // Allocate additional clusters as needed.
+         while current_clusters < needed_clusters {
+             let new_cluster = self.alloc_cluster()?;
+             self.extend_chain(last_cluster, new_cluster)?;
+             last_cluster = new_cluster;
+             current_clusters += 1;
+         }
+
+         // Navigate to the starting cluster for the write offset.
+         let csize = self.cluster_size();
+         let skip_clusters = (offset as usize) / csize;
+         let mut cluster_offset = (offset as usize) % csize;
+
+         let mut cluster = file.first_cluster;
+         for _ in 0..skip_clusters {
+             let next = self.read_fat_entry(cluster)?;
+             if next >= fat_entry::EOC_MIN || next < 2 {
+                 return Err(StorageError::IoError);
+             }
+             cluster = next;
+         }
+
+         // Write data sector-by-sector (read-modify-write).
+         let bps = self.bps();
+         let mut written = 0usize;
+
+         while written < data.len() {
+             let sector_in_cluster = cluster_offset / bps;
+             let offset_in_sector = cluster_offset % bps;
+             let sector = self.bpb.cluster_to_sector(cluster) + sector_in_cluster as u32;
+
+             let mut sector_buf = vec![0u8; bps];
+             self.read_sector(sector, &mut sector_buf)?;
+
+             let available = bps - offset_in_sector;
+             let to_write = core::cmp::min(available, data.len() - written);
+             sector_buf[offset_in_sector..offset_in_sector + to_write]
+                 .copy_from_slice(&data[written..written + to_write]);
+
+             self.write_sector(sector, &sector_buf)?;
+             written += to_write;
+             cluster_offset += to_write;
+
+             if cluster_offset >= csize {
+                 cluster_offset = 0;
+                 if written < data.len() {
+                     let next = self.read_fat_entry(cluster)?;
+                     if next >= fat_entry::EOC_MIN || next < 2 {
+                         break;
+                     }
+                     cluster = next;
+                 }
+             }
+         }
+
+         // Update file size if the write extended the file.
+         if write_end > file.size {
+             file.size = write_end;
+             self.update_dir_entry_size(
+                 file.parent_dir_cluster,
+                 file.dir_entry_chain_offset,
+                 write_end as u32,
+             )?;
+         }
+
+         Ok(written)
      }
 
      fn flush(&self, _handle: u64) -> Result<(), StorageError> {
-         Ok(())
+         self.device.flush()
      }
 
      fn fsync(&self, _handle: u64, _data_only: bool) -> Result<(), StorageError> {
-         Ok(())
+         self.device.flush()
      }
 
-     fn truncate(&self, _path: &str, _size: u64) -> Result<(), StorageError> {
-         Err(StorageError::ReadOnly)
+     fn truncate(&self, path: &str, size: u64) -> Result<(), StorageError> {
+         if self.read_only {
+             return Err(StorageError::ReadOnly);
+         }
+
+         let (parent_path, name) = Self::split_parent_name(path)?;
+         let short_name = Self::make_short_name(name)?;
+         let parent_cluster = self.parent_cluster(parent_path)?;
+
+         let (entry, offset) = self.find_entry_in_dir(parent_cluster, &short_name)?;
+         if entry.is_dir() {
+             return Err(StorageError::NotAFile);
+         }
+
+         let cluster_size = self.cluster_size() as u64;
+         let new_clusters_needed = if size == 0 {
+             0u32
+         } else {
+             ((size + cluster_size - 1) / cluster_size) as u32
+         };
+
+         let (current_count, _last) = self.count_chain(entry.first_cluster())?;
+
+         if new_clusters_needed == 0 && current_count > 0 {
+             // Free entire chain.
+             self.free_chain(entry.first_cluster())?;
+             self.update_dir_entry_cluster(parent_cluster, offset, 0)?;
+         } else if new_clusters_needed < current_count {
+             // Walk to the cluster at position new_clusters_needed-1, then free the rest.
+             let mut cluster = entry.first_cluster();
+             for _ in 1..new_clusters_needed {
+                 let next = self.read_fat_entry(cluster)?;
+                 if next >= fat_entry::EOC_MIN || next < 2 {
+                     break;
+                 }
+                 cluster = next;
+             }
+             let tail = self.read_fat_entry(cluster)?;
+             self.write_fat_entry(cluster, 0x0FFF_FFFF)?; // Mark new last as EOC.
+             if tail >= 2 && tail < fat_entry::EOC_MIN {
+                 self.free_chain(tail)?;
+             }
+         }
+
+         self.update_dir_entry_size(parent_cluster, offset, size as u32)?;
+         Ok(())
      }
 
      fn fallocate(&self, _handle: u64, _offset: u64, _len: u64) -> Result<(), StorageError> {

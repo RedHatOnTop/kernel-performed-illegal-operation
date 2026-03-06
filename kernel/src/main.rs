@@ -255,7 +255,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                     device_name,
                     "/mnt/test",
                     "fat32",
-                    storage::MountFlags::READ_ONLY,
+                    storage::MountFlags::empty(),
                 ) {
                     Ok(()) => {
                         serial_println!(
@@ -325,6 +325,71 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             Err(e) => {
                 serial_println!("[VFS] Block adapter registration failed: {:?}", e);
             }
+        }
+    }
+
+    // ── Phase 12-4: FAT32 write support integration test ─────────
+    // Create a file on the FAT32 filesystem, write to it, read it back, verify.
+    {
+        let vfs_ok = storage::vfs::is_mounted("/mnt/test");
+        if vfs_ok {
+            serial_println!("[P12-4] FAT32 write support integration test");
+
+            // Step 1: Create and write a file.
+            let file_data = b"Hello from KPIO";
+            let write_flags =
+                storage::OpenFlags::WRITE | storage::OpenFlags::CREATE | storage::OpenFlags::READ;
+            match storage::vfs::open("/mnt/test/WRITTEN.TXT", write_flags) {
+                Ok(fd) => {
+                    serial_println!("[FAT32] created WRITTEN.TXT");
+                    match storage::vfs::write(fd, file_data) {
+                        Ok(n) => {
+                            serial_println!("[FAT32] write {} bytes", n);
+                        }
+                        Err(e) => {
+                            serial_println!("[FAT32] FAIL: write to WRITTEN.TXT: {:?}", e);
+                        }
+                    }
+                    let _ = storage::vfs::close(fd);
+                }
+                Err(e) => {
+                    serial_println!("[FAT32] FAIL: open WRITTEN.TXT for write: {:?}", e);
+                }
+            }
+
+            // Step 2: Read back and verify.
+            match storage::vfs::open("/mnt/test/WRITTEN.TXT", storage::OpenFlags::READ) {
+                Ok(fd) => {
+                    let mut buf = [0u8; 64];
+                    match storage::vfs::read(fd, &mut buf) {
+                        Ok(n) => {
+                            let content = core::str::from_utf8(&buf[..n]).unwrap_or("<invalid utf8>");
+                            if content == "Hello from KPIO" {
+                                serial_println!(
+                                    "[VFS] readback verified: \"{}\"",
+                                    content
+                                );
+                            } else {
+                                serial_println!(
+                                    "[VFS] readback MISMATCH: got \"{}\" (expected \"Hello from KPIO\")",
+                                    content
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            serial_println!("[VFS] FAIL: readback WRITTEN.TXT: {:?}", e);
+                        }
+                    }
+                    let _ = storage::vfs::close(fd);
+                }
+                Err(e) => {
+                    serial_println!("[VFS] FAIL: open WRITTEN.TXT for read: {:?}", e);
+                }
+            }
+
+            serial_println!("[P12-4] FAT32 write test complete");
+        } else {
+            serial_println!("[P12-4] SKIPPED: /mnt/test not mounted");
         }
     }
 
