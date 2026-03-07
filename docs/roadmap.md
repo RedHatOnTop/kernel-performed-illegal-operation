@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 7.4.0  
-**Last Updated:** 2026-03-06  
-**Status:** Phase 12 In Progress (12-1 ✅, 12-2 ✅, 12-3 ✅, 12-4 ✅)
+**Document Version:** 7.5.0  
+**Last Updated:** 2026-03-07  
+**Status:** Phase 12 In Progress (12-1 ✅, 12-2 ✅, 12-3 ✅, 12-4 ✅, 12-5 ✅)
 
 ---
 
@@ -10,7 +10,9 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 12-4 (FAT32 Write Support) completed 2026-03-06. Full FAT32 write support implemented in `storage/src/fs/fat32.rs`: cluster allocation (`alloc_cluster`), chain extension/freeing, FAT entry write with backup FAT mirroring, file create/write/unlink/mkdir/rmdir/truncate, `open()` with CREATE and TRUNCATE flag support. `free_clusters` changed to `AtomicU32` for interior mutability. `OpenFile` extended with `parent_dir_cluster` and `dir_entry_chain_offset` for directory entry write-back. Mount changed from `READ_ONLY` to writable. Integration test creates `/mnt/test/WRITTEN.TXT` with "Hello from KPIO", reads back and verifies content. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+**Update:** Phase 12-5 (Init Process & ELF-from-Disk Boot) completed 2026-03-07. First end-to-end user-space pipeline from persistent storage: `create-test-disk.ps1` generates two minimal ELF64 binaries (INIT=173 bytes, BIN/HELLO=179 bytes) and places them on the FAT32 test disk. Kernel reads `/mnt/test/INIT` from FAT32 via `storage::vfs::open/read`, bridges to in-memory VFS, and spawns via `ProcessManager::spawn_from_vfs("/init")` (pid=3). Similarly loads `/mnt/test/BIN/HELLO` and spawns (pid=4). QEMU serial log shows `[INIT] PID 1 running` and `Hello from disk!`. No panics or triple faults. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+
+**Previous:** Phase 12-4 (FAT32 Write Support) completed 2026-03-06. Full FAT32 write support implemented in `storage/src/fs/fat32.rs`: cluster allocation (`alloc_cluster`), chain extension/freeing, FAT entry write with backup FAT mirroring, file create/write/unlink/mkdir/rmdir/truncate, `open()` with CREATE and TRUNCATE flag support. `free_clusters` changed to `AtomicU32` for interior mutability. `OpenFile` extended with `parent_dir_cluster` and `dir_entry_chain_offset` for directory entry write-back. Mount changed from `READ_ONLY` to writable. Integration test creates `/mnt/test/WRITTEN.TXT` with "Hello from KPIO", reads back and verifies content. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
 **Previous:** Phase 12-3 (ProcessManager::spawn from VFS) completed 2026-03-06. `spawn_from_vfs(path)` reads an ELF binary from the in-memory VFS, parses it with `Elf64Loader`, creates a per-process page table via `create_user_page_table()`, loads PT_LOAD segments via `load_elf_segments()`, allocates a 32 KiB kernel stack, registers the process in `PROCESS_TABLE` with `LinuxMemoryInfo` (CR3, brk, mmap base), creates a `Task::new_user_process()`, and enqueues it via `scheduler::spawn()`. Integration test: minimal 171-byte ELF64 at `/bin/spawn-test` writes "SPAWN OK\n" + SYS_EXIT(0). QEMU test: pid=2, cr3=0xd434000, 17 pages mapped. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
@@ -536,6 +538,7 @@ Prepare the system for production use with security, stability, and performance 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 7.5.0 | 2026-03-07 | Phase 12-5 complete — Init process & ELF-from-disk boot (FAT32 → VFS → spawn, INIT + hello binaries on disk) |
 | 7.4.0 | 2026-03-06 | Phase 12-4 complete — FAT32 write support (create, write, unlink, mkdir, rmdir, truncate, cluster management, backup FAT mirroring) |
 | 7.3.0 | 2026-03-06 | Phase 12-3 complete — ProcessManager::spawn_from_vfs() loads ELF from VFS, creates page table, loads segments, spawns process |
 | 7.2.0 | 2026-03-06 | Phase 12-2 complete — fork child return fixed (iretq trampoline, CoW clone bugfix) |

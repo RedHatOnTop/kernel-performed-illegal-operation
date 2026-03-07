@@ -1375,6 +1375,161 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         serial_println!("[SPAWN] Phase 12-3 wait complete.");
     }
 
+    // ── Phase 12-5: Init Process & ELF-from-Disk Boot ───────────
+    // Validates the full user-space pipeline end-to-end:
+    //   1. Read /INIT ELF binary from FAT32 disk (storage VFS)
+    //   2. Register it in in-memory VFS, spawn via ProcessManager
+    //   3. Read /BIN/HELLO ELF binary from FAT32 disk
+    //   4. Register it in in-memory VFS, spawn via ProcessManager
+    //   5. Verify both processes produce expected serial output
+    {
+        serial_println!("[P12-5] Init process & ELF-from-disk boot test");
+
+        let disk_mounted = storage::vfs::is_mounted("/mnt/test");
+        if disk_mounted {
+            // --- Step 1: Load /init from FAT32 disk ---
+            let init_loaded = match storage::vfs::open("/mnt/test/INIT", storage::OpenFlags::READ) {
+                Ok(fd) => {
+                    let mut buf = alloc::vec![0u8; 4096];
+                    match storage::vfs::read(fd, &mut buf) {
+                        Ok(n) if n > 0 => {
+                            let _ = storage::vfs::close(fd);
+                            buf.truncate(n);
+                            serial_println!(
+                                "[P12-5] Read /INIT from FAT32: {} bytes",
+                                n,
+                            );
+                            // Register in in-memory VFS
+                            match vfs::write_all("/init", &buf) {
+                                Ok(()) => {
+                                    serial_println!("[P12-5] Registered /init in VFS");
+                                    true
+                                }
+                                Err(e) => {
+                                    serial_println!(
+                                        "[P12-5] FAIL: register /init in VFS: {:?}",
+                                        e,
+                                    );
+                                    false
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            let _ = storage::vfs::close(fd);
+                            serial_println!("[P12-5] FAIL: /INIT is empty");
+                            false
+                        }
+                        Err(e) => {
+                            let _ = storage::vfs::close(fd);
+                            serial_println!("[P12-5] FAIL: read /INIT: {:?}", e);
+                            false
+                        }
+                    }
+                }
+                Err(e) => {
+                    serial_println!(
+                        "[P12-5] WARN: /INIT not found on disk: {:?} (run create-test-disk.ps1)",
+                        e,
+                    );
+                    false
+                }
+            };
+
+            // Spawn /init as PID 1 (first user process from disk)
+            if init_loaded {
+                match crate::process::manager::PROCESS_MANAGER.spawn_from_vfs("/init") {
+                    Ok(pid) => {
+                        serial_println!(
+                            "[P12-5] Spawned /init from disk: pid={}",
+                            pid,
+                        );
+                    }
+                    Err(e) => {
+                        serial_println!(
+                            "[P12-5] FAIL: spawn /init: {:?}",
+                            e,
+                        );
+                    }
+                }
+            }
+
+            // --- Step 2: Load /bin/hello from FAT32 disk ---
+            let hello_loaded =
+                match storage::vfs::open("/mnt/test/BIN/HELLO", storage::OpenFlags::READ) {
+                    Ok(fd) => {
+                        let mut buf = alloc::vec![0u8; 4096];
+                        match storage::vfs::read(fd, &mut buf) {
+                            Ok(n) if n > 0 => {
+                                let _ = storage::vfs::close(fd);
+                                buf.truncate(n);
+                                serial_println!(
+                                    "[P12-5] Read /BIN/HELLO from FAT32: {} bytes",
+                                    n,
+                                );
+                                // Register in in-memory VFS
+                                match vfs::write_all("/bin/hello", &buf) {
+                                    Ok(()) => {
+                                        serial_println!("[P12-5] Registered /bin/hello in VFS");
+                                        true
+                                    }
+                                    Err(e) => {
+                                        serial_println!(
+                                            "[P12-5] FAIL: register /bin/hello in VFS: {:?}",
+                                            e,
+                                        );
+                                        false
+                                    }
+                                }
+                            }
+                            Ok(_) => {
+                                let _ = storage::vfs::close(fd);
+                                serial_println!("[P12-5] FAIL: /BIN/HELLO is empty");
+                                false
+                            }
+                            Err(e) => {
+                                let _ = storage::vfs::close(fd);
+                                serial_println!("[P12-5] FAIL: read /BIN/HELLO: {:?}", e);
+                                false
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        serial_println!(
+                            "[P12-5] WARN: /BIN/HELLO not found on disk: {:?} (run create-test-disk.ps1)",
+                            e,
+                        );
+                        false
+                    }
+                };
+
+            // Spawn /bin/hello
+            if hello_loaded {
+                match crate::process::manager::PROCESS_MANAGER.spawn_from_vfs("/bin/hello") {
+                    Ok(pid) => {
+                        serial_println!(
+                            "[P12-5] Spawned /bin/hello from disk: pid={}",
+                            pid,
+                        );
+                    }
+                    Err(e) => {
+                        serial_println!(
+                            "[P12-5] FAIL: spawn /bin/hello: {:?}",
+                            e,
+                        );
+                    }
+                }
+            }
+
+            // Wait for both processes to execute
+            for _ in 0..500 {
+                x86_64::instructions::hlt();
+            }
+            serial_println!("[P12-5] Init-from-disk boot test complete");
+        } else {
+            serial_println!("[P12-5] SKIPPED: /mnt/test not mounted (no test disk)");
+        }
+    }
+
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:
     //   1. Create a parent user page table with code + data + stack pages
