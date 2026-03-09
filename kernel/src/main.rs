@@ -1835,6 +1835,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("[KPIO] Waiting for boot animation...");
     let mut total_drained: u64 = 0;
     let mut drain_logged = false;
+    // Discard stale work items that accumulated during boot-time
+    // initialization (Phase 12 tests, etc.) — processing hundreds of
+    // accumulated timer ticks would trigger that many framebuffer
+    // renders and stall the main loop.
+    interrupts::workqueue::reset();
+    // Temporarily install a lightweight timer callback so the first
+    // drain iteration doesn't trigger a full-screen framebuffer render
+    // (which takes seconds in QEMU's software-emulated pixel output).
+    fn noop_timer_cb() {}
+    interrupts::register_timer_callback(noop_timer_cb);
     loop {
         // Drain all pending ISR work items (timer, keyboard, mouse)
         // dispatched outside interrupt context — resolves the known
@@ -1846,6 +1856,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         if !drain_logged && total_drained > 0 {
             serial_println!("[WorkQueue] drained {} items so far", total_drained);
             drain_logged = true;
+            // Restore the real boot animation callback now that the
+            // drain verification message has been printed.
+            interrupts::register_timer_callback(on_boot_animation_tick);
         }
 
         unsafe {

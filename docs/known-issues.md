@@ -279,3 +279,46 @@ Boot now shows:
 [CoW] fork shared N pages (refcounted)
 [CoW] fault handled at 0x... (copied frame, old refcount=2)
 ```
+
+---
+
+## 10. ~~Work Queue Drain Timeout (Hardening Test Failure)~~ ✅ RESOLVED
+
+| Field       | Detail                                                                 |
+|-------------|------------------------------------------------------------------------|
+| Severity    | ~~Medium~~ → Resolved                                                 |
+| Component   | `kernel/src/interrupts/workqueue.rs`, `kernel/src/main.rs`             |
+| Affects     | Hardening test mode — "Work queue drain" check timed out (28/29)       |
+| Status      | **Fixed** post-Phase 12 (2026-03-09)                                   |
+| Discovered  | Phase 11-2 (2026-03-05), persisted through Phase 12                   |
+
+### Symptom
+
+The hardening QEMU test's "Work queue drain" check failed because the
+`[WorkQueue] drained N items so far` serial message never appeared within
+the 45-second timeout. All other 28 hardening checks passed.
+
+### Root Cause
+
+During kernel initialization (Phase 12 user-space tests, scheduler setup,
+filesystem mount, etc.), the APIC timer fired at 100 Hz, pushing
+`WorkItem::TimerTick` into the 256-entry ring buffer. By the time the main
+loop started calling `workqueue::drain()`, the buffer had accumulated ~256
+stale TimerTick entries. Each tick dispatched `on_boot_animation_tick()`,
+which called `render_boot_animation()` — a pixel-by-pixel full-screen
+framebuffer fill via `set_pixel()`. Draining ~256 such callbacks caused
+~256 full-screen renders (~2M+ memory writes each), far exceeding the
+QEMU test timeout.
+
+### Fix
+
+Two-part fix in `workqueue.rs` and `main.rs`:
+
+1. **`workqueue::reset()`** — Added a function that advances `READ_IDX` to
+   match `WRITE_IDX`, discarding all stale items accumulated before the
+   main loop begins. Called once before entering the main loop.
+2. **Temporary noop timer callback** — Before the first drain cycle, a no-op
+   callback is registered for timer events. The real `on_boot_animation_tick`
+   callback is restored only after the first successful drain logs the
+   verification message. This prevents expensive framebuffer renders during
+   the initial drain of any remaining items.

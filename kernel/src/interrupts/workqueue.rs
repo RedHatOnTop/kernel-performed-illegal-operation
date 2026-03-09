@@ -223,3 +223,15 @@ fn dispatch(item: WorkItem) {
         }
     }
 }
+
+/// Discard all pending items without dispatching callbacks.
+///
+/// Advances READ_IDX to match WRITE_IDX, effectively emptying the
+/// queue. Call this before entering the main drain loop to clear
+/// stale items that accumulated during boot-time initialization
+/// (avoids dispatching hundreds of accumulated timer tick callbacks
+/// that would each trigger a full-screen framebuffer render).
+pub fn reset() {
+    let write = WRITE_IDX.load(Ordering::SeqCst);
+    READ_IDX.store(write, Ordering::SeqCst);
+}
