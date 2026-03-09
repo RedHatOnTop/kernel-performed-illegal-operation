@@ -1530,6 +1530,143 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
     }
 
+    // ── Phase 12-6: userlib Syscall Wiring integration test ─────
+    // Validates that user-space programs can perform real file I/O
+    // via the syscall interface:
+    //   1. Create "/hello.txt" in the in-memory VFS
+    //   2. Build a minimal ELF binary that open→read→write→close→exit
+    //   3. Spawn the ELF as a user process
+    //   4. Serial output must contain "Hello from KPIO test disk!"
+    {
+        serial_println!("[P12-6] userlib syscall wiring integration test");
+
+        // Step 1: Create the test file in the in-memory VFS
+        let content = b"Hello from KPIO test disk!";
+        match vfs::write_all("/hello.txt", content) {
+            Ok(()) => serial_println!("[P12-6] Created /hello.txt ({} bytes)", content.len()),
+            Err(e) => serial_println!("[P12-6] FAIL: create /hello.txt: {:?}", e),
+        }
+
+        // Step 2: Build a minimal user-space program that:
+        //   open("/hello.txt", 0, 0) → fd
+        //   read(fd, buf, 256)       → count
+        //   write(1, buf, count)     → serial output
+        //   close(fd)
+        //   exit(0)
+        //
+        // x86_64 machine code, mapped at vaddr 0x400000:
+        #[rustfmt::skip]
+        const FS_TEST_CODE: &[u8] = &[
+            // open("/hello.txt", O_RDONLY=0, mode=0)
+            0x48, 0xC7, 0xC0, 0x02, 0x00, 0x00, 0x00, // mov rax, 2 (SYS_OPEN)
+            0x48, 0x8D, 0x3D, 0x56, 0x00, 0x00, 0x00, // lea rdi, [rip+0x56] → string at +0x64
+            0x31, 0xF6,                                 // xor esi, esi (flags=0)
+            0x31, 0xD2,                                 // xor edx, edx (mode=0)
+            0x0F, 0x05,                                 // syscall → fd in rax
+
+            // save fd in r12
+            0x49, 0x89, 0xC4,                           // mov r12, rax
+
+            // sub rsp, 256 (stack buffer for read)
+            0x48, 0x81, 0xEC, 0x00, 0x01, 0x00, 0x00,  // sub rsp, 256
+
+            // read(fd, rsp, 256)
+            0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00, // mov rax, 0 (SYS_READ)
+            0x4C, 0x89, 0xE7,                           // mov rdi, r12 (fd)
+            0x48, 0x89, 0xE6,                           // mov rsi, rsp (buf)
+            0x48, 0xC7, 0xC2, 0x00, 0x01, 0x00, 0x00, // mov rdx, 256 (count)
+            0x0F, 0x05,                                 // syscall → bytes_read in rax
+
+            // save count in r13
+            0x49, 0x89, 0xC5,                           // mov r13, rax
+
+            // write(1, rsp, count) → serial output
+            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1 (SYS_WRITE)
+            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1 (stdout)
+            0x48, 0x89, 0xE6,                           // mov rsi, rsp (buf)
+            0x4C, 0x89, 0xEA,                           // mov rdx, r13 (count)
+            0x0F, 0x05,                                 // syscall
+
+            // close(fd)
+            0x48, 0xC7, 0xC0, 0x03, 0x00, 0x00, 0x00, // mov rax, 3 (SYS_CLOSE)
+            0x4C, 0x89, 0xE7,                           // mov rdi, r12 (fd)
+            0x0F, 0x05,                                 // syscall
+
+            // exit(0)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00, // mov rax, 60 (SYS_EXIT)
+            0x31, 0xFF,                                 // xor edi, edi
+            0x0F, 0x05,                                 // syscall
+
+            // String data: "/hello.txt\0" at offset 0x64
+            b'/', b'h', b'e', b'l', b'l', b'o', b'.', b't', b'x', b't', 0x00,
+        ];
+
+        // Step 3: Map a user page table with code + stack pages
+        let fs_cr3 = match memory::user_page_table::create_user_page_table() {
+            Ok(cr3) => cr3,
+            Err(e) => {
+                serial_println!("[P12-6] FAIL: page table: {}", e);
+                0
+            }
+        };
+
+        if fs_cr3 != 0 {
+            use x86_64::structures::paging::PageTableFlags;
+            let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+            let stack_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
+
+            let code_vaddr: u64 = 0x40_0000;
+            let stack_top: u64 = 0x80_0000;
+            let stack_base: u64 = stack_top - 0x2000; // 2 pages for stack (for sub rsp, 256)
+
+            let code_result =
+                memory::user_page_table::map_user_page(fs_cr3, code_vaddr, code_flags);
+            let stack_result1 =
+                memory::user_page_table::map_user_page(fs_cr3, stack_base, stack_flags);
+            let stack_result2 =
+                memory::user_page_table::map_user_page(fs_cr3, stack_base + 0x1000, stack_flags);
+
+            if let (Ok(code_phys), Ok(_), Ok(_)) = (code_result, stack_result1, stack_result2) {
+                // Write the test program into the code page
+                unsafe {
+                    memory::user_page_table::write_to_phys(code_phys, 0, FS_TEST_CODE);
+                }
+
+                // Allocate kernel stack
+                let ks_size: usize = 32 * 1024;
+                let ks_vec = alloc::vec![0u8; ks_size];
+                let ks_top = ks_vec.as_ptr() as u64 + ks_size as u64;
+
+                let task = scheduler::Task::new_user_process(
+                    "fs-test-12-6",
+                    fs_cr3,
+                    code_vaddr,          // entry point RIP
+                    stack_top,           // user RSP
+                    gdt::USER_CS as u16,
+                    gdt::USER_DS as u16,
+                    ks_top,
+                    ks_vec,
+                    126, // pid
+                );
+                scheduler::spawn(task);
+                serial_println!(
+                    "[P12-6] fs-test task spawned (pid=126, CR3={:#x})",
+                    fs_cr3,
+                );
+
+                // Wait for the task to execute
+                for _ in 0..300 {
+                    x86_64::instructions::hlt();
+                }
+                serial_println!("[P12-6] Phase 12-6 integration test complete");
+            } else {
+                serial_println!("[P12-6] FAIL: could not map user pages");
+            }
+        }
+    }
+
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:
     //   1. Create a parent user page table with code + data + stack pages

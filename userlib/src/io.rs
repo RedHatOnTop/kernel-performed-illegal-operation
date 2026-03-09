@@ -2,7 +2,7 @@
 //!
 //! This module provides standard I/O operations like print and read.
 
-use crate::syscall::{syscall2, syscall3, SyscallNumber, SyscallResult};
+use crate::syscall::{self, linux, raw_syscall1, raw_syscall2, raw_syscall3, SyscallResult};
 
 /// File descriptor for stdin.
 pub const STDIN: u64 = 0;
@@ -14,8 +14,8 @@ pub const STDERR: u64 = 2;
 /// Write bytes to a file descriptor.
 pub fn write(fd: u64, buf: &[u8]) -> SyscallResult {
     unsafe {
-        syscall3(
-            SyscallNumber::Write,
+        raw_syscall3(
+            linux::SYS_WRITE,
             fd,
             buf.as_ptr() as u64,
             buf.len() as u64,
@@ -26,8 +26,8 @@ pub fn write(fd: u64, buf: &[u8]) -> SyscallResult {
 /// Read bytes from a file descriptor.
 pub fn read(fd: u64, buf: &mut [u8]) -> SyscallResult {
     unsafe {
-        syscall3(
-            SyscallNumber::Read,
+        raw_syscall3(
+            linux::SYS_READ,
             fd,
             buf.as_mut_ptr() as u64,
             buf.len() as u64,
@@ -60,7 +60,7 @@ pub fn eprintln(s: &str) {
 /// Debug print (always goes to serial).
 pub fn debug_print(s: &str) {
     unsafe {
-        let _ = syscall2(SyscallNumber::DebugPrint, s.as_ptr() as u64, s.len() as u64);
+        let _ = raw_syscall2(linux::SYS_WRITE, 1, s.as_ptr() as u64);
     }
 }
 
@@ -80,6 +80,16 @@ pub mod flags {
     pub const O_APPEND: u32 = 0o2000;
 }
 
+/// Seek whence constants.
+pub mod seek {
+    /// Seek from beginning of file.
+    pub const SEEK_SET: u32 = 0;
+    /// Seek from current position.
+    pub const SEEK_CUR: u32 = 1;
+    /// Seek from end of file.
+    pub const SEEK_END: u32 = 2;
+}
+
 /// File handle wrapper.
 pub struct File {
     fd: u64,
@@ -96,6 +106,21 @@ impl File {
         self.fd
     }
 
+    /// Open a file at `path` with the given flags.
+    pub fn open(path: &str, open_flags: u32) -> Result<Self, syscall::SyscallError> {
+        let fd = syscall::fs_open(path, open_flags)?;
+        Ok(Self { fd })
+    }
+
+    /// Create a new file (or truncate existing) for writing.
+    pub fn create(path: &str) -> Result<Self, syscall::SyscallError> {
+        let fd = syscall::fs_open(
+            path,
+            flags::O_WRONLY | flags::O_CREAT | flags::O_TRUNC,
+        )?;
+        Ok(Self { fd })
+    }
+
     /// Write data to the file.
     pub fn write(&self, buf: &[u8]) -> SyscallResult {
         write(self.fd, buf)
@@ -105,12 +130,17 @@ impl File {
     pub fn read(&self, buf: &mut [u8]) -> SyscallResult {
         read(self.fd, buf)
     }
+
+    /// Seek to a position in the file.
+    pub fn seek(&self, offset: i64, whence: u32) -> Result<u64, syscall::SyscallError> {
+        syscall::fs_seek(self.fd, offset, whence)
+    }
 }
 
 impl Drop for File {
     fn drop(&mut self) {
         unsafe {
-            let _ = crate::syscall::syscall1(SyscallNumber::Close, self.fd);
+            let _ = raw_syscall1(linux::SYS_CLOSE, self.fd);
         }
     }
 }

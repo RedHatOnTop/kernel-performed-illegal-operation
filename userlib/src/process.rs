@@ -3,12 +3,12 @@
 //! This module provides functions to control the current process
 //! and create new processes.
 
-use crate::syscall::{syscall0, syscall1, syscall3, SyscallError, SyscallNumber, SyscallResult};
+use crate::syscall::{linux, raw_syscall0, raw_syscall1, raw_syscall2, raw_syscall3, SyscallError, SyscallResult};
 
 /// Exit the current process.
 pub fn exit(code: i32) -> ! {
     unsafe {
-        let _ = syscall1(SyscallNumber::Exit, code as u64);
+        let _ = raw_syscall1(linux::SYS_EXIT, code as u64);
     }
     // Should never reach here
     loop {}
@@ -16,12 +16,12 @@ pub fn exit(code: i32) -> ! {
 
 /// Get current process ID.
 pub fn getpid() -> u64 {
-    unsafe { syscall0(SyscallNumber::GetPid).unwrap_or(0) }
+    unsafe { raw_syscall0(linux::SYS_GETPID).unwrap_or(0) }
 }
 
 /// Get parent process ID.
 pub fn getppid() -> u64 {
-    unsafe { syscall0(SyscallNumber::GetPpid).unwrap_or(0) }
+    unsafe { raw_syscall0(linux::SYS_GETPPID).unwrap_or(0) }
 }
 
 /// Fork the current process.
@@ -31,7 +31,7 @@ pub fn getppid() -> u64 {
 /// - `Ok(child_pid)` in the parent process
 /// - `Err(_)` if fork failed
 pub fn fork() -> SyscallResult {
-    unsafe { syscall0(SyscallNumber::Fork) }
+    unsafe { raw_syscall0(linux::SYS_FORK) }
 }
 
 /// Wait flags.
@@ -89,8 +89,8 @@ impl WaitStatus {
 pub fn waitpid(pid: i64, options: u32) -> Result<(u64, WaitStatus), SyscallError> {
     let mut status: i32 = 0;
     let result = unsafe {
-        syscall3(
-            SyscallNumber::Wait,
+        raw_syscall3(
+            linux::SYS_WAIT4,
             pid as u64,
             &mut status as *mut i32 as u64,
             options as u64,
@@ -108,18 +108,25 @@ pub fn wait() -> Result<(u64, WaitStatus), SyscallError> {
 /// Yield CPU to other processes.
 pub fn yield_now() {
     unsafe {
-        let _ = syscall0(SyscallNumber::Yield);
+        let _ = raw_syscall0(linux::SYS_SCHED_YIELD);
     }
 }
 
 /// Sleep for milliseconds.
 pub fn sleep_ms(ms: u64) {
+    let nanos = ms * 1_000_000;
+    let ts = [nanos / 1_000_000_000, nanos % 1_000_000_000];
     unsafe {
-        let _ = syscall1(SyscallNumber::Sleep, ms);
+        let _ = raw_syscall1(linux::SYS_NANOSLEEP, ts.as_ptr() as u64);
     }
 }
 
 /// Get current time in nanoseconds since boot.
 pub fn get_time() -> u64 {
-    unsafe { syscall0(SyscallNumber::GetTime).unwrap_or(0) }
+    // CLOCK_MONOTONIC = 1
+    let mut tp = [0u64; 2];
+    unsafe {
+        let _ = raw_syscall2(linux::SYS_CLOCK_GETTIME, 1, tp.as_mut_ptr() as u64);
+    }
+    tp[0] * 1_000_000_000 + tp[1]
 }

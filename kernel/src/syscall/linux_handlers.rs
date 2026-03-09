@@ -2924,6 +2924,138 @@ pub fn sys_futex(uaddr: u64, op: i32, val: u32) -> i64 {
     crate::sync::futex::sys_futex(uaddr, op, val)
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// SYS_FSYNC (74)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// `fsync(fd)` — synchronize a file's state with storage.
+///
+/// For an in-memory filesystem this is a no-op.
+pub fn sys_fsync(fd: i32) -> i64 {
+    // Verify the fd is valid for the current process.
+    let pid = match current_pid() {
+        Some(p) => p,
+        None => return -EBADF,
+    };
+    let guard = match PROCESS_TABLE.get(pid) {
+        Some(g) => g,
+        None => return -EBADF,
+    };
+    let proc = match guard.get(&pid) {
+        Some(p) => p,
+        None => return -EBADF,
+    };
+    if proc.get_fd(fd as u32).is_none() {
+        return -EBADF;
+    }
+    // For an in-memory VFS, fsync is a no-op (always synced).
+    0
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SYS_RMDIR (84)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// `rmdir(path)` — remove an empty directory.
+pub fn sys_rmdir(path_ptr: u64) -> i64 {
+    let path = match read_user_string(path_ptr, PATH_MAX) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    if path.is_empty() {
+        return -ENOENT;
+    }
+
+    let resolved = resolve_path(&path);
+    let (parent_path, dir_name) = vfs::split_path(&resolved);
+    if dir_name.is_empty() {
+        return -EINVAL;
+    }
+
+    crate::terminal::fs::with_fs(|fs| {
+        let parent_ino = match fs.resolve(parent_path) {
+            Some(ino) => ino,
+            None => return -ENOENT,
+        };
+        // Check target is a directory
+        if let Some(target_ino) = fs.lookup(parent_ino, dir_name) {
+            if let Some(inode) = fs.get(target_ino) {
+                if !inode.mode.is_dir() {
+                    return -ENOTDIR;
+                }
+            }
+        } else {
+            return -ENOENT;
+        }
+        match fs.remove(parent_ino, dir_name) {
+            Ok(_) => 0i64,
+            Err(_) => -ENOENT,
+        }
+    })
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SYS_RENAME (82)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// `rename(oldpath, newpath)` — rename a file or directory.
+///
+/// Minimal implementation: read file data, create at new path, remove old.
+pub fn sys_rename(oldpath_ptr: u64, newpath_ptr: u64) -> i64 {
+    let oldpath = match read_user_string(oldpath_ptr, PATH_MAX) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let newpath = match read_user_string(newpath_ptr, PATH_MAX) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    if oldpath.is_empty() || newpath.is_empty() {
+        return -ENOENT;
+    }
+
+    let old_resolved = resolve_path(&oldpath);
+    let new_resolved = resolve_path(&newpath);
+
+    let (new_parent_path, new_name) = vfs::split_path(&new_resolved);
+    let (old_parent_path, old_name) = vfs::split_path(&old_resolved);
+    if new_name.is_empty() || old_name.is_empty() {
+        return -EINVAL;
+    }
+
+    // All operations in a single lock acquisition to avoid deadlock.
+    crate::terminal::fs::with_fs(|fs| {
+        // Read old file data
+        let old_ino = match fs.resolve(&old_resolved) {
+            Some(i) => i,
+            None => return -ENOENT,
+        };
+        let data = match fs.read_file(old_ino) {
+            Ok(d) => d,
+            Err(_) => return -EIO,
+        };
+
+        // Create new file with data
+        let new_parent_ino = match fs.resolve(new_parent_path) {
+            Some(ino) => ino,
+            None => return -ENOENT,
+        };
+        if fs.create_file(new_parent_ino, new_name, &data).is_err() {
+            return -EIO;
+        }
+
+        // Remove old entry
+        let old_parent_ino = match fs.resolve(old_parent_path) {
+            Some(ino) => ino,
+            None => return -ENOENT,
+        };
+        match fs.remove(old_parent_ino, old_name) {
+            Ok(_) => 0i64,
+            Err(_) => -ENOENT,
+        }
+    })
+}
+
 /// `prlimit64(pid, resource, new_limit, old_limit)` — get/set resource limits
 ///
 /// Returns sensible default limits.
@@ -2958,6 +3090,76 @@ pub fn sys_prlimit64(_pid: i32, resource: u32, _new_limit_ptr: u64, old_limit_pt
     }
 
     0
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Unified dispatch for ring3_syscall_entry
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Dispatch a Linux syscall by number.
+///
+/// Handles all syscalls except FORK (57), EXECVE (59), EXIT (60/231),
+/// and SCHED_YIELD (24), which require bin-crate-specific logic
+/// (saved user registers, process exit, yield).
+///
+/// Returns the syscall result (negative = -errno), or `None` if the
+/// syscall number is not handled here (caller must handle it).
+pub fn dispatch_common_syscall(nr: u64, a1: u64, a2: u64, a3: u64) -> Option<i64> {
+    Some(match nr {
+        // SYS_READ (0)
+        0 => sys_read(a1 as i32, a2, a3),
+        // SYS_WRITE (1)
+        1 => sys_write(a1 as i32, a2, a3),
+        // SYS_OPEN (2)
+        2 => sys_open(a1, a2 as u32, a3 as u32),
+        // SYS_CLOSE (3)
+        3 => sys_close(a1 as i32),
+        // SYS_STAT (4)
+        4 => sys_stat(a1, a2),
+        // SYS_FSTAT (5)
+        5 => sys_fstat(a1 as i32, a2),
+        // SYS_LSEEK (8)
+        8 => sys_lseek(a1 as i32, a2 as i64, a3 as u32),
+        // SYS_MMAP (9)
+        9 => sys_mmap(a1, a2, a3 as u32, 0, -1, 0),
+        // SYS_BRK (12)
+        12 => sys_brk(a1),
+        // SYS_NANOSLEEP (35)
+        35 => sys_nanosleep(a1, a2),
+        // SYS_GETPID (39)
+        39 => sys_getpid(),
+        // SYS_WAIT4 (61)
+        61 => sys_wait4(a1 as i64, a2, a3 as i32, 0),
+        // SYS_FSYNC (74)
+        74 => sys_fsync(a1 as i32),
+        // SYS_GETCWD (79)
+        79 => sys_getcwd(a1, a2),
+        // SYS_CHDIR (80)
+        80 => sys_chdir(a1),
+        // SYS_RENAME (82)
+        82 => sys_rename(a1, a2),
+        // SYS_MKDIR (83)
+        83 => sys_mkdir(a1, a2 as u32),
+        // SYS_RMDIR (84)
+        84 => sys_rmdir(a1),
+        // SYS_UNLINK (87)
+        87 => sys_unlink(a1),
+        // SYS_GETPPID (110)
+        110 => sys_getppid(),
+        // SYS_ARCH_PRCTL (158)
+        158 => sys_arch_prctl(a1 as i32, a2),
+        // SYS_GETTID (186)
+        186 => sys_gettid(),
+        // SYS_FUTEX (202)
+        202 => sys_futex(a1, a2 as i32, a3 as u32),
+        // SYS_GETDENTS64 (217)
+        217 => sys_getdents64(a1 as i32, a2, a3 as u32),
+        // SYS_CLOCK_GETTIME (228)
+        228 => sys_clock_gettime(a1 as i32, a2),
+        // SYS_GETRANDOM (318)
+        318 => sys_getrandom(a1, a2, a3 as u32),
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

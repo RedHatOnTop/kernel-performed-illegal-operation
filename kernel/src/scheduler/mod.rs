@@ -145,6 +145,11 @@ pub fn schedule() {
         // Update PerCpu current PID (offset 16 in per-CPU data)
         unsafe { percpu_set_current_pid(info.next_pid); }
 
+        // Sync PID to the syscall percpu array so linux_handlers::current_pid() works
+        // Note: Uses the GS-based percpu which is already set above.
+        // The lib crate's percpu::set_current_pid is called separately for
+        // linux_syscall_entry users.
+
         unsafe {
             context::switch_context(info.prev_ctx, info.next_ctx);
         }

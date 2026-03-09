@@ -239,44 +239,203 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
 
 /// Rust dispatcher called from the minimal syscall entry point.
 ///
-/// Handles SYS_EXIT (60), SYS_WRITE (1), SYS_EXECVE (59), and stubs.
+/// Routes Linux x86_64 syscalls to their handler implementations.
 /// Returns value in RAX (negative = -errno).
 #[no_mangle]
 extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64 {
     match nr {
-        // SYS_WRITE (fd=a1, buf=a2, count=a3)
-        1 => {
-            // For testing: write to serial regardless of fd
-            let count = _a3 as usize;
-            if count > 0 && a2 != 0 && a2 < 0x0000_8000_0000_0000 {
-                let buf = unsafe { core::slice::from_raw_parts(a2 as *const u8, count.min(256)) };
-                if let Ok(s) = core::str::from_utf8(buf) {
-                    crate::serial_print!("{}", s);
-                }
-            }
-            count as i64
-        }
-        // SYS_FORK
+        // SYS_READ (0): fd=a1, buf=a2, count=_a3
+        0 => dispatch_sys_read(a1 as i32, a2, _a3 as usize),
+        // SYS_WRITE (1): fd=a1, buf=a2, count=_a3
+        1 => dispatch_sys_write(a1 as i32, a2, _a3 as usize),
+        // SYS_OPEN (2): path=a1, flags=a2, mode=_a3
+        2 => dispatch_sys_open(a1, a2 as u32),
+        // SYS_CLOSE (3): fd=a1
+        3 => dispatch_sys_close(a1 as i32),
+        // SYS_LSEEK (8): fd=a1, offset=a2, whence=_a3
+        8 => dispatch_sys_lseek(a1 as i32, a2 as i64, _a3 as u32),
+        // SYS_BRK (12): stub
+        12 => 0x0060_0000,
+        // SYS_SCHED_YIELD (24)
+        24 => { super::yield_now(); 0 }
+        // SYS_GETPID (39)
+        39 => 1,
+        // SYS_FORK (57)
         57 => handle_fork(),
-        // SYS_EXECVE (pathname=a1, argv=a2, envp=_a3)
+        // SYS_EXECVE (59): pathname=a1, argv=a2, envp=_a3
         59 => handle_execve(a1),
-        // SYS_EXIT (status=a1) / SYS_EXIT_GROUP (231)
+        // SYS_EXIT (60) / SYS_EXIT_GROUP (231)
         60 | 231 => {
             crate::serial_println!("[RING3] SYS_EXIT called with status={}", a1 as i64);
             super::exit_current(a1 as i32);
-            // never reached
             0
         }
-        // SYS_BRK — return 0 (stub)
-        12 => 0,
-        // SYS_ARCH_PRCTL — stub
+        // SYS_ARCH_PRCTL (158): stub
         158 => 0,
-        // Unknown — return -ENOSYS
+        // Unknown
         _ => {
             crate::serial_println!("[RING3] Unknown syscall nr={}", nr);
             -38 // -ENOSYS
         }
     }
+}
+
+// ─── Inline syscall implementations using crate-local modules ────────
+
+/// Per-process open file state, keyed by (process, fd).
+/// Simple global table: maps fd -> (vfs_ino, offset).
+///
+/// For simplicity we use a global fd table (single-process model for now).
+static RING3_FD_TABLE: spin::Mutex<[Option<FdEntry>; 64]> = spin::Mutex::new([None; 64]);
+static RING3_NEXT_FD: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(3);
+
+#[derive(Clone, Copy)]
+struct FdEntry {
+    ino: u64,
+    offset: usize,
+}
+
+fn dispatch_sys_open(path_ptr: u64, _flags: u32) -> i64 {
+    // Read null-terminated path from user memory
+    if path_ptr == 0 || path_ptr >= 0x0000_8000_0000_0000 {
+        return -14; // -EFAULT
+    }
+    let path = unsafe {
+        let ptr = path_ptr as *const u8;
+        let mut len = 0usize;
+        while len < 256 && *ptr.add(len) != 0 {
+            len += 1;
+        }
+        core::str::from_utf8_unchecked(core::slice::from_raw_parts(ptr, len))
+    };
+    if path.is_empty() {
+        return -2; // -ENOENT
+    }
+
+    // Resolve in the in-memory VFS
+    let ino_opt = crate::terminal::fs::with_fs(|fs| fs.resolve(path));
+    let ino = match ino_opt {
+        Some(i) => i,
+        None => return -2, // -ENOENT
+    };
+
+    // Allocate fd
+    let fd = RING3_NEXT_FD.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if fd < 0 || fd as usize >= 64 {
+        return -24; // -EMFILE
+    }
+    let mut table = RING3_FD_TABLE.lock();
+    table[fd as usize] = Some(FdEntry { ino, offset: 0 });
+    fd as i64
+}
+
+fn dispatch_sys_read(fd: i32, buf_ptr: u64, count: usize) -> i64 {
+    if buf_ptr == 0 || buf_ptr >= 0x0000_8000_0000_0000 || count == 0 {
+        return 0;
+    }
+    // fd 0 = stdin (return 0 for now)
+    if fd == 0 {
+        return 0;
+    }
+
+    let mut table = RING3_FD_TABLE.lock();
+    let entry = match table.get_mut(fd as usize).and_then(|e| e.as_mut()) {
+        Some(e) => e,
+        None => return -9, // -EBADF
+    };
+
+    // Read from VFS
+    let result = crate::terminal::fs::with_fs(|fs| {
+        fs.read_file(entry.ino)
+    });
+    let data = match result {
+        Ok(d) => d,
+        Err(_) => return -5i64, // -EIO
+    };
+
+    let available = data.len().saturating_sub(entry.offset);
+    let to_copy = count.min(available);
+    if to_copy == 0 {
+        return 0;
+    }
+
+    // Copy to user buffer
+    let src = &data[entry.offset..entry.offset + to_copy];
+    unsafe {
+        core::ptr::copy_nonoverlapping(src.as_ptr(), buf_ptr as *mut u8, to_copy);
+    }
+    entry.offset += to_copy;
+    to_copy as i64
+}
+
+fn dispatch_sys_write(fd: i32, buf_ptr: u64, count: usize) -> i64 {
+    if count == 0 || buf_ptr == 0 || buf_ptr >= 0x0000_8000_0000_0000 {
+        return 0;
+    }
+    // fd 1 (stdout) or fd 2 (stderr) → serial
+    if fd == 1 || fd == 2 {
+        let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count.min(4096)) };
+        if let Ok(s) = core::str::from_utf8(buf) {
+            crate::serial_print!("{}", s);
+        }
+        return count as i64;
+    }
+
+    // Write to VFS file
+    let mut table = RING3_FD_TABLE.lock();
+    let entry = match table.get_mut(fd as usize).and_then(|e| e.as_mut()) {
+        Some(e) => e,
+        None => return -9, // -EBADF
+    };
+    let data = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count) };
+    let ino = entry.ino;
+    drop(table);
+
+    let result = crate::terminal::fs::with_fs(|fs| {
+        fs.write_file(ino, data)
+    });
+    match result {
+        Ok(_) => count as i64,
+        Err(_) => -5, // -EIO
+    }
+}
+
+fn dispatch_sys_close(fd: i32) -> i64 {
+    if fd < 3 {
+        return 0; // Don't close stdin/stdout/stderr
+    }
+    let mut table = RING3_FD_TABLE.lock();
+    if let Some(slot) = table.get_mut(fd as usize) {
+        *slot = None;
+        0
+    } else {
+        -9 // -EBADF
+    }
+}
+
+fn dispatch_sys_lseek(fd: i32, offset: i64, whence: u32) -> i64 {
+    let mut table = RING3_FD_TABLE.lock();
+    let entry = match table.get_mut(fd as usize).and_then(|e| e.as_mut()) {
+        Some(e) => e,
+        None => return -9, // -EBADF
+    };
+
+    let file_size = crate::terminal::fs::with_fs(|fs| {
+        fs.read_file(entry.ino).map(|d| d.len()).unwrap_or(0)
+    });
+
+    let new_offset = match whence {
+        0 => offset, // SEEK_SET
+        1 => entry.offset as i64 + offset, // SEEK_CUR
+        2 => file_size as i64 + offset, // SEEK_END
+        _ => return -22, // -EINVAL
+    };
+
+    if new_offset < 0 {
+        return -22; // -EINVAL
+    }
+    entry.offset = new_offset as usize;
+    new_offset
 }
 
 // ─── Fork handler ────────────────────────────────────────────────────

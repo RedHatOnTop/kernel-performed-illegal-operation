@@ -2,7 +2,7 @@
 //!
 //! This module provides thread creation and synchronization primitives.
 
-use crate::syscall::{syscall1, syscall2, syscall3, syscall4, SyscallError, SyscallNumber};
+use crate::syscall::{linux, raw_syscall1, raw_syscall3, syscall1, syscall2, syscall3, syscall4, SyscallError, SyscallNumber};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 /// Thread ID type.
@@ -70,7 +70,7 @@ pub fn spawn(
 /// Exit the current thread.
 pub fn exit(code: u64) -> ! {
     unsafe {
-        let _ = syscall1(SyscallNumber::ThreadExit, code);
+        let _ = raw_syscall1(linux::SYS_EXIT, code);
     }
     loop {}
 }
@@ -100,14 +100,15 @@ pub fn futex_wait(
     expected: u32,
     timeout_ns: Option<u64>,
 ) -> Result<(), SyscallError> {
-    let timeout = timeout_ns.unwrap_or(u64::MAX);
+    let _timeout = timeout_ns.unwrap_or(u64::MAX);
 
+    // FUTEX_WAIT = 0
     unsafe {
-        syscall3(
-            SyscallNumber::FutexWait,
+        raw_syscall3(
+            linux::SYS_FUTEX,
             addr as *const _ as u64,
+            0, // FUTEX_WAIT
             expected as u64,
-            timeout,
         )?;
     }
 
@@ -118,10 +119,12 @@ pub fn futex_wait(
 ///
 /// Returns the number of threads woken.
 pub fn futex_wake(addr: &AtomicU32, count: u32) -> Result<u32, SyscallError> {
+    // FUTEX_WAKE = 1
     let result = unsafe {
-        syscall2(
-            SyscallNumber::FutexWake,
+        raw_syscall3(
+            linux::SYS_FUTEX,
             addr as *const _ as u64,
+            1, // FUTEX_WAKE
             count as u64,
         )?
     };
