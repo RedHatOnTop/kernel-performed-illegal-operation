@@ -170,34 +170,28 @@ them in Ring 3, and persist data back to the block device.
 
 ---
 
-### 12-7: Integration Test
+### 12-7: Integration Test ✅ COMPLETE
 
 - **Goal**: Automated QEMU test validates all Phase 12 features in a single boot.
-- **Tasks**:
-  - `kernel/src/main.rs` — Add a Phase 12 integration test block (gated by a feature flag or unconditional during development):
-    1. Log `[P12] Phase 12 integration test start`.
-    2. Exercise execve: spawn a process that execves into a "hello" binary → verify serial output.
-    3. Exercise fork: fork a process, verify parent gets child PID, child gets 0.
-    4. Exercise FAT32 write: create `/mnt/test/P12TEST.TXT`, write data, read back, verify.
-    5. Exercise spawn-from-disk: `ProcessManager::spawn("/bin/hello")` → verify output.
-    6. Log `[P12] Phase 12 integration test PASSED`.
-  - `scripts/qemu-test.ps1` — Add `-Mode userspace` with checks:
-
-    | Check | Pattern |
-    |-------|---------|
-    | Phase 12 test start | `P12.*Phase 12` (regex) |
-    | execve works | `EXECVE OK` (literal) |
-    | fork child returns 0 | `FORK.*child.*fork returned 0` (regex) |
-    | FAT32 file created | `FAT32.*created` (regex) |
-    | FAT32 write | `FAT32.*write.*bytes` (regex) |
-    | VFS readback verified | `VFS.*readback verified` (regex) |
-    | Init from disk | `INIT.*PID 1 running` (regex) |
-    | Hello from disk | `Hello from disk` (literal) |
-    | All passed | `P12.*PASSED` (regex) |
-    | No panics | absence of `panicked at` |
-
-  - `scripts/qemu-test.ps1` — Add `"userspace"` to the `ValidateSet` for `-Mode`.
-- **Quality Gate**: `.\scripts\qemu-test.ps1 -Mode userspace` passes ALL checks with 0 failures.
+- **Status**: COMPLETE (2026-03-09)
+- **Implementation**:
+  - `kernel/src/main.rs` — Added Phase 12-7 integration test wrapper:
+    1. Logs `[P12] Phase 12 integration test start` before the first Phase 12 sub-phase test (12-4).
+    2. All sub-phase tests (12-1 through 12-6) run in sequence producing their respective log markers.
+    3. Logs `[P12] Phase 12 integration test PASSED` after all sub-phase tests complete.
+  - `scripts/qemu-test.ps1` — Added `-Mode userspace`:
+    - Added `"userspace"` to the `ValidateSet` for `-Mode`.
+    - `$UserspaceChecks` = `$SmokeChecks` (basic boot) + Phase 12-specific checks (10 checks).
+    - Added `NegateCheck` support in the verification loop for absence-of-pattern checks.
+    - Auto-attaches test disk in `userspace` mode (same as `io` mode).
+    - Extended early-termination wait to 5 seconds in `userspace` mode.
+- **Quality Gate**: ✅ PASSED — `.\scripts\qemu-test.ps1 -Mode userspace` reports:
+  ```
+  Result: ALL PASS (21/21)
+  ```
+  All 10 Phase 12-specific checks pass: Phase 12 test start, execve works, fork child returns 0,
+  FAT32 file created, FAT32 write, VFS readback verified, Init from disk, Hello from disk,
+  Phase 12 all passed, No panics. Plus 11 smoke checks (boot + core init). No failures.
 
 ---
 

@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 7.6.0  
-**Last Updated:** 2026-03-08  
-**Status:** Phase 12 In Progress (12-1 ✅, 12-2 ✅, 12-3 ✅, 12-4 ✅, 12-5 ✅, 12-6 ✅)
+**Document Version:** 7.7.0  
+**Last Updated:** 2026-03-09  
+**Status:** Phase 12 Complete ✅ (12-1 ✅, 12-2 ✅, 12-3 ✅, 12-4 ✅, 12-5 ✅, 12-6 ✅, 12-7 ✅)
 
 ---
 
@@ -10,7 +10,7 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 12-6 (userlib Syscall Wiring) completed 2026-03-08. All userlib filesystem, process, and thread syscall stubs now invoke real Linux x86_64 syscall numbers via `raw_syscall*` functions. Kernel `ring3_syscall_dispatch` expanded with inline SYS_OPEN/READ/WRITE/CLOSE/LSEEK backed by a per-process FD table (`RING3_FD_TABLE`) and the in-memory VFS. Test ELF opens `/hello.txt`, reads content, writes to serial. QEMU serial log shows `Hello from KPIO test disk!`. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+**Update:** Phase 12-7 (Integration Test) completed 2026-03-09. Automated QEMU integration test (`qemu-test.ps1 -Mode userspace`) validates all Phase 12 features in a single boot: execve return path, fork child return, ProcessManager::spawn from VFS, FAT32 write support, init-from-disk boot, and userlib syscall wiring. 21/21 checks pass (11 smoke + 10 Phase 12-specific). Phase 12 is now fully complete. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
 **Previous:** Phase 12-5 (Init Process & ELF-from-Disk Boot) completed 2026-03-07. First end-to-end user-space pipeline from persistent storage: `create-test-disk.ps1` generates two minimal ELF64 binaries (INIT=173 bytes, BIN/HELLO=179 bytes) and places them on the FAT32 test disk. Kernel reads `/mnt/test/INIT` from FAT32 via `storage::vfs::open/read`, bridges to in-memory VFS, and spawns via `ProcessManager::spawn_from_vfs("/init")` (pid=3). Similarly loads `/mnt/test/BIN/HELLO` and spawns (pid=4). QEMU serial log shows `[INIT] PID 1 running` and `Hello from disk!`. No panics or triple faults. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 

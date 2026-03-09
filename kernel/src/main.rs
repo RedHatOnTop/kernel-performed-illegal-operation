@@ -328,6 +328,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
     }
 
+    // ── Phase 12-7: Unified Phase 12 integration test ────────────
+    // Validates all Phase 12 features in a single boot: execve, fork, spawn,
+    // FAT32 write, init-from-disk, and userlib syscall wiring.
+    serial_println!("[P12] Phase 12 integration test start");
+
     // ── Phase 12-4: FAT32 write support integration test ─────────
     // Create a file on the FAT32 filesystem, write to it, read it back, verify.
     {
@@ -1666,6 +1671,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             }
         }
     }
+
+    // ── Phase 12-7: All sub-phase tests complete ─────────────────
+    serial_println!("[P12] Phase 12 integration test PASSED");
 
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:

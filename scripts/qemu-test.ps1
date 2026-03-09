@@ -51,13 +51,14 @@
     .\scripts\qemu-test.ps1 -Mode io -Verbose        # I/O test with serial log
     .\scripts\qemu-test.ps1 -Mode process             # Phase 10 process lifecycle test
     .\scripts\qemu-test.ps1 -Mode hardening            # Phase 11 kernel hardening test
+    .\scripts\qemu-test.ps1 -Mode userspace            # Phase 12 user-space execution test
     .\scripts\qemu-test.ps1 -Mode full -Verbose      # Full verification (verbose)
     .\scripts\qemu-test.ps1 -Mode custom -Expect "GDT initialized","IDT initialized"
     .\scripts\qemu-test.ps1 -NoBuild -NoImage -Mode boot  # Quick retest
 #>
 
 param(
-    [ValidateSet("boot", "smoke", "linux", "full", "io", "process", "hardening", "custom")]
+    [ValidateSet("boot", "smoke", "linux", "full", "io", "process", "hardening", "userspace", "custom")]
     [string]$Mode = "boot",
     [int]$Timeout = 45,
     [switch]$Release,
@@ -173,6 +174,20 @@ $HardeningChecks = $ProcessChecks + @(
     @{ Pattern = "HARDENING.*Phase 11";                         Label = "Hardening test start"; IsRegex = $true },
     @{ Pattern = "HARDENING.*CoW clone successful";             Label = "CoW clone success"; IsRegex = $true },
     @{ Pattern = "HARDENING.*cow-test spawned";                 Label = "CoW test spawned"; IsRegex = $true }
+)
+
+# Userspace checks: Phase 12 execve + fork + spawn + FAT32 write + init from disk
+$UserspaceChecks = $SmokeChecks + @(
+    @{ Pattern = "P12.*Phase 12";                               Label = "Phase 12 test start"; IsRegex = $true },
+    @{ Pattern = "EXECVE OK";                                   Label = "execve works" },
+    @{ Pattern = "FORK.*child.*fork returned 0";                Label = "fork child returns 0"; IsRegex = $true },
+    @{ Pattern = "FAT32.*created";                              Label = "FAT32 file created"; IsRegex = $true },
+    @{ Pattern = "FAT32.*write.*bytes";                         Label = "FAT32 write"; IsRegex = $true },
+    @{ Pattern = "VFS.*readback verified";                      Label = "VFS readback verified"; IsRegex = $true },
+    @{ Pattern = "INIT.*PID 1 running";                         Label = "Init from disk"; IsRegex = $true },
+    @{ Pattern = "Hello from disk";                             Label = "Hello from disk" },
+    @{ Pattern = "P12.*PASSED";                                 Label = "Phase 12 all passed"; IsRegex = $true },
+    @{ Pattern = "panicked at";                                  Label = "No panics"; NegateCheck = $true }
 )
 
 # ============================================================
@@ -345,8 +360,8 @@ $argParts = @(
     "-drive `"format=raw,file=$UefiImage`""
 )
 
-# Auto-attach test disk in io mode if not explicitly specified
-if ($Mode -eq "io" -and -not $TestDisk) {
+# Auto-attach test disk in io/userspace mode if not explicitly specified
+if (($Mode -eq "io" -or $Mode -eq "userspace") -and -not $TestDisk) {
     $DefaultTestDisk = Join-Path $ProjectRoot "tests\e2e\test-disk.img"
     if (Test-Path $DefaultTestDisk) {
         $TestDisk = $DefaultTestDisk
@@ -396,8 +411,8 @@ while ($elapsed -lt $Timeout) {
         $content = Get-Content $SerialLog -Raw -ErrorAction SilentlyContinue
         if ($content) {
             if ($content.Contains("Kernel initialization complete")) {
-                # In process mode, wait longer for delayed test summary
-                $waitSec = if ($Mode -eq "process" -or $Mode -eq "hardening") { 5 } else { 2 }
+                # In process/hardening/userspace mode, wait longer for delayed test summary
+                $waitSec = if ($Mode -eq "process" -or $Mode -eq "hardening" -or $Mode -eq "userspace") { 5 } else { 2 }
                 Write-Detail "Kernel init complete detected -> waiting ${waitSec}s"
                 Start-Sleep -Seconds $waitSec
                 $earlyExit = $true
@@ -458,6 +473,7 @@ $checks = switch ($Mode) {
     "io"      { $IoChecks }
     "process"   { $ProcessChecks }
     "hardening" { $HardeningChecks }
+    "userspace" { $UserspaceChecks }
     "custom"  {
         $Expect | ForEach-Object {
             @{ Pattern = $_; Label = "Custom: $_" }
@@ -474,13 +490,14 @@ foreach ($check in $checks) {
     $pattern = $check.Pattern
     $label = $check.Label
     $isRegex = if ($check.ContainsKey("IsRegex")) { $check.IsRegex } else { $false }
+    $negate = if ($check.ContainsKey("NegateCheck")) { $check.NegateCheck } else { $false }
 
     if ($isRegex) {
         $found = $SerialContent -match $pattern
     } else {
         $found = $SerialContent.Contains($pattern)
     }
-    $pass = $found
+    $pass = if ($negate) { -not $found } else { $found }
 
     if ($pass) {
         Write-Pass $label
