@@ -1,6 +1,6 @@
 # Phase 13: IPC, Socket Syscalls & Kernel Threading
 
-**Document Version:** 1.0.0
+**Document Version:** 1.1.0
 **Created:** 2026-03-10
 **Status:** In Planning
 **Depends On:** Phase 12 (User-Space & Writable FS) ✅
@@ -58,27 +58,30 @@ network and process infrastructure from Phases 9-12.
   regular file descriptors.
 
 - **Tasks**:
-  1. Add `FileResource::Socket { handle: u64 }` variant to
-     `kernel/src/process/table.rs :: FileResource` enum
-  2. Add `SocketHandle` newtype wrapper (`u64`) in `kernel/src/process/table.rs`
-     (or a shared location) for type safety
-  3. Extend `sys_read()` and `sys_write()` in `kernel/src/syscall/linux_handlers.rs`
-     to detect `FileResource::Socket` and route to `network::socket::recv()` /
-     `network::socket::send()`
-  4. Extend `sys_close()` to call `network::socket::close()` for socket FDs
-  5. Add syscall constants in `kernel/src/syscall/linux.rs`:
+  1. `FileResource::Socket { socket_id: u64 }` already exists in
+     `kernel/src/process/table.rs :: FileResource`; no new variant is needed.
+     `SocketHandle(pub u32)` is already defined in `network/src/socket.rs`;
+     do **not** redefine it. Wire `sys_read()` and `sys_write()` in
+     `kernel/src/syscall/linux_handlers.rs` to match the existing `Socket`
+     variant and delegate to `network::socket::recv()` /
+     `network::socket::send()`.
+  2. Extend `sys_close()` to call `network::socket::close()` for socket FDs
+  3. Add syscall constants in `kernel/src/syscall/linux.rs`:
      - `SYS_SOCKET (41)`, `SYS_BIND (49)`, `SYS_LISTEN (50)`,
        `SYS_ACCEPT (43)`, `SYS_CONNECT (42)`, `SYS_SENDTO (44)`,
        `SYS_RECVFROM (45)`, `SYS_SHUTDOWN (48)`, `SYS_GETSOCKNAME (51)`,
        `SYS_GETPEERNAME (52)`, `SYS_SETSOCKOPT (54)`, `SYS_GETSOCKOPT (55)`,
        `SYS_ACCEPT4 (288)`
-  6. Implement `sys_socket(domain, socktype, protocol)` in
+  4. Implement `sys_socket(domain, socktype, protocol)` in
      `kernel/src/syscall/linux_handlers.rs`:
      - Validate `domain` (AF_INET = 2 only; reject AF_UNIX, AF_INET6 with -EAFNOSUPPORT)
      - Map `socktype` to `network::socket::SocketType` (SOCK_STREAM=1, SOCK_DGRAM=2)
      - Call `network::socket::create()`, allocate FD, store `FileResource::Socket`
      - Return the FD number
-  7. Wire `SYS_SOCKET` in the dispatch table (`linux.rs` or `linux_handlers.rs`)
+  5. Wire `SYS_SOCKET` in the dispatch table (`linux.rs` or `linux_handlers.rs`)
+  6. Add missing socket errno constants to `kernel/src/syscall/linux.rs`:
+     `ENOTSOCK = 88`, `ENOPROTOOPT = 92`, `EAFNOSUPPORT = 97`,
+     `EADDRINUSE = 98`, `EOPNOTSUPP = 95`, `ENOTCONN = 107`
 
 - **Quality Gate**: `cargo build -p kpio-kernel` succeeds. A minimal ELF test
   program calls `syscall(SYS_SOCKET, AF_INET, SOCK_STREAM, 0)` and receives
@@ -94,47 +97,57 @@ network and process infrastructure from Phases 9-12.
   or a TCP client (connect) and exchange data.
 
 - **Tasks**:
-  1. Implement `sys_bind(fd, addr_ptr, addrlen)`:
+  1. Implement smoltcp send/recv integration in `network/src/socket.rs`:
+     - Wire `send(handle, data)` to `smoltcp::socket::tcp::Socket::send_slice()`
+     - Wire `recv(handle, buf)` to `smoltcp::socket::tcp::Socket::recv()`
+     - Both must return `Ok(n)` with actual byte counts (replace `Err(WouldBlock)` stubs)
+  2. Implement `network::socket::accept(handle: SocketHandle) -> Result<SocketHandle, NetworkError>`
+     in `network/src/socket.rs`:
+     - Query the listening socket's accept queue via smoltcp
+     - Return a new `SocketHandle` for the accepted connection, or `Err(WouldBlock)` if none ready
+  3. Implement `sys_bind(fd, addr_ptr, addrlen)`:
      - Read `struct sockaddr_in` (16 bytes) from user-space pointer
      - Extract port (network byte order) and IPv4 address
      - Call `network::socket::bind(handle, SocketAddr)`
      - Return 0 on success, -errno on failure
-  2. Implement `sys_listen(fd, backlog)`:
+  4. Implement `sys_listen(fd, backlog)`:
      - Look up socket handle from FD table
      - Call `network::socket::listen(handle, backlog)`
      - Return 0 / -errno
-  3. Implement `sys_accept(fd, addr_ptr, addrlen_ptr)` and `sys_accept4(fd, addr_ptr, addrlen_ptr, flags)`:
+  5. Implement `sys_accept(fd, addr_ptr, addrlen_ptr)` and `sys_accept4(fd, addr_ptr, addrlen_ptr, flags)`:
      - Call `network::socket::accept(handle)` which returns a new `SocketHandle`
      - Allocate a new FD for the accepted connection
      - Write remote `sockaddr_in` to user-space if `addr_ptr != 0`
      - Return the new FD
-  4. Implement `sys_connect(fd, addr_ptr, addrlen)`:
+  6. Implement `sys_connect(fd, addr_ptr, addrlen)`:
      - Parse `sockaddr_in` from user-space
      - Call `network::socket::connect(handle, addr)`
      - Return 0 / -errno (EINPROGRESS for non-blocking)
-  5. Implement `sys_sendto(fd, buf, len, flags, dest_addr, addrlen)`:
+  7. Implement `sys_sendto(fd, buf, len, flags, dest_addr, addrlen)`:
      - For connected TCP: ignore dest_addr, call `network::socket::send()`
      - For UDP: use dest_addr if provided
      - Return bytes sent / -errno
-  6. Implement `sys_recvfrom(fd, buf, len, flags, src_addr, addrlen)`:
+  8. Implement `sys_recvfrom(fd, buf, len, flags, src_addr, addrlen)`:
      - Call `network::socket::recv(handle, buf)`
      - Write source `sockaddr_in` to user-space for UDP
      - Return bytes received / -errno
-  7. Implement `sys_shutdown(fd, how)`:
+  9. Implement `sys_shutdown(fd, how)`:
      - Map `how` (SHUT_RD=0, SHUT_WR=1, SHUT_RDWR=2)
      - Close read/write ends of the socket
-  8. Implement `sys_getpeername(fd, addr, addrlen)` and `sys_getsockname(fd, addr, addrlen)`:
+  10. Implement `sys_getpeername(fd, addr, addrlen)` and `sys_getsockname(fd, addr, addrlen)`:
      - Return the remote/local sockaddr_in for the given socket FD
-  9. Implement `sys_setsockopt(fd, level, optname, optval, optlen)` and
+  11. Implement `sys_setsockopt(fd, level, optname, optval, optlen)` and
      `sys_getsockopt(fd, level, optname, optval, optlen)`:
      - Support minimal set: `SO_REUSEADDR`, `SO_KEEPALIVE`, `SO_RCVTIMEO`, `SO_SNDTIMEO`
      - Return -ENOPROTOOPT for unsupported options
-  10. Wire all new syscalls in the dispatch table
+  12. Wire all new syscalls in the dispatch table
 
 - **Quality Gate**: Embedded ELF test programs:
   (a) **TCP echo server**: binds to `0.0.0.0:7777`, accepts one connection,
-  echoes received data back. A kernel-side test client connects to
-  `127.0.0.1:7777`, sends "ECHO TEST", and verifies the response.
+  echoes received data back. A kernel-internal test helper acts as the client.
+  **Do not use `127.0.0.1`** — QEMU SLIRP does not route loopback traffic
+  back into the guest; coordinate the server and client tasks through shared
+  smoltcp interface state, or connect via the SLIRP gateway (`10.0.2.2`).
   QEMU serial log shows `[E2E] TCP echo server PASSED`.
   (b) **UDP send/recv**: creates a SOCK_DGRAM socket, sends a datagram,
   receives a response.
@@ -149,18 +162,21 @@ network and process infrastructure from Phases 9-12.
   handlers within a single process (thread group).
 
 - **Tasks**:
-  1. Add thread group fields to `Process` struct in `kernel/src/process/table.rs`:
+  1. Add a thread group ID field to `Process` struct in
+     `kernel/src/process/table.rs`:
      ```
-     pub tgid: ProcessId,        // Thread group leader PID (= first thread's PID)
-     pub tid: TaskId,            // Per-thread unique ID
-     pub thread_group: Vec<TaskId>,  // All threads in this group (leader included)
+     pub tgid: ProcessId,  // Thread group leader PID (= first thread's PID)
      ```
+     `Process` already has `pub threads: Vec<Thread>` and
+     `pub main_thread: ThreadId` — do **not** add a redundant `thread_group`
+     field or a `tid` field at the `Process` level. Per-thread IDs are
+     tracked by `Thread.tid: ThreadId`, which already exists.
   2. Modify `sys_getpid()` to return `tgid` (POSIX semantics: getpid = group leader PID)
-  3. Modify `sys_gettid()` to return the actual per-thread `tid`
+  3. Modify `sys_gettid()` to return the current thread's `tid` (accessed via `Thread.tid: ThreadId`)
   4. Implement `sys_clone(flags, child_stack, ptid_ptr, ctid_ptr, tls)` in
      `kernel/src/syscall/linux_handlers.rs`:
      - Parse flags bitmask:
-       - `CLONE_VM (0x100)`: share page table (same `cr3`) instead of CoW copy
+       - `CLONE_VM (0x100)`: share page table (same `page_table_root`) instead of CoW copy
        - `CLONE_THREAD (0x10000)`: same thread group (tgid), shared `Process` entry
        - `CLONE_SIGHAND (0x800)`: share signal handlers
        - `CLONE_FILES (0x400)`: share file descriptor table
@@ -181,7 +197,7 @@ network and process infrastructure from Phases 9-12.
      - Move `blocked: u64` from `SignalState` (per-process) to per-Task storage
      - Keep signal actions (`rt_sigaction` handlers) shared at process level
   7. Handle thread exit:
-     - When a thread exits, remove it from `thread_group` Vec
+     - When a thread exits, remove it from the process's `threads: Vec<Thread>`
      - If `clear_child_tid` is set, write 0 to that address and `futex_wake(ctid, 1)`
        (this is how glibc pthread_join works)
      - If the thread group leader exits, the entire process exits (all threads killed)
@@ -195,8 +211,12 @@ network and process infrastructure from Phases 9-12.
   Both threads increment a shared `AtomicU32` counter 1000 times each. The main
   thread waits (via futex on `clear_child_tid`) for both threads to finish and
   verifies the counter equals 2000. QEMU serial log shows:
-  `[Thread] clone tid=N tgid=M`,
-  `[Thread] counter=2000`,
+  `[IPC] Clone thread tid=N tgid=M`,
+  `[IPC] Thread shared memory counter=2000`,
+  `[IPC] Thread exit`.
+  These patterns satisfy the `qemu-test.ps1 -Mode ipc` checklist items:
+  `[IPC] Clone thread`, `[IPC] Thread shared memory`, `[IPC] Thread exit`,
+  and `[IPC] TID vs PID`.
   `[E2E] Threading test PASSED`.
   No panics, no triple faults. `cargo build -p kpio-kernel` succeeds.
 
@@ -221,12 +241,17 @@ network and process infrastructure from Phases 9-12.
            events: u32,   // EPOLLIN, EPOLLOUT, EPOLLERR, EPOLLHUP
            data: u64,     // user-supplied opaque data (epoll_data_t)
        }
+       #[repr(C, packed)]  // 12 bytes: matches Linux ABI (u32 events + u64 data)
        pub struct EpollEvent {
            events: u32,
            data: u64,
        }
        ```
      - Global epoll table: `static EPOLL_TABLE: Mutex<BTreeMap<u64, EpollInstance>>`
+       Each `epoll_id` is generated by a monotonically increasing `AtomicU64`
+       counter (`NEXT_EPOLL_ID`) to ensure system-wide uniqueness. Process
+       isolation is enforced by the FD table: an `epoll_id` is only reachable
+       via the owning process's FD table; other processes cannot reference it.
   2. Implement `sys_epoll_create1(flags)`:
      - Allocate a new `EpollInstance`
      - Create a special FD with `FileResource::Epoll { epoll_id: u64 }`
@@ -249,14 +274,25 @@ network and process infrastructure from Phases 9-12.
        (b) Timeout expires (use TSC-based timer)
      - If `timeout == 0`: return immediately with 0 (non-blocking poll)
      - If `timeout == -1`: block indefinitely until an event occurs
-  6. Add readiness query API to `network/src/socket.rs`:
+  6. Define `PollFlags` bitflags type in `network/src/socket.rs`:
+     ```
+     bitflags::bitflags! {
+         pub struct PollFlags: u32 {
+             const READABLE = 0x1;
+             const WRITABLE = 0x2;
+             const ERROR    = 0x4;
+             const HANGUP   = 0x8;
+         }
+     }
+     ```
+  7. Add readiness query API to `network/src/socket.rs`:
      - `pub fn poll(handle: SocketHandle) -> PollFlags` — returns bitmask of
        `READABLE | WRITABLE | ERROR | HANGUP`
-  7. Add readiness query for pipes:
+  8. Add readiness query for pipes:
      - `pub fn pipe_poll(pipe_id: u64) -> PollFlags` — check buffer occupancy
-  8. Wire epoll syscall constants and dispatch:
+  9. Wire epoll syscall constants and dispatch:
      - `SYS_EPOLL_CREATE1 (291)`, `SYS_EPOLL_CTL (233)`, `SYS_EPOLL_WAIT (232)`
-  9. Clean up epoll instance when its FD is closed
+  10. Clean up epoll instance when its FD is closed
 
 - **Quality Gate**: Embedded ELF test program:
   (a) Creates an epoll instance, a pipe, and a socket.
@@ -352,21 +388,26 @@ readiness). 13-5 (integration) depends on all prior sub-phases.
 
 | File | Changes |
 |------|---------|
-| `kernel/src/process/table.rs` | Add `FileResource::Socket`, `FileResource::Epoll`, thread group fields (tgid, tid, thread_group) |
-| `kernel/src/syscall/linux.rs` | Add socket/epoll/clone syscall constants, dispatch entries |
+| `kernel/Cargo.toml` | Add `network = { path = "../network" }` dependency |
+| `kernel/src/process/table.rs` | Add `FileResource::Epoll`, thread group field (`tgid: ProcessId`); `FileResource::Socket { socket_id: u64 }` already present |
+| `kernel/src/syscall/linux.rs` | Add socket/epoll/clone syscall constants, dispatch entries, missing socket errno constants |
 | `kernel/src/syscall/linux_handlers.rs` | Implement all new syscall handlers (sys_socket, sys_bind, sys_listen, sys_accept, sys_connect, sys_sendto, sys_recvfrom, sys_shutdown, sys_getpeername, sys_getsockname, sys_setsockopt, sys_getsockopt, sys_clone with flags, sys_epoll_create1, sys_epoll_ctl, sys_epoll_wait) |
 | `kernel/src/scheduler/task.rs` | Add `Task::new_thread()`, per-thread signal mask, `clear_child_tid` field |
 | `kernel/src/scheduler/mod.rs` | Thread exit handling (futex wake on clear_child_tid) |
 | `kernel/src/sync/mod.rs` | Add `pub mod epoll;` |
-| `network/src/socket.rs` | Add `poll(handle) -> PollFlags` readiness query |
+| `network/src/socket.rs` | Implement `accept()`, wire `send()`/`recv()` to smoltcp, add `PollFlags` type, add `poll()` readiness query |
 | `scripts/qemu-test.ps1` | Add `-Mode ipc` with 17 check patterns |
 | `kernel/src/main.rs` | IPC test dispatch for QEMU integration mode |
 
-### No New Crates / Dependencies
+### New Crate Dependencies
 
-All implementation uses existing workspace crates (`kernel`, `network`).
-No new `Cargo.toml` entries required. The `network` crate is already a
-dependency of `kpio-kernel`.
+Add `network = { path = "../network" }` to `kernel/Cargo.toml`'s
+`[dependencies]` section. The `network` crate is **not** currently a
+dependency of `kpio-kernel` and must be added before any socket syscall
+handler can call into it.
+
+All other implementation uses existing workspace crates (`kernel`, `network`).
+No other new `Cargo.toml` entries are required.
 
 ---
 
