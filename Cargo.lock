@@ -963,6 +963,7 @@ dependencies = [
  "bootloader_api",
  "futures-util",
  "hashbrown 0.14.5",
+ "kpio-network",
  "lazy_static",
  "libm",
  "linked_list_allocator",
@@ -992,7 +993,6 @@ name = "kpio-network"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.10.0",
- "kpio-kernel",
  "log",
  "smoltcp",
  "spin",

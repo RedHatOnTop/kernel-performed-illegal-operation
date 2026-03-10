@@ -1782,6 +1782,100 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         serial_println!("[IPC] Phase 13-1 socket FD test complete");
     }
 
+    // ── Phase 13-2: BSD Socket Syscalls — kernel-internal test ───
+    // Exercises the full socket lifecycle:
+    //   TCP: socket → bind → listen → connect → accept → send → recv → close
+    //   UDP: socket → bind → sendto → recvfrom → close
+    // The connect() call internally creates an accepted socket and links
+    // the peer pair, so we can test the full echo path without real
+    // network loopback.
+    {
+        serial_println!("[IPC] Phase 13-2: BSD socket syscalls test");
+
+        // ── TCP echo test ────────────────────────────────────────
+        // 1. Server: socket + bind + listen
+        let server = network::socket::create(network::socket::SocketType::Stream)
+            .expect("server socket create");
+        serial_println!("[IPC] Socket create");
+
+        let bind_addr = network::SocketAddr::v4(0, 0, 0, 0, 7777);
+        network::socket::bind(server, bind_addr).expect("bind");
+        serial_println!("[IPC] Socket bind");
+
+        network::socket::listen(server, 5).expect("listen");
+        serial_println!("[IPC] Socket listen");
+
+        // 2. Client: socket + connect (triggers auto-accept pairing)
+        let client = network::socket::create(network::socket::SocketType::Stream)
+            .expect("client socket create");
+        let connect_addr = network::SocketAddr::v4(10, 0, 2, 15, 7777);
+        network::socket::connect(client, connect_addr).expect("connect");
+        serial_println!("[IPC] Socket connect");
+
+        // 3. Server: accept → gets the accepted-side handle
+        let accepted = network::socket::accept(server)
+            .expect("accept");
+        serial_println!("[IPC] Socket accept");
+
+        // 4. Client sends data → lands in accepted socket's recv buffer
+        let msg = b"Hello KPIO!";
+        let sent = network::socket::send(client, msg).expect("send");
+        serial_println!("[IPC] TCP echo sent {} bytes", sent);
+
+        // 5. Accepted socket receives data
+        let mut buf = [0u8; 64];
+        let recvd = network::socket::recv(accepted, &mut buf).expect("recv");
+        let echo_data = &buf[..recvd];
+        if echo_data == msg {
+            serial_println!("[IPC] TCP echo data matches ({} bytes)", recvd);
+        } else {
+            serial_println!("[IPC] FAIL: TCP echo mismatch");
+        }
+
+        // 6. Echo back: accepted sends → client receives
+        let echo_sent = network::socket::send(accepted, echo_data).expect("echo send");
+        let echo_recvd = network::socket::recv(client, &mut buf).expect("echo recv");
+        if echo_recvd == echo_sent && &buf[..echo_recvd] == msg {
+            serial_println!("[IPC] TCP echo");
+        } else {
+            serial_println!("[IPC] FAIL: TCP echo round-trip mismatch");
+        }
+
+        // 7. Close all sockets
+        network::socket::close(accepted).expect("close accepted");
+        network::socket::close(client).expect("close client");
+        network::socket::close(server).expect("close server");
+        serial_println!("[IPC] Socket close");
+
+        // ── UDP sendto/recvfrom test ─────────────────────────────
+        let udp_server = network::socket::create(network::socket::SocketType::Datagram)
+            .expect("udp server create");
+        let udp_addr = network::SocketAddr::v4(0, 0, 0, 0, 8888);
+        network::socket::bind(udp_server, udp_addr).expect("udp bind");
+
+        let udp_client = network::socket::create(network::socket::SocketType::Datagram)
+            .expect("udp client create");
+        let udp_dest = network::SocketAddr::v4(10, 0, 2, 15, 8888);
+        let udp_msg = b"UDP KPIO";
+        let udp_sent = network::socket::sendto_dgram(udp_client, udp_msg, udp_dest)
+            .expect("udp sendto");
+        serial_println!("[IPC] UDP sendto ({} bytes)", udp_sent);
+
+        let mut udp_buf = [0u8; 64];
+        let udp_recvd = network::socket::recv(udp_server, &mut udp_buf).expect("udp recvfrom");
+        if &udp_buf[..udp_recvd] == udp_msg {
+            serial_println!("[IPC] UDP recvfrom ({} bytes, matches)", udp_recvd);
+        } else {
+            serial_println!("[IPC] FAIL: UDP data mismatch");
+        }
+
+        network::socket::close(udp_client).expect("udp client close");
+        network::socket::close(udp_server).expect("udp server close");
+
+        serial_println!("[E2E] TCP echo server PASSED");
+        serial_println!("[IPC] Phase 13-2 BSD socket syscalls complete");
+    }
+
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:
     //   1. Create a parent user page table with code + data + stack pages

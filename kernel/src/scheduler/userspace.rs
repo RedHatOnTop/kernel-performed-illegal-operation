@@ -157,8 +157,11 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
         "mov [r8], r9",
         // 6. Set up System V calling convention for ring3_syscall_dispatch:
         //    rdi = nr (from rax), rsi = a1 (from rdi), rdx = a2 (from rsi),
-        //    rcx = a3 (from rdx)
+        //    rcx = a3 (from rdx), r8 = a4 (from r10), r9 = a5 (from r8)
         //    NOTE: we use the original register values, not the pushed copies.
+        //    Order matters: each mov must read its source before it's overwritten.
+        "mov r9, r8",           // a5 = original r8 (must precede r8 overwrite)
+        "mov r8, r10",          // a4 = original r10
         "mov rcx, rdx",        // a3 = original rdx
         "mov rdx, rsi",        // a2 = original rsi
         "mov rsi, rdi",        // a1 = original rdi
@@ -242,27 +245,51 @@ pub unsafe extern "C" fn ring3_syscall_entry() {
 /// Routes Linux x86_64 syscalls to their handler implementations.
 /// Returns value in RAX (negative = -errno).
 #[no_mangle]
-extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64 {
+extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64 {
     match nr {
-        // SYS_READ (0): fd=a1, buf=a2, count=_a3
-        0 => dispatch_sys_read(a1 as i32, a2, _a3 as usize),
-        // SYS_WRITE (1): fd=a1, buf=a2, count=_a3
-        1 => dispatch_sys_write(a1 as i32, a2, _a3 as usize),
-        // SYS_OPEN (2): path=a1, flags=a2, mode=_a3
+        // SYS_READ (0): fd=a1, buf=a2, count=a3
+        0 => dispatch_sys_read(a1 as i32, a2, a3 as usize),
+        // SYS_WRITE (1): fd=a1, buf=a2, count=a3
+        1 => dispatch_sys_write(a1 as i32, a2, a3 as usize),
+        // SYS_OPEN (2): path=a1, flags=a2, mode=a3
         2 => dispatch_sys_open(a1, a2 as u32),
         // SYS_CLOSE (3): fd=a1
         3 => dispatch_sys_close(a1 as i32),
-        // SYS_LSEEK (8): fd=a1, offset=a2, whence=_a3
-        8 => dispatch_sys_lseek(a1 as i32, a2 as i64, _a3 as u32),
+        // SYS_LSEEK (8): fd=a1, offset=a2, whence=a3
+        8 => dispatch_sys_lseek(a1 as i32, a2 as i64, a3 as u32),
         // SYS_BRK (12): stub
         12 => 0x0060_0000,
         // SYS_SCHED_YIELD (24)
         24 => { super::yield_now(); 0 }
         // SYS_GETPID (39)
         39 => 1,
+        // SYS_SOCKET (41) — Phase 13-1
+        41 => dispatch_sys_socket(a1, a2, a3),
+        // SYS_CONNECT (42)
+        42 => dispatch_sys_connect(a1 as i32, a2, a3 as u32),
+        // SYS_ACCEPT (43)
+        43 => dispatch_sys_accept(a1 as i32, a2, a3),
+        // SYS_SENDTO (44): fd, buf, len, flags, dest_addr, addrlen
+        44 => dispatch_sys_sendto(a1 as i32, a2, a3 as usize, a4 as u32, a5),
+        // SYS_RECVFROM (45): fd, buf, len, flags, src_addr, addrlen
+        45 => dispatch_sys_recvfrom(a1 as i32, a2, a3 as usize, a4 as u32, a5),
+        // SYS_SHUTDOWN (48)
+        48 => dispatch_sys_shutdown(a1 as i32, a2 as u32),
+        // SYS_BIND (49)
+        49 => dispatch_sys_bind(a1 as i32, a2, a3 as u32),
+        // SYS_LISTEN (50)
+        50 => dispatch_sys_listen(a1 as i32, a2 as u32),
+        // SYS_GETSOCKNAME (51)
+        51 => dispatch_sys_getsockname(a1 as i32, a2, a3),
+        // SYS_GETPEERNAME (52)
+        52 => dispatch_sys_getpeername(a1 as i32, a2, a3),
+        // SYS_SETSOCKOPT (54)
+        54 => dispatch_sys_setsockopt(a1 as i32, a2 as u32, a3 as u32, a4, a5 as u32),
+        // SYS_GETSOCKOPT (55)
+        55 => dispatch_sys_getsockopt(a1 as i32, a2 as u32, a3 as u32, a4, a5),
         // SYS_FORK (57)
         57 => handle_fork(),
-        // SYS_EXECVE (59): pathname=a1, argv=a2, envp=_a3
+        // SYS_EXECVE (59): pathname=a1, argv=a2, envp=a3
         59 => handle_execve(a1),
         // SYS_EXIT (60) / SYS_EXIT_GROUP (231)
         60 | 231 => {
@@ -272,8 +299,8 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64
         }
         // SYS_ARCH_PRCTL (158): stub
         158 => 0,
-        // SYS_SOCKET (41) — Phase 13-1
-        41 => dispatch_sys_socket(a1, a2, _a3),
+        // SYS_ACCEPT4 (288)
+        288 => dispatch_sys_accept(a1 as i32, a2, a3),
         // Unknown
         _ => {
             crate::serial_println!("[RING3] Unknown syscall nr={}", nr);
@@ -488,6 +515,297 @@ fn dispatch_sys_socket(domain: u64, socktype: u64, _protocol: u64) -> i64 {
     });
     crate::serial_println!("[Socket] created fd={}", fd);
     fd as i64
+}
+
+// ─── BSD socket syscall helpers ──────────────────────────────────────
+
+/// Read a `struct sockaddr_in` (16 bytes) from a user-space pointer.
+///
+/// Returns `(ip4_addr, port)` in host byte order, or `-EFAULT` on bad ptr.
+///
+/// Layout: { u16 sin_family; u16 sin_port[NBO]; u32 sin_addr[NBO]; u8 sin_zero[8]; }
+fn read_sockaddr_in(addr_ptr: u64, addrlen: u32) -> Result<network::SocketAddr, i64> {
+    if addr_ptr == 0 || addr_ptr >= 0x0000_8000_0000_0000 || addrlen < 16 {
+        return Err(-14); // -EFAULT
+    }
+    // SAFETY: addr_ptr has been validated to be in the user-space range.
+    // The kernel maps all user pages before they are accessed.
+    let bytes: [u8; 16] = unsafe {
+        core::ptr::read(addr_ptr as *const [u8; 16])
+    };
+    let family = u16::from_ne_bytes([bytes[0], bytes[1]]);
+    if family != 2 {
+        // AF_INET = 2
+        return Err(-97); // -EAFNOSUPPORT
+    }
+    let port = u16::from_be_bytes([bytes[2], bytes[3]]);
+    let ip = network::Ipv4Addr::new(bytes[4], bytes[5], bytes[6], bytes[7]);
+    Ok(network::SocketAddr::new(network::IpAddr::V4(ip), port))
+}
+
+/// Write a `struct sockaddr_in` to a user-space pointer.
+fn write_sockaddr_in(addr_ptr: u64, addrlen_ptr: u64, addr: &network::SocketAddr) {
+    if addr_ptr == 0 || addr_ptr >= 0x0000_8000_0000_0000 {
+        return;
+    }
+    let mut buf = [0u8; 16];
+    buf[0] = 2; buf[1] = 0; // AF_INET = 2 (little-endian u16)
+    let port_be = addr.port.to_be_bytes();
+    buf[2] = port_be[0]; buf[3] = port_be[1];
+    if let network::IpAddr::V4(ipv4) = &addr.ip {
+        let octets = ipv4.octets();
+        buf[4] = octets[0]; buf[5] = octets[1];
+        buf[6] = octets[2]; buf[7] = octets[3];
+    }
+    // SAFETY: addr_ptr validated above; writing 16 bytes into mapped user page.
+    unsafe {
+        core::ptr::write(addr_ptr as *mut [u8; 16], buf);
+    }
+    if addrlen_ptr != 0 && addrlen_ptr < 0x0000_8000_0000_0000 {
+        // SAFETY: length pointer is in user-space range.
+        unsafe {
+            core::ptr::write(addrlen_ptr as *mut u32, 16u32);
+        }
+    }
+}
+
+/// Look up a socket handle from an FD number.
+/// Returns the `SocketHandle` or `-EBADF`/`-ENOTSOCK`.
+fn fd_to_socket_handle(fd: i32) -> Result<network::socket::SocketHandle, i64> {
+    let table = RING3_FD_TABLE.lock();
+    let entry = table.get(fd as usize)
+        .and_then(|e| e.as_ref())
+        .ok_or(-9i64)?; // -EBADF
+    match entry.kind {
+        FdKind::Socket { handle_id } => Ok(network::socket::SocketHandle(handle_id)),
+        _ => Err(-88), // -ENOTSOCK
+    }
+}
+
+/// SYS_BIND(49): bind(fd, addr, addrlen)
+fn dispatch_sys_bind(fd: i32, addr_ptr: u64, addrlen: u32) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    let addr = match read_sockaddr_in(addr_ptr, addrlen) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    match network::socket::bind(handle, addr) {
+        Ok(()) => {
+            crate::serial_println!("[IPC] Socket bind fd={} port={}", fd, addr.port);
+            0
+        }
+        Err(_) => -98, // -EADDRINUSE
+    }
+}
+
+/// SYS_LISTEN(50): listen(fd, backlog)
+fn dispatch_sys_listen(fd: i32, backlog: u32) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    match network::socket::listen(handle, backlog) {
+        Ok(()) => {
+            crate::serial_println!("[IPC] Socket listen fd={}", fd);
+            0
+        }
+        Err(_) => -22, // -EINVAL
+    }
+}
+
+/// SYS_ACCEPT(43) / SYS_ACCEPT4(288): accept(fd, addr, addrlen)
+fn dispatch_sys_accept(fd: i32, addr_ptr: u64, addrlen_ptr: u64) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    let peer_handle = match network::socket::accept(handle) {
+        Ok(h) => h,
+        Err(network::NetworkError::WouldBlock) => return -11, // -EAGAIN
+        Err(_) => return -22, // -EINVAL
+    };
+
+    // Allocate a new FD for the accepted connection.
+    let new_fd = RING3_NEXT_FD.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if new_fd < 0 || new_fd as usize >= 64 {
+        let _ = network::socket::close(peer_handle);
+        return -24; // -EMFILE
+    }
+    {
+        let mut table = RING3_FD_TABLE.lock();
+        table[new_fd as usize] = Some(FdEntry {
+            kind: FdKind::Socket { handle_id: peer_handle.0 },
+        });
+    }
+
+    // Write remote address if requested.
+    if addr_ptr != 0 {
+        if let Ok(peer_addr) = network::socket::getpeername(peer_handle) {
+            write_sockaddr_in(addr_ptr, addrlen_ptr, &peer_addr);
+        }
+    }
+
+    crate::serial_println!("[IPC] Socket accept fd={} -> new_fd={}", fd, new_fd);
+    new_fd as i64
+}
+
+/// SYS_CONNECT(42): connect(fd, addr, addrlen)
+fn dispatch_sys_connect(fd: i32, addr_ptr: u64, addrlen: u32) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    let addr = match read_sockaddr_in(addr_ptr, addrlen) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    match network::socket::connect(handle, addr) {
+        Ok(()) => {
+            crate::serial_println!("[IPC] Socket connect fd={} port={}", fd, addr.port);
+            0
+        }
+        Err(_) => -111, // -ECONNREFUSED
+    }
+}
+
+/// SYS_SENDTO(44): sendto(fd, buf, len, flags, dest_addr, addrlen)
+///
+/// For connected TCP, `dest_addr` is ignored (uses peer from connect).
+/// For UDP with `dest_addr != 0`, routes the datagram to a bound socket.
+fn dispatch_sys_sendto(fd: i32, buf_ptr: u64, len: usize, _flags: u32, dest_addr_ptr: u64) -> i64 {
+    if buf_ptr == 0 || buf_ptr >= 0x0000_8000_0000_0000 || len == 0 {
+        return 0;
+    }
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    // SAFETY: buf_ptr is in valid user-space range and len is bounded.
+    let data = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len.min(4096)) };
+
+    // Check if this is a UDP sendto with a destination address.
+    if dest_addr_ptr != 0 {
+        if let Ok(sock_type) = network::socket::get_type(handle) {
+            if sock_type == network::socket::SocketType::Datagram {
+                if let Ok(dest) = read_sockaddr_in(dest_addr_ptr, 16) {
+                    return match network::socket::sendto_dgram(handle, data, dest) {
+                        Ok(n) => n as i64,
+                        Err(_) => -11, // -EAGAIN
+                    };
+                }
+            }
+        }
+    }
+
+    match network::socket::send(handle, data) {
+        Ok(n) => n as i64,
+        Err(network::NetworkError::WouldBlock) => -11, // -EAGAIN
+        Err(_) => -104, // -ECONNRESET
+    }
+}
+
+/// SYS_RECVFROM(45): recvfrom(fd, buf, len, flags, src_addr, addrlen)
+fn dispatch_sys_recvfrom(fd: i32, buf_ptr: u64, len: usize, _flags: u32, _src_addr_ptr: u64) -> i64 {
+    if buf_ptr == 0 || buf_ptr >= 0x0000_8000_0000_0000 || len == 0 {
+        return 0;
+    }
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    // SAFETY: buf_ptr is in valid user-space range.
+    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len.min(4096)) };
+    match network::socket::recv(handle, buf) {
+        Ok(n) => n as i64,
+        Err(network::NetworkError::WouldBlock) => -11, // -EAGAIN
+        Err(_) => -104, // -ECONNRESET
+    }
+}
+
+/// SYS_SHUTDOWN(48): shutdown(fd, how)
+fn dispatch_sys_shutdown(fd: i32, how: u32) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    match network::socket::shutdown(handle, how) {
+        Ok(()) => 0,
+        Err(_) => -107, // -ENOTCONN
+    }
+}
+
+/// SYS_GETSOCKNAME(51): getsockname(fd, addr, addrlen)
+fn dispatch_sys_getsockname(fd: i32, addr_ptr: u64, addrlen_ptr: u64) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    match network::socket::getsockname(handle) {
+        Ok(addr) => {
+            write_sockaddr_in(addr_ptr, addrlen_ptr, &addr);
+            0
+        }
+        Err(_) => -22, // -EINVAL
+    }
+}
+
+/// SYS_GETPEERNAME(52): getpeername(fd, addr, addrlen)
+fn dispatch_sys_getpeername(fd: i32, addr_ptr: u64, addrlen_ptr: u64) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    match network::socket::getpeername(handle) {
+        Ok(addr) => {
+            write_sockaddr_in(addr_ptr, addrlen_ptr, &addr);
+            0
+        }
+        Err(_) => -107, // -ENOTCONN
+    }
+}
+
+/// SYS_SETSOCKOPT(54): setsockopt(fd, level, optname, optval, optlen)
+fn dispatch_sys_setsockopt(fd: i32, level: u32, optname: u32, optval_ptr: u64, optlen: u32) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    // Read the option value (u32) from user-space.
+    let value: u32 = if optval_ptr != 0 && optval_ptr < 0x0000_8000_0000_0000 && optlen >= 4 {
+        // SAFETY: optval_ptr is in valid user-space range.
+        unsafe { core::ptr::read(optval_ptr as *const u32) }
+    } else {
+        0
+    };
+    match network::socket::setsockopt(handle, level, optname, value) {
+        Ok(()) => 0,
+        Err(_) => -92, // -ENOPROTOOPT
+    }
+}
+
+/// SYS_GETSOCKOPT(55): getsockopt(fd, level, optname, optval, optlen)
+fn dispatch_sys_getsockopt(fd: i32, level: u32, optname: u32, optval_ptr: u64, optlen_ptr: u64) -> i64 {
+    let handle = match fd_to_socket_handle(fd) {
+        Ok(h) => h,
+        Err(e) => return e,
+    };
+    match network::socket::getsockopt(handle, level, optname) {
+        Ok(val) => {
+            if optval_ptr != 0 && optval_ptr < 0x0000_8000_0000_0000 {
+                // SAFETY: optval_ptr is in valid user-space range.
+                unsafe { core::ptr::write(optval_ptr as *mut u32, val); }
+            }
+            if optlen_ptr != 0 && optlen_ptr < 0x0000_8000_0000_0000 {
+                // SAFETY: optlen_ptr is in valid user-space range.
+                unsafe { core::ptr::write(optlen_ptr as *mut u32, 4u32); }
+            }
+            0
+        }
+        Err(_) => -92, // -ENOPROTOOPT
+    }
 }
 
 fn dispatch_sys_lseek(fd: i32, offset: i64, whence: u32) -> i64 {
