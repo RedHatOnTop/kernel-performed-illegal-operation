@@ -1,8 +1,8 @@
 # KPIO Development Roadmap
 
-**Document Version:** 7.7.0  
-**Last Updated:** 2026-03-09  
-**Status:** Phase 12 Complete ✅ (12-1 ✅, 12-2 ✅, 12-3 ✅, 12-4 ✅, 12-5 ✅, 12-6 ✅, 12-7 ✅)
+**Document Version:** 7.8.0  
+**Last Updated:** 2026-03-10  
+**Status:** Phase 13 In Progress 🔄 (13-1 ⬜, 13-2 ⬜, 13-3 ⬜, 13-4 ⬜, 13-5 ⬜)
 
 ---
 
@@ -10,7 +10,9 @@
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
 
-**Update:** Phase 12-7 (Integration Test) completed 2026-03-09. Automated QEMU integration test (`qemu-test.ps1 -Mode userspace`) validates all Phase 12 features in a single boot: execve return path, fork child return, ProcessManager::spawn from VFS, FAT32 write support, init-from-disk boot, and userlib syscall wiring. 21/21 checks pass (11 smoke + 10 Phase 12-specific). Phase 12 is now fully complete. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
+**Update:** Phase 13 (IPC, Socket Syscalls & Kernel Threading) planning started 2026-03-10. Five sub-phases: 13-1 (Socket FD Infrastructure), 13-2 (BSD Socket Syscalls), 13-3 (Kernel Threading via clone), 13-4 (Epoll Event Multiplexing), 13-5 (Integration Test). Exposes existing TCP/IP stack to Ring 3 via socket syscalls, adds CLONE_THREAD support with shared address space, and implements epoll for event-driven I/O. See [Phase 13 Plan](../plans/PHASE_13_IPC_AND_THREADING_PLAN.md).
+
+**Previous:** Phase 12-7 (Integration Test) completed 2026-03-09. Automated QEMU integration test (`qemu-test.ps1 -Mode userspace`) validates all Phase 12 features in a single boot: execve return path, fork child return, ProcessManager::spawn from VFS, FAT32 write support, init-from-disk boot, and userlib syscall wiring. 21/21 checks pass (11 smoke + 10 Phase 12-specific). Phase 12 is now fully complete. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
 **Previous:** Phase 12-5 (Init Process & ELF-from-Disk Boot) completed 2026-03-07. First end-to-end user-space pipeline from persistent storage: `create-test-disk.ps1` generates two minimal ELF64 binaries (INIT=173 bytes, BIN/HELLO=179 bytes) and places them on the FAT32 test disk. Kernel reads `/mnt/test/INIT` from FAT32 via `storage::vfs::open/read`, bridges to in-memory VFS, and spawns via `ProcessManager::spawn_from_vfs("/init")` (pid=3). Similarly loads `/mnt/test/BIN/HELLO` and spawns (pid=4). QEMU serial log shows `[INIT] PID 1 running` and `Hello from disk!`. No panics or triple faults. See [Phase 12 Plan](../plans/PHASE_12_USERSPACE_AND_WRITABLE_FS_PLAN.md).
 
