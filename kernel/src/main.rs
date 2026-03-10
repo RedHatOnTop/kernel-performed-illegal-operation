@@ -1675,6 +1675,113 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // ── Phase 12-7: All sub-phase tests complete ─────────────────
     serial_println!("[P12] Phase 12 integration test PASSED");
 
+    // ── Phase 13-1: Socket FD Infrastructure — smoke test ────────
+    // Validates that sys_socket() creates an FD and returns it.
+    // Spawns a minimal ELF that calls socket(AF_INET=2, SOCK_STREAM=1, 0),
+    // writes "[IPC] Socket create\n" to stdout, then exits.
+    // The sys_socket handler also prints "[Socket] created fd=N" to serial.
+    {
+        serial_println!("[IPC] Phase 13-1: Socket FD infrastructure test");
+
+        // Machine code (x86_64, mapped at vaddr 0x400078):
+        //   mov rax, 41            ; SYS_SOCKET
+        //   mov rdi, 2             ; AF_INET
+        //   mov rsi, 1             ; SOCK_STREAM
+        //   xor rdx, rdx           ; protocol = 0
+        //   syscall                ; -> rax = fd
+        //   mov rax, 1             ; SYS_WRITE
+        //   mov rdi, 1             ; stdout
+        //   lea rsi, [rip+0x15]    ; -> "[IPC] Socket create\n"
+        //   mov rdx, 20            ; length
+        //   syscall
+        //   mov rax, 60            ; SYS_EXIT
+        //   xor rdi, rdi           ; exit code 0
+        //   syscall
+        //   db "[IPC] Socket create\n"
+        #[rustfmt::skip]
+        const SOCKET_TEST_CODE: &[u8] = &[
+            0x48, 0xC7, 0xC0, 0x29, 0x00, 0x00, 0x00, // mov rax, 41 (SYS_SOCKET)
+            0x48, 0xC7, 0xC7, 0x02, 0x00, 0x00, 0x00, // mov rdi, 2 (AF_INET)
+            0x48, 0xC7, 0xC6, 0x01, 0x00, 0x00, 0x00, // mov rsi, 1 (SOCK_STREAM)
+            0x48, 0x31, 0xD2,                           // xor rdx, rdx
+            0x0F, 0x05,                                 // syscall (socket)
+            0x48, 0xC7, 0xC0, 0x01, 0x00, 0x00, 0x00, // mov rax, 1 (SYS_WRITE)
+            0x48, 0xC7, 0xC7, 0x01, 0x00, 0x00, 0x00, // mov rdi, 1 (stdout)
+            0x48, 0x8D, 0x35, 0x15, 0x00, 0x00, 0x00, // lea rsi, [rip+0x15]
+            0x48, 0xC7, 0xC2, 0x14, 0x00, 0x00, 0x00, // mov rdx, 20
+            0x0F, 0x05,                                 // syscall (write)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00, // mov rax, 60 (SYS_EXIT)
+            0x48, 0x31, 0xFF,                           // xor rdi, rdi
+            0x0F, 0x05,                                 // syscall (exit)
+            // "[IPC] Socket create\n" (20 bytes)
+            b'[', b'I', b'P', b'C', b']', b' ',
+            b'S', b'o', b'c', b'k', b'e', b't', b' ',
+            b'c', b'r', b'e', b'a', b't', b'e', b'\n',
+        ];
+
+        // Build minimal ELF64 wrapping the socket test code.
+        let elf_header_size: usize = 64;
+        let phdr_size: usize = 56;
+        let code_offset = elf_header_size + phdr_size; // 120
+        let total_size = code_offset + SOCKET_TEST_CODE.len();
+        let entry_point: u64 = 0x400000 + code_offset as u64;
+
+        let mut elf_binary = alloc::vec![0u8; total_size];
+
+        // ELF header
+        elf_binary[0..4].copy_from_slice(&[0x7F, b'E', b'L', b'F']);
+        elf_binary[4] = 2;   // ELFCLASS64
+        elf_binary[5] = 1;   // ELFDATA2LSB
+        elf_binary[6] = 1;   // EV_CURRENT
+        elf_binary[16..18].copy_from_slice(&2u16.to_le_bytes()); // ET_EXEC
+        elf_binary[18..20].copy_from_slice(&62u16.to_le_bytes()); // EM_X86_64
+        elf_binary[20..24].copy_from_slice(&1u32.to_le_bytes()); // e_version
+        elf_binary[24..32].copy_from_slice(&entry_point.to_le_bytes());
+        elf_binary[32..40].copy_from_slice(&64u64.to_le_bytes()); // e_phoff
+        elf_binary[52..54].copy_from_slice(&64u16.to_le_bytes()); // e_ehsize
+        elf_binary[54..56].copy_from_slice(&56u16.to_le_bytes()); // e_phentsize
+        elf_binary[56..58].copy_from_slice(&1u16.to_le_bytes());  // e_phnum
+
+        // Program header (PT_LOAD)
+        elf_binary[64..68].copy_from_slice(&1u32.to_le_bytes());  // PT_LOAD
+        elf_binary[68..72].copy_from_slice(&5u32.to_le_bytes());  // PF_R | PF_X
+        elf_binary[72..80].copy_from_slice(&0u64.to_le_bytes());  // p_offset
+        elf_binary[80..88].copy_from_slice(&0x400000u64.to_le_bytes()); // p_vaddr
+        elf_binary[88..96].copy_from_slice(&0x400000u64.to_le_bytes()); // p_paddr
+        elf_binary[96..104].copy_from_slice(&(total_size as u64).to_le_bytes());
+        elf_binary[104..112].copy_from_slice(&(total_size as u64).to_le_bytes());
+        elf_binary[112..120].copy_from_slice(&0x1000u64.to_le_bytes()); // p_align
+
+        elf_binary[code_offset..].copy_from_slice(SOCKET_TEST_CODE);
+
+        match vfs::write_all("/bin/socket-test", &elf_binary) {
+            Ok(()) => {
+                serial_println!(
+                    "[IPC] Registered /bin/socket-test in VFS ({} bytes, entry={:#x})",
+                    total_size, entry_point
+                );
+            }
+            Err(e) => {
+                serial_println!("[IPC] FAIL: Could not register /bin/socket-test: {:?}", e);
+            }
+        }
+
+        match crate::process::manager::PROCESS_MANAGER.spawn_from_vfs("/bin/socket-test") {
+            Ok(pid) => {
+                serial_println!("[IPC] Socket test spawned: pid={}", pid);
+            }
+            Err(e) => {
+                serial_println!("[IPC] FAIL: spawn socket-test failed: {:?}", e);
+            }
+        }
+
+        // Wait for the spawned process to execute
+        for _ in 0..300 {
+            x86_64::instructions::hlt();
+        }
+        serial_println!("[IPC] Phase 13-1 socket FD test complete");
+    }
+
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:
     //   1. Create a parent user page table with code + data + stack pages

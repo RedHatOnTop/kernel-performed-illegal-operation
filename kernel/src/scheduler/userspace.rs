@@ -272,6 +272,8 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, _a3: u64) -> i64
         }
         // SYS_ARCH_PRCTL (158): stub
         158 => 0,
+        // SYS_SOCKET (41) — Phase 13-1
+        41 => dispatch_sys_socket(a1, a2, _a3),
         // Unknown
         _ => {
             crate::serial_println!("[RING3] Unknown syscall nr={}", nr);
@@ -290,9 +292,16 @@ static RING3_FD_TABLE: spin::Mutex<[Option<FdEntry>; 64]> = spin::Mutex::new([No
 static RING3_NEXT_FD: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(3);
 
 #[derive(Clone, Copy)]
+enum FdKind {
+    /// VFS file: inode number + read offset.
+    File { ino: u64, offset: usize },
+    /// Network socket: handle id from network::socket.
+    Socket { handle_id: u32 },
+}
+
+#[derive(Clone, Copy)]
 struct FdEntry {
-    ino: u64,
-    offset: usize,
+    kind: FdKind,
 }
 
 fn dispatch_sys_open(path_ptr: u64, _flags: u32) -> i64 {
@@ -325,7 +334,7 @@ fn dispatch_sys_open(path_ptr: u64, _flags: u32) -> i64 {
         return -24; // -EMFILE
     }
     let mut table = RING3_FD_TABLE.lock();
-    table[fd as usize] = Some(FdEntry { ino, offset: 0 });
+    table[fd as usize] = Some(FdEntry { kind: FdKind::File { ino, offset: 0 } });
     fd as i64
 }
 
@@ -344,28 +353,42 @@ fn dispatch_sys_read(fd: i32, buf_ptr: u64, count: usize) -> i64 {
         None => return -9, // -EBADF
     };
 
-    // Read from VFS
-    let result = crate::terminal::fs::with_fs(|fs| {
-        fs.read_file(entry.ino)
-    });
-    let data = match result {
-        Ok(d) => d,
-        Err(_) => return -5i64, // -EIO
-    };
+    match &mut entry.kind {
+        FdKind::File { ino, offset } => {
+            let ino_val = *ino;
+            let off_val = *offset;
+            // Read from VFS
+            let result = crate::terminal::fs::with_fs(|fs| {
+                fs.read_file(ino_val)
+            });
+            let data = match result {
+                Ok(d) => d,
+                Err(_) => return -5i64, // -EIO
+            };
 
-    let available = data.len().saturating_sub(entry.offset);
-    let to_copy = count.min(available);
-    if to_copy == 0 {
-        return 0;
-    }
+            let available = data.len().saturating_sub(off_val);
+            let to_copy = count.min(available);
+            if to_copy == 0 {
+                return 0;
+            }
 
-    // Copy to user buffer
-    let src = &data[entry.offset..entry.offset + to_copy];
-    unsafe {
-        core::ptr::copy_nonoverlapping(src.as_ptr(), buf_ptr as *mut u8, to_copy);
+            // Copy to user buffer
+            let src = &data[off_val..off_val + to_copy];
+            unsafe {
+                core::ptr::copy_nonoverlapping(src.as_ptr(), buf_ptr as *mut u8, to_copy);
+            }
+            *offset += to_copy;
+            to_copy as i64
+        }
+        FdKind::Socket { handle_id } => {
+            let handle = network::socket::SocketHandle(*handle_id);
+            let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, count.min(4096)) };
+            match network::socket::recv(handle, buf) {
+                Ok(n) => n as i64,
+                Err(_) => -11, // -EAGAIN
+            }
+        }
     }
-    entry.offset += to_copy;
-    to_copy as i64
 }
 
 fn dispatch_sys_write(fd: i32, buf_ptr: u64, count: usize) -> i64 {
@@ -381,22 +404,35 @@ fn dispatch_sys_write(fd: i32, buf_ptr: u64, count: usize) -> i64 {
         return count as i64;
     }
 
-    // Write to VFS file
     let mut table = RING3_FD_TABLE.lock();
     let entry = match table.get_mut(fd as usize).and_then(|e| e.as_mut()) {
         Some(e) => e,
         None => return -9, // -EBADF
     };
-    let data = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count) };
-    let ino = entry.ino;
-    drop(table);
 
-    let result = crate::terminal::fs::with_fs(|fs| {
-        fs.write_file(ino, data)
-    });
-    match result {
-        Ok(_) => count as i64,
-        Err(_) => -5, // -EIO
+    match &entry.kind {
+        FdKind::File { ino, .. } => {
+            let data = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count) };
+            let ino_val = *ino;
+            drop(table);
+
+            let result = crate::terminal::fs::with_fs(|fs| {
+                fs.write_file(ino_val, data)
+            });
+            match result {
+                Ok(_) => count as i64,
+                Err(_) => -5, // -EIO
+            }
+        }
+        FdKind::Socket { handle_id } => {
+            let handle = network::socket::SocketHandle(*handle_id);
+            let data = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count.min(4096)) };
+            drop(table);
+            match network::socket::send(handle, data) {
+                Ok(n) => n as i64,
+                Err(_) => -11, // -EAGAIN
+            }
+        }
     }
 }
 
@@ -406,11 +442,52 @@ fn dispatch_sys_close(fd: i32) -> i64 {
     }
     let mut table = RING3_FD_TABLE.lock();
     if let Some(slot) = table.get_mut(fd as usize) {
-        *slot = None;
+        if let Some(entry) = slot.take() {
+            if let FdKind::Socket { handle_id } = entry.kind {
+                let handle = network::socket::SocketHandle(handle_id);
+                let _ = network::socket::close(handle);
+            }
+        }
         0
     } else {
         -9 // -EBADF
     }
+}
+
+/// SYS_SOCKET(41): create a network socket.
+/// Args: domain (AF_INET=2), socktype (SOCK_STREAM=1, SOCK_DGRAM=2), protocol.
+fn dispatch_sys_socket(domain: u64, socktype: u64, _protocol: u64) -> i64 {
+    const AF_INET: u64 = 2;
+    const SOCK_STREAM: u64 = 1;
+    const SOCK_DGRAM: u64 = 2;
+
+    if domain != AF_INET {
+        return -97; // -EAFNOSUPPORT
+    }
+
+    let st = match socktype & 0xFF {
+        SOCK_STREAM => network::socket::SocketType::Stream,
+        SOCK_DGRAM => network::socket::SocketType::Datagram,
+        _ => return -95, // -EOPNOTSUPP
+    };
+
+    let handle = match network::socket::create(st) {
+        Ok(h) => h,
+        Err(_) => return -24, // -EMFILE
+    };
+
+    // Allocate FD
+    let fd = RING3_NEXT_FD.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if fd < 0 || fd as usize >= 64 {
+        let _ = network::socket::close(handle);
+        return -24; // -EMFILE
+    }
+    let mut table = RING3_FD_TABLE.lock();
+    table[fd as usize] = Some(FdEntry {
+        kind: FdKind::Socket { handle_id: handle.0 },
+    });
+    crate::serial_println!("[Socket] created fd={}", fd);
+    fd as i64
 }
 
 fn dispatch_sys_lseek(fd: i32, offset: i64, whence: u32) -> i64 {
@@ -420,13 +497,18 @@ fn dispatch_sys_lseek(fd: i32, offset: i64, whence: u32) -> i64 {
         None => return -9, // -EBADF
     };
 
+    let file_offset = match &mut entry.kind {
+        FdKind::File { ino, offset: off } => (ino, off),
+        FdKind::Socket { .. } => return -29, // -ESPIPE (illegal seek on socket)
+    };
+
     let file_size = crate::terminal::fs::with_fs(|fs| {
-        fs.read_file(entry.ino).map(|d| d.len()).unwrap_or(0)
+        fs.read_file(*file_offset.0).map(|d| d.len()).unwrap_or(0)
     });
 
     let new_offset = match whence {
         0 => offset, // SEEK_SET
-        1 => entry.offset as i64 + offset, // SEEK_CUR
+        1 => *file_offset.1 as i64 + offset, // SEEK_CUR
         2 => file_size as i64 + offset, // SEEK_END
         _ => return -22, // -EINVAL
     };
@@ -434,7 +516,7 @@ fn dispatch_sys_lseek(fd: i32, offset: i64, whence: u32) -> i64 {
     if new_offset < 0 {
         return -22; // -EINVAL
     }
-    entry.offset = new_offset as usize;
+    *file_offset.1 = new_offset as usize;
     new_offset
 }
 

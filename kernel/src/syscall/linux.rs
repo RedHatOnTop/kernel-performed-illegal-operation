@@ -50,6 +50,13 @@ pub const ENAMETOOLONG: i64 = 36;
 pub const ENOSYS: i64 = 38;
 pub const ENOTEMPTY: i64 = 39;
 pub const ENOTTY: i64 = 25;
+pub const ENOTSOCK: i64 = 88;
+pub const ENOPROTOOPT: i64 = 92;
+pub const EOPNOTSUPP: i64 = 95;
+pub const EAFNOSUPPORT: i64 = 97;
+pub const EADDRINUSE: i64 = 98;
+pub const ENOTCONN: i64 = 107;
+pub const EINPROGRESS: i64 = 115;
 
 // ─── Linux syscall numbers (x86_64) ──────────────────────────────────
 
@@ -104,6 +111,21 @@ pub const SYS_MADVISE: u64 = 28;
 pub const SYS_FUTEX: u64 = 202;
 pub const SYS_PRLIMIT64: u64 = 302;
 pub const SYS_PIPE2: u64 = 293;
+
+// Phase 13: Socket syscalls
+pub const SYS_SOCKET: u64 = 41;
+pub const SYS_CONNECT: u64 = 42;
+pub const SYS_ACCEPT: u64 = 43;
+pub const SYS_SENDTO: u64 = 44;
+pub const SYS_RECVFROM: u64 = 45;
+pub const SYS_SHUTDOWN: u64 = 48;
+pub const SYS_BIND: u64 = 49;
+pub const SYS_LISTEN: u64 = 50;
+pub const SYS_GETSOCKNAME: u64 = 51;
+pub const SYS_GETPEERNAME: u64 = 52;
+pub const SYS_SETSOCKOPT: u64 = 54;
+pub const SYS_GETSOCKOPT: u64 = 55;
+pub const SYS_ACCEPT4: u64 = 288;
 
 // Phase 10-4: Process lifecycle syscalls
 pub const SYS_CLONE: u64 = 56;
@@ -358,6 +380,9 @@ pub fn linux_syscall_dispatch(
         SYS_PIPE => linux_handlers::sys_pipe(a1),
         SYS_PIPE2 => linux_handlers::sys_pipe2(a1, a2 as u32),
         SYS_FCNTL => linux_handlers::sys_fcntl(a1 as i32, a2 as i32, a3),
+
+        // Socket (Phase 13)
+        SYS_SOCKET => linux_handlers::sys_socket(a1, a2, a3),
 
         // Process
         SYS_FORK => linux_handlers::sys_fork(),

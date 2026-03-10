@@ -20,8 +20,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::linux::{
     copy_from_user, copy_to_user, read_user_string, validate_user_ptr,
-    AT_FDCWD, EACCES, EBADF, EFAULT, EINVAL, EISDIR, EMFILE, ENOENT, ENOSYS, ENOTDIR,
-    EPIPE, ERANGE, ESRCH, ESPIPE, EEXIST,
+    AT_FDCWD, EACCES, EAFNOSUPPORT, EAGAIN, EBADF, EFAULT, EINVAL, EISDIR, EMFILE,
+    ENOENT, ENOSYS, ENOTCONN, ENOTDIR, EPIPE, ERANGE, ESRCH, ESPIPE, EEXIST,
 };
 use crate::memory::user_page_table;
 use crate::process::table::{
@@ -218,6 +218,9 @@ fn read_via_process(pid: ProcessId, fd: u32, buf_ptr: u64, count: u64) -> i64 {
         FileResource::Pipe { buffer_id } => {
             pipe_read(*buffer_id, buf_ptr, count)
         }
+        FileResource::Socket { socket_id } => {
+            socket_read(*socket_id, buf_ptr, count)
+        }
         _ => -EBADF,
     }
 }
@@ -299,6 +302,9 @@ fn write_via_process(pid: ProcessId, fd: u32, data: &[u8]) -> i64 {
         }
         FileResource::Pipe { buffer_id } => {
             pipe_write_bytes(*buffer_id, data)
+        }
+        FileResource::Socket { socket_id } => {
+            socket_write(*socket_id, data)
         }
         _ => -EBADF,
     }
@@ -430,6 +436,10 @@ fn close_in_process(pid: ProcessId, fd: u32) -> i64 {
         if let FileResource::Pipe { buffer_id } = &closed_fd.resource {
             let is_write_end = closed_fd.offset == 1; // offset==1 marks write end
             pipe_close(*buffer_id, is_write_end);
+        }
+        // If it was a socket, close the socket
+        if let FileResource::Socket { socket_id } = &closed_fd.resource {
+            socket_close_handle(*socket_id);
         }
         0
     } else {
@@ -3093,6 +3103,114 @@ pub fn sys_prlimit64(_pid: i32, resource: u32, _new_limit_ptr: u64, old_limit_pt
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Socket helpers (Phase 13-1: Socket FD Infrastructure)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Read from a socket (called by sys_read when fd is a Socket).
+fn socket_read(socket_id: u64, buf_ptr: u64, count: u64) -> i64 {
+    let handle = network::socket::SocketHandle(socket_id as u32);
+    let len = count as usize;
+    // SAFETY: buf_ptr was validated by caller (validate_user_ptr in sys_read).
+    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
+    match network::socket::recv(handle, buf) {
+        Ok(n) => n as i64,
+        Err(network::NetworkError::WouldBlock) => -EAGAIN,
+        Err(network::NetworkError::NotConnected) => -ENOTCONN,
+        Err(_) => -EIO,
+    }
+}
+
+/// Write to a socket (called by sys_write when fd is a Socket).
+fn socket_write(socket_id: u64, data: &[u8]) -> i64 {
+    let handle = network::socket::SocketHandle(socket_id as u32);
+    match network::socket::send(handle, data) {
+        Ok(n) => n as i64,
+        Err(network::NetworkError::WouldBlock) => -EAGAIN,
+        Err(network::NetworkError::NotConnected) => -ENOTCONN,
+        Err(_) => -EIO,
+    }
+}
+
+/// Close a socket handle (called by sys_close when fd is a Socket).
+fn socket_close_handle(socket_id: u64) {
+    let handle = network::socket::SocketHandle(socket_id as u32);
+    let _ = network::socket::close(handle);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SYS_SOCKET (41) — Phase 13-1
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Linux address families.
+const AF_INET: u64 = 2;
+
+/// Linux socket types.
+const SOCK_STREAM: u64 = 1;
+const SOCK_DGRAM: u64 = 2;
+
+/// `socket(domain, type, protocol)` → `fd`
+///
+/// Creates a new socket and returns a file descriptor for it.
+pub fn sys_socket(domain: u64, socktype: u64, _protocol: u64) -> i64 {
+    // Only AF_INET is supported
+    if domain != AF_INET {
+        return -EAFNOSUPPORT;
+    }
+
+    // Map Linux socket type to network crate type
+    let net_type = match socktype & 0xFF {
+        // Mask out SOCK_NONBLOCK (0x800) and SOCK_CLOEXEC (0x80000)
+        SOCK_STREAM => network::socket::SocketType::Stream,
+        SOCK_DGRAM => network::socket::SocketType::Datagram,
+        _ => return -EINVAL,
+    };
+
+    // Create the socket in the network stack
+    let handle = match network::socket::create(net_type) {
+        Ok(h) => h,
+        Err(_) => return -ENOMEM,
+    };
+
+    // Allocate an FD in the current process's FD table
+    let pid = match current_pid() {
+        Some(p) => p,
+        None => {
+            let _ = network::socket::close(handle);
+            return -ESRCH;
+        }
+    };
+
+    let mut proc = match PROCESS_TABLE.remove(pid) {
+        Some(p) => p,
+        None => {
+            let _ = network::socket::close(handle);
+            return -ESRCH;
+        }
+    };
+
+    if proc.next_fd >= FD_MAX {
+        PROCESS_TABLE.add(proc);
+        let _ = network::socket::close(handle);
+        return -EMFILE as i64;
+    }
+
+    let fd_num = proc.alloc_fd();
+    proc.add_fd(FileDescriptor {
+        fd: fd_num,
+        resource: FileResource::Socket {
+            socket_id: handle.0 as u64,
+        },
+        flags: 0,
+        offset: 0,
+    });
+
+    PROCESS_TABLE.add(proc);
+
+    crate::serial_println!("[Socket] created fd={} handle={}", fd_num, handle.0);
+    fd_num as i64
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Unified dispatch for ring3_syscall_entry
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -3158,6 +3276,8 @@ pub fn dispatch_common_syscall(nr: u64, a1: u64, a2: u64, a3: u64) -> Option<i64
         228 => sys_clock_gettime(a1 as i32, a2),
         // SYS_GETRANDOM (318)
         318 => sys_getrandom(a1, a2, a3 as u32),
+        // SYS_SOCKET (41) — Phase 13
+        41 => sys_socket(a1, a2, a3),
         _ => return None,
     })
 }

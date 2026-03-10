@@ -43,6 +43,9 @@ libm = "0.2"
 # Storage subsystem bridge (Phase 9-3)
 storage = { path = "../storage" }
 
+# Network stack (Phase 13: socket syscalls)
+network = { package = "kpio-network", path = "../network" }
+
 [dev-dependencies]
 
 [features]

@@ -31,12 +31,8 @@ smoltcp = { version = "0.11", default-features = false, features = [
     "socket-dns"
 ] }
 
-# Shared kernel types
-kpio-kernel = { path = "../kernel", optional = true }
-
 [features]
 default = []
-kernel = ["kpio-kernel"]
 std = []
 
 [dev-dependencies]
