@@ -348,6 +348,9 @@ pub struct Task {
     /// Thread ID within the thread group (matches Thread.tid in process table).
     /// For the main thread this equals the PID; for clone'd threads it's a unique TID.
     thread_tid: u64,
+    /// Per-thread signal mask (blocked signals). Each thread has its own mask;
+    /// signal actions (handlers) remain shared at the process level.
+    signal_mask: u64,
 }
 
 impl Task {
@@ -405,6 +408,7 @@ impl Task {
             process_pid: 0,
             clear_child_tid: 0,
             thread_tid: 0,
+            signal_mask: 0,
         }
     }
 
@@ -441,6 +445,7 @@ impl Task {
             process_pid: 0,
             clear_child_tid: 0,
             thread_tid: 0,
+            signal_mask: 0,
         }
     }
 
@@ -485,6 +490,7 @@ impl Task {
             process_pid: 0,
             clear_child_tid: 0,
             thread_tid: 0,
+            signal_mask: 0,
         }
     }
 
@@ -517,6 +523,7 @@ impl Task {
             process_pid: 0,
             clear_child_tid: 0,
             thread_tid: 0,
+            signal_mask: 0,
         }
     }
 
@@ -651,6 +658,16 @@ impl Task {
         self.clear_child_tid = addr;
     }
 
+    /// Get the per-thread signal mask (blocked signals bitmask).
+    pub fn signal_mask(&self) -> u64 {
+        self.signal_mask
+    }
+
+    /// Set the per-thread signal mask.
+    pub fn set_signal_mask(&mut self, mask: u64) {
+        self.signal_mask = mask;
+    }
+
     /// Create a new user-space process task.
     ///
     /// This task starts in kernel mode at a trampoline function.
@@ -729,6 +746,7 @@ impl Task {
             process_pid: pid,
             clear_child_tid: 0,
             thread_tid: pid, // Main thread: TID == PID
+            signal_mask: 0,
         }
     }
 }
@@ -840,6 +858,7 @@ impl Task {
             process_pid: pid,
             clear_child_tid: 0,
             thread_tid: pid, // Forked child main thread: TID == PID
+            signal_mask: 0,
         }
     }
 
@@ -925,6 +944,7 @@ impl Task {
             process_pid: pid,
             clear_child_tid: clear_child_tid_ptr,
             thread_tid: tid,
+            signal_mask: 0,
         }
     }
 }

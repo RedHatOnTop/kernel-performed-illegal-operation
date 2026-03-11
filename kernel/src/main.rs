@@ -1983,6 +1983,242 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         serial_println!("[IPC] Phase 13-4 epoll complete");
     }
 
+    // ── Phase 13-3: Kernel Threading — clone(CLONE_THREAD) test ─
+    // Exercises multi-thread creation via clone() syscall:
+    //   1. Parent process calls clone(CLONE_THREAD|CLONE_VM|...) twice
+    //   2. Each child thread atomically increments a shared counter 1000 times
+    //   3. Parent busy-waits until counter reaches 2000, then exits
+    //   4. Kernel verifies counter value and thread identity (TID vs PID)
+    {
+        serial_println!("[IPC] Phase 13-3: Kernel threading test");
+
+        // Machine code for the threading test program:
+        //
+        // Memory layout:
+        //   0x400000: code page
+        //   0x600000: data page (counter at offset 0, initialized to 0)
+        //   0x6FF000: child1 stack page (stack top 0x700000)
+        //   0x70F000: child2 stack page (stack top 0x710000)
+        //   0x7FF000: main thread stack page (stack top 0x800000)
+        //
+        // Algorithm:
+        //   _start:
+        //     clone(CLONE_THREAD|CLONE_VM|CLONE_SIGHAND|CLONE_FILES, stack1)
+        //     if child → goto child_work
+        //     clone(CLONE_THREAD|CLONE_VM|CLONE_SIGHAND|CLONE_FILES, stack2)
+        //     if child → goto child_work
+        //     wait_loop: busy-wait until counter >= 2000
+        //     exit(0)
+        //   child_work:
+        //     lock inc dword [counter] × 1000
+        //     exit(0)
+        #[rustfmt::skip]
+        const THREADING_PROGRAM: &[u8] = &[
+            // offset 0: Clone child 1
+            // mov rax, 56 (SYS_CLONE)
+            0x48, 0xC7, 0xC0, 0x38, 0x00, 0x00, 0x00,
+            // mov rdi, 0x10D00 (CLONE_THREAD|CLONE_VM|CLONE_SIGHAND|CLONE_FILES)
+            0x48, 0xC7, 0xC7, 0x00, 0x0D, 0x01, 0x00,
+            // mov rsi, 0x700000 (child1 stack top)
+            0x48, 0xC7, 0xC6, 0x00, 0x00, 0x70, 0x00,
+            // xor rdx, rdx (ptid = NULL)
+            0x48, 0x31, 0xD2,
+            // xor r10, r10 (ctid = NULL)
+            0x4D, 0x31, 0xD2,
+            // xor r8, r8 (tls = 0)
+            0x4D, 0x31, 0xC0,
+            // syscall
+            0x0F, 0x05,
+            // test rax, rax
+            0x48, 0x85, 0xC0,
+            // jz child_work (offset 112, rel32 = 71)
+            0x0F, 0x84, 0x47, 0x00, 0x00, 0x00,
+
+            // offset 41: Clone child 2
+            // mov rax, 56
+            0x48, 0xC7, 0xC0, 0x38, 0x00, 0x00, 0x00,
+            // mov rdi, 0x10D00
+            0x48, 0xC7, 0xC7, 0x00, 0x0D, 0x01, 0x00,
+            // mov rsi, 0x710000 (child2 stack top)
+            0x48, 0xC7, 0xC6, 0x00, 0x00, 0x71, 0x00,
+            // xor rdx, rdx
+            0x48, 0x31, 0xD2,
+            // xor r10, r10
+            0x4D, 0x31, 0xD2,
+            // xor r8, r8
+            0x4D, 0x31, 0xC0,
+            // syscall
+            0x0F, 0x05,
+            // test rax, rax
+            0x48, 0x85, 0xC0,
+            // jz child_work (offset 112, rel32 = 30)
+            0x0F, 0x84, 0x1E, 0x00, 0x00, 0x00,
+
+            // offset 82: wait_loop — parent busy-waits
+            // mov eax, dword [0x600000]
+            0x8B, 0x04, 0x25, 0x00, 0x00, 0x60, 0x00,
+            // cmp eax, 2000 (0x7D0)
+            0x3D, 0xD0, 0x07, 0x00, 0x00,
+            // jge done (+4)
+            0x7D, 0x04,
+            // pause
+            0xF3, 0x90,
+            // jmp wait_loop (-18 = 0xEE)
+            0xEB, 0xEE,
+
+            // offset 100: done — parent exits
+            // mov rax, 60 (SYS_EXIT)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00,
+            // xor rdi, rdi (status = 0)
+            0x48, 0x31, 0xFF,
+            // syscall
+            0x0F, 0x05,
+
+            // offset 112: child_work — each child increments counter 1000 times
+            // mov ecx, 1000 (0x3E8)
+            0xB9, 0xE8, 0x03, 0x00, 0x00,
+            // offset 117: .loop
+            // lock inc dword [0x600000]
+            0xF0, 0xFF, 0x04, 0x25, 0x00, 0x00, 0x60, 0x00,
+            // dec ecx
+            0xFF, 0xC9,
+            // jnz .loop (-12 = 0xF4)
+            0x75, 0xF4,
+            // mov rax, 60 (SYS_EXIT)
+            0x48, 0xC7, 0xC0, 0x3C, 0x00, 0x00, 0x00,
+            // xor rdi, rdi
+            0x48, 0x31, 0xFF,
+            // syscall
+            0x0F, 0x05,
+        ];
+
+        let thread_cr3 = match memory::user_page_table::create_user_page_table() {
+            Ok(cr3) => cr3,
+            Err(e) => {
+                serial_println!("[IPC] FAIL: threading page table: {}", e);
+                0
+            }
+        };
+
+        if thread_cr3 != 0 {
+            use x86_64::structures::paging::PageTableFlags;
+            let code_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+            let rw_flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
+
+            let code_vaddr: u64 = 0x40_0000;
+            let data_vaddr: u64 = 0x60_0000;   // shared counter
+            let stack1_vaddr: u64 = 0x6F_F000;  // child1 stack page
+            let stack2_vaddr: u64 = 0x70_F000;  // child2 stack page
+            let main_stack_vaddr: u64 = 0x7F_F000; // main stack page
+
+            let code_result  = memory::user_page_table::map_user_page(thread_cr3, code_vaddr, code_flags);
+            let data_result  = memory::user_page_table::map_user_page(thread_cr3, data_vaddr, rw_flags);
+            let stk1_result  = memory::user_page_table::map_user_page(thread_cr3, stack1_vaddr, rw_flags);
+            let stk2_result  = memory::user_page_table::map_user_page(thread_cr3, stack2_vaddr, rw_flags);
+            let mstk_result  = memory::user_page_table::map_user_page(thread_cr3, main_stack_vaddr, rw_flags);
+
+            if let (Ok(code_phys), Ok(data_phys), Ok(_), Ok(_), Ok(_)) =
+                (code_result, data_result, stk1_result, stk2_result, mstk_result)
+            {
+                // Write code to the code page
+                // SAFETY: code_phys is a valid allocated physical frame.
+                unsafe {
+                    memory::user_page_table::write_to_phys(code_phys, 0, THREADING_PROGRAM);
+                }
+                // Zero the data page (counter starts at 0)
+                // SAFETY: data_phys is a valid allocated physical frame.
+                unsafe {
+                    memory::user_page_table::write_to_phys(data_phys, 0, &[0u8; 4]);
+                }
+
+                // Create process entry
+                let proc_pid = crate::process::table::ProcessId::new();
+                let mut proc = crate::process::table::Process::new(
+                    alloc::string::String::from("thread-test"),
+                    crate::process::table::ProcessId::KERNEL,
+                    thread_cr3,
+                );
+                proc.pid = proc_pid;
+                proc.tgid = proc_pid;
+                proc.state = crate::process::table::ProcessState::Ready;
+                proc.linux_memory = Some(crate::process::table::LinuxMemoryInfo {
+                    cr3: thread_cr3,
+                    brk_start: 0x80_0000,
+                    brk_current: 0x80_0000,
+                    vma_list: alloc::vec::Vec::new(),
+                    mmap_next_addr: crate::process::table::MMAP_BASE,
+                });
+                let main_tid = crate::process::table::ThreadId::new();
+                proc.add_thread(crate::process::table::Thread {
+                    tid: main_tid,
+                    state: crate::process::table::ProcessState::Ready,
+                    context: crate::process::context::ProcessContext::default(),
+                    kernel_stack: 0,
+                    kernel_stack_size: 0,
+                    user_stack: 0x80_0000,
+                    user_stack_size: 4096,
+                    tls: 0,
+                    clear_child_tid: 0,
+                });
+                crate::process::table::PROCESS_TABLE.add(proc);
+
+                // TID vs PID: for the main thread, TID == PID
+                serial_println!(
+                    "[IPC] TID vs PID (leader: tid={} pid={}, equal={})",
+                    main_tid.0, proc_pid.0, main_tid.0 == proc_pid.0
+                );
+
+                // Create kernel stack for user process
+                let ks_size: usize = 32 * 1024;
+                let ks_vec = alloc::vec![0u8; ks_size];
+                let ks_top = ks_vec.as_ptr() as u64 + ks_size as u64;
+
+                let task = scheduler::Task::new_user_process(
+                    "thread-test",
+                    thread_cr3,
+                    code_vaddr,
+                    0x80_0000, // main stack top
+                    crate::gdt::USER_CS as u16,
+                    crate::gdt::USER_DS as u16,
+                    ks_top,
+                    ks_vec,
+                    proc_pid.0,
+                );
+                scheduler::spawn(task);
+
+                serial_println!("[IPC] thread-test spawned (pid={})", proc_pid.0);
+
+                // Wait for threads to execute and complete
+                for _ in 0..600 {
+                    x86_64::instructions::hlt();
+                }
+
+                // Read the counter value from the data page (physical memory)
+                let phys_offset = memory::user_page_table::get_phys_offset();
+                let counter_ptr = (phys_offset + data_phys) as *const u32;
+                // SAFETY: data_phys is a valid physical frame mapped in the direct map.
+                let counter_value = unsafe { core::ptr::read_volatile(counter_ptr) };
+
+                serial_println!(
+                    "[IPC] Thread shared memory counter={}",
+                    counter_value
+                );
+
+                if counter_value == 2000 {
+                    serial_println!("[E2E] Threading test PASSED");
+                } else {
+                    serial_println!("[E2E] Threading test FAILED (expected 2000, got {})", counter_value);
+                }
+            } else {
+                serial_println!("[IPC] FAIL: Could not map threading test pages");
+            }
+        }
+
+        serial_println!("[IPC] Phase 13-3 threading complete");
+    }
+
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──
     // Validates the Copy-on-Write fork mechanism end-to-end:
     //   1. Create a parent user page table with code + data + stack pages

@@ -2611,6 +2611,8 @@ pub fn sys_rt_sigaction(signum: u32, act_ptr: u64, oldact_ptr: u64, sigsetsize: 
 /// `rt_sigprocmask(how, set, oldset, sigsetsize)` → 0 or -errno
 ///
 /// Gets and/or changes the signal mask of the calling thread.
+/// Per POSIX, each thread has its own signal mask. Signal actions
+/// (handlers) remain shared at the process level.
 pub fn sys_rt_sigprocmask(how: i32, set_ptr: u64, oldset_ptr: u64, sigsetsize: usize) -> i64 {
     use crate::process::signal;
 
@@ -2618,46 +2620,52 @@ pub fn sys_rt_sigprocmask(how: i32, set_ptr: u64, oldset_ptr: u64, sigsetsize: u
         return -EINVAL;
     }
 
-    let pid = match current_pid() {
-        Some(p) => p,
-        None => return 0, // Kernel context
-    };
+    // Read old mask from the per-thread signal mask (Task.signal_mask)
+    let old_mask = crate::scheduler::get_current_signal_mask();
 
-    PROCESS_TABLE
-        .with_process_mut(pid, |proc| {
-            // Write old mask if requested
-            if oldset_ptr != 0 {
-                if super::linux::validate_user_ptr(oldset_ptr, 8).is_err() {
-                    return -EFAULT;
-                }
-                let old_mask = proc.signals.blocked;
-                if super::linux::copy_to_user(oldset_ptr, &old_mask.to_le_bytes()).is_err() {
-                    return -EFAULT;
-                }
-            }
+    // Write old mask to user space if requested
+    if oldset_ptr != 0 {
+        if super::linux::validate_user_ptr(oldset_ptr, 8).is_err() {
+            return -EFAULT;
+        }
+        if super::linux::copy_to_user(oldset_ptr, &old_mask.to_le_bytes()).is_err() {
+            return -EFAULT;
+        }
+    }
 
-            // Apply new mask if set_ptr is provided
-            if set_ptr != 0 {
-                if super::linux::validate_user_ptr(set_ptr, 8).is_err() {
-                    return -EFAULT;
-                }
-                let mut buf = [0u8; 8];
-                if super::linux::copy_from_user(&mut buf, set_ptr).is_err() {
-                    return -EFAULT;
-                }
-                let mask = u64::from_le_bytes(buf);
+    // Apply new mask if set_ptr is provided
+    if set_ptr != 0 {
+        if super::linux::validate_user_ptr(set_ptr, 8).is_err() {
+            return -EFAULT;
+        }
+        let mut buf = [0u8; 8];
+        if super::linux::copy_from_user(&mut buf, set_ptr).is_err() {
+            return -EFAULT;
+        }
+        let mask = u64::from_le_bytes(buf);
 
-                match how {
-                    signal::SIG_BLOCK => proc.signals.sigprocmask(signal::SIG_BLOCK, mask),
-                    signal::SIG_UNBLOCK => proc.signals.sigprocmask(signal::SIG_UNBLOCK, mask),
-                    signal::SIG_SETMASK => proc.signals.sigprocmask(signal::SIG_SETMASK, mask),
-                    _ => return -EINVAL,
-                }
-            }
+        // SIGKILL and SIGSTOP cannot be blocked
+        let protected = (1u64 << signal::SIGKILL) | (1u64 << signal::SIGSTOP);
 
-            0
-        })
-        .unwrap_or(0)
+        let new_mask = match how {
+            signal::SIG_BLOCK => (old_mask | mask) & !protected,
+            signal::SIG_UNBLOCK => (old_mask & !mask) & !protected,
+            signal::SIG_SETMASK => mask & !protected,
+            _ => return -EINVAL,
+        };
+
+        // Update per-thread signal mask
+        crate::scheduler::set_current_signal_mask(new_mask);
+
+        // Also keep process-level blocked mask in sync (for signal delivery)
+        if let Some(pid) = current_pid() {
+            PROCESS_TABLE.with_process_mut(pid, |proc| {
+                proc.signals.blocked = new_mask;
+            });
+        }
+    }
+
+    0
 }
 
 /// Resolve a user-supplied path, making it absolute by prepending cwd if relative.

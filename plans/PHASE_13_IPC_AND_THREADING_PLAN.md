@@ -2,7 +2,7 @@
 
 **Document Version:** 1.3.0
 **Created:** 2026-03-10
-**Status:** In Progress (13-1 ✅, 13-2 ✅, 13-3 ⬜, 13-4 ✅, 13-5 ⬜)
+**Status:** In Progress (13-1 ✅, 13-2 ✅, 13-3 ✅, 13-4 ✅, 13-5 ⬜)
 **Depends On:** Phase 12 (User-Space & Writable FS) ✅
 
 ---
@@ -155,7 +155,9 @@ network and process infrastructure from Phases 9-12.
 
 ---
 
-### Sub-Phase 13-3: Kernel Threading (clone with CLONE_THREAD)
+### Sub-Phase 13-3: Kernel Threading (clone with CLONE_THREAD) ✅
+
+- **Status**: COMPLETED — All tasks implemented and quality gate verified.
 
 - **Goal**: Implement `clone()` with thread semantics so that multiple
   threads share the same address space, file descriptor table, and signal

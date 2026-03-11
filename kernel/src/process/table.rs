@@ -132,8 +132,12 @@ pub struct ThreadId(pub u64);
 
 impl ThreadId {
     /// Generate a new unique thread ID
+    ///
+    /// Starts at 10000 to avoid collisions with ProcessId values,
+    /// since the leader thread's TID is set to its ProcessId and
+    /// the `is_thread_leader` check compares TID == TGID.
     pub fn new() -> Self {
-        static NEXT_TID: AtomicU64 = AtomicU64::new(1);
+        static NEXT_TID: AtomicU64 = AtomicU64::new(10000);
         ThreadId(NEXT_TID.fetch_add(1, Ordering::SeqCst))
     }
 }

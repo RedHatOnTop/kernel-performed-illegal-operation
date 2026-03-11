@@ -275,8 +275,6 @@ extern "x86-interrupt" fn page_fault_handler(
     let faulting_address = Cr2::read();
 
     // Extract the raw virtual address.
-    // Cr2::read() returns Result<VirtAddr, VirtAddrNotValid> in x86_64 0.15.
-    // On non-canonical addresses, unwrap the raw value from the error.
     let fault_addr_u64 = match &faulting_address {
         Ok(va) => va.as_u64(),
         Err(e) => e.0,
@@ -284,6 +282,13 @@ extern "x86-interrupt" fn page_fault_handler(
 
     // Check if the fault originated in user mode (Ring 3).
     let from_usermode = error_code.contains(PageFaultErrorCode::USER_MODE);
+
+    // Fix GS state when entering from Ring 3 so per-CPU data is
+    // accessible and GS_BASE stays consistent across context switches.
+    if from_usermode {
+        // SAFETY: swapgs is always safe in Ring 0.
+        unsafe { core::arch::asm!("swapgs", options(nomem, nostack)); }
+    }
 
     if from_usermode {
         // Check for Copy-on-Write fault:
@@ -306,7 +311,9 @@ extern "x86-interrupt" fn page_fault_handler(
                 if flags.contains(crate::memory::user_page_table::COW_BIT) {
                     // Handle the CoW fault — allocate private copy.
                     if crate::memory::user_page_table::handle_cow_fault(cr3, fault_addr) {
-                        // CoW handled successfully — resume execution.
+                        // CoW handled successfully — restore GS and resume.
+                        // SAFETY: Reverses the entry swapgs for Ring 3 return.
+                        unsafe { core::arch::asm!("swapgs", options(nomem, nostack)); }
                         return;
                     }
                     // CoW handler failed (OOM) — fall through to kill.
@@ -353,7 +360,19 @@ extern "x86-interrupt" fn page_fault_handler(
 
 // Hardware Interrupt Handlers
 
-extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
+extern "x86-interrupt" fn timer_interrupt_handler(stack_frame: InterruptStackFrame) {
+    // Check if we came from Ring 3 (CPL != 0) and fix GS state.
+    // On Ring 3 → Ring 0 interrupt transitions, GS_BASE may still hold
+    // user-mode values.  swapgs fixes this so per-CPU data is accessible
+    // and, more critically, so the GS state stays consistent after
+    // context switches (clone_thread_trampoline / ring3_syscall_entry).
+    let from_ring3 = (stack_frame.code_segment.0 & 3) != 0;
+    if from_ring3 {
+        // SAFETY: swapgs is always safe in Ring 0; it swaps GS_BASE
+        // and KERNEL_GS_BASE so per-CPU data is reachable via GS.
+        unsafe { core::arch::asm!("swapgs", options(nomem, nostack)); }
+    }
+
     // Increment tick counter
     let ticks = TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
 
@@ -374,6 +393,13 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
 
     // Drive the scheduler
     crate::scheduler::timer_tick();
+
+    // Restore GS state before returning to Ring 3.
+    if from_ring3 {
+        // SAFETY: Reverses the swapgs done at entry so iretq returns
+        // to user mode with the original GS_BASE / KERNEL_GS_BASE values.
+        unsafe { core::arch::asm!("swapgs", options(nomem, nostack)); }
+    }
 }
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {

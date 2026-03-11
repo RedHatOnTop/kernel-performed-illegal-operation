@@ -261,8 +261,8 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64
         12 => 0x0060_0000,
         // SYS_SCHED_YIELD (24)
         24 => { super::yield_now(); 0 }
-        // SYS_GETPID (39)
-        39 => 1,
+        // SYS_GETPID (39) → returns tgid (POSIX semantics)
+        39 => dispatch_sys_getpid(),
         // SYS_SOCKET (41) — Phase 13-1
         41 => dispatch_sys_socket(a1, a2, a3),
         // SYS_CONNECT (42)
@@ -287,18 +287,28 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64
         54 => dispatch_sys_setsockopt(a1 as i32, a2 as u32, a3 as u32, a4, a5 as u32),
         // SYS_GETSOCKOPT (55)
         55 => dispatch_sys_getsockopt(a1 as i32, a2 as u32, a3 as u32, a4, a5),
+        // SYS_CLONE (56): flags=a1, child_stack=a2, ptid=a3, ctid=a4, tls=a5
+        56 => dispatch_sys_clone(a1, a2, a3, a4, a5),
         // SYS_FORK (57)
         57 => handle_fork(),
         // SYS_EXECVE (59): pathname=a1, argv=a2, envp=a3
         59 => handle_execve(a1),
-        // SYS_EXIT (60) / SYS_EXIT_GROUP (231)
-        60 | 231 => {
-            crate::serial_println!("[RING3] SYS_EXIT called with status={}", a1 as i64);
+        // SYS_EXIT (60): thread-aware exit
+        60 => dispatch_sys_exit(a1 as i32),
+        // SYS_EXIT_GROUP (231): kills entire thread group
+        231 => {
+            crate::serial_println!("[RING3] SYS_EXIT_GROUP called with status={}", a1 as i64);
             super::exit_current(a1 as i32);
             0
         }
         // SYS_ARCH_PRCTL (158): stub
         158 => 0,
+        // SYS_GETTID (186)
+        186 => dispatch_sys_gettid(),
+        // SYS_FUTEX (202): addr=a1, op=a2, val=a3
+        202 => dispatch_sys_futex(a1, a2 as i32, a3 as u32),
+        // SYS_SET_TID_ADDRESS (218)
+        218 => dispatch_sys_set_tid_address(a1),
         // SYS_ACCEPT4 (288)
         288 => dispatch_sys_accept(a1 as i32, a2, a3),
         // SYS_EPOLL_WAIT (232)
@@ -317,6 +327,157 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64
             -38 // -ENOSYS
         }
     }
+}
+
+// ─── Threading syscall dispatch wrappers ─────────────────────────────
+// These avoid `crate::syscall::` paths which don't exist in the binary crate.
+
+fn dispatch_sys_getpid() -> i64 {
+    let pid = super::current_process_pid();
+    if pid == 0 { 1 } else { pid as i64 }
+}
+
+fn dispatch_sys_gettid() -> i64 {
+    super::current_thread_tid() as i64
+}
+
+fn dispatch_sys_set_tid_address(tidptr: u64) -> i64 {
+    super::set_current_clear_child_tid(tidptr);
+    dispatch_sys_gettid()
+}
+
+fn dispatch_sys_futex(addr: u64, op: i32, val: u32) -> i64 {
+    crate::sync::futex::sys_futex(addr, op, val)
+}
+
+fn dispatch_sys_exit(status: i32) -> i64 {
+    use crate::process::table::PROCESS_TABLE;
+
+    let current_tid = super::current_thread_tid();
+    let process_pid = super::current_process_pid();
+    if process_pid != 0 {
+        let pid = crate::process::ProcessId(process_pid);
+        let is_thread_leader = PROCESS_TABLE.with_process_mut(pid, |proc| {
+            proc.tgid.0 == current_tid
+        }).unwrap_or(true);
+
+        if !is_thread_leader {
+            crate::serial_println!("[IPC] Thread exit tid={} status={}", current_tid, status);
+
+            // Handle clear_child_tid: write 0 and futex_wake
+            let ctid_addr = super::get_current_clear_child_tid();
+            if ctid_addr != 0 {
+                // SAFETY: ctid_addr was set by clone(CLONE_CHILD_CLEARTID),
+                // pointing to a valid user-space address in the shared address space.
+                unsafe { core::ptr::write_volatile(ctid_addr as *mut u32, 0); }
+                crate::sync::futex::sys_futex(ctid_addr, 1, 1); // FUTEX_WAKE
+            }
+
+            // Remove thread from process table
+            PROCESS_TABLE.with_process_mut(pid, |proc| {
+                proc.threads.retain(|t| t.tid.0 != current_tid);
+            });
+
+            super::exit_current(status);
+            return 0; // unreachable
+        }
+    }
+
+    crate::serial_println!("[RING3] SYS_EXIT called with status={}", status);
+    super::exit_current(status);
+    0
+}
+
+fn dispatch_sys_clone(flags: u64, child_stack: u64, ptid_ptr: u64, ctid_ptr: u64, tls: u64) -> i64 {
+    use crate::process::table::{PROCESS_TABLE, ThreadId, Thread, ProcessState};
+    use crate::process::context::ProcessContext;
+    use core::sync::atomic::Ordering;
+
+    const CLONE_THREAD: u64 = 0x10000;
+    const CLONE_SETTLS: u64 = 0x80000;
+    const CLONE_PARENT_SETTID: u64 = 0x100000;
+    const CLONE_CHILD_CLEARTID: u64 = 0x200000;
+
+    if flags & CLONE_THREAD == 0 {
+        return handle_fork();
+    }
+
+    let process_pid = super::current_process_pid();
+    if process_pid == 0 {
+        return -38; // -ENOSYS
+    }
+    let pid = crate::process::ProcessId(process_pid);
+
+    let parent_info = PROCESS_TABLE.with_process_mut(pid, |proc| {
+        let cr3 = proc.linux_memory.as_ref().map(|m| m.cr3).unwrap_or(proc.page_table_root);
+        let tgid = proc.tgid;
+        (cr3, tgid)
+    });
+
+    let (parent_cr3, tgid) = match parent_info {
+        Some(info) => info,
+        None => return -3, // -ESRCH
+    };
+
+    if parent_cr3 == 0 {
+        return -38; // -ENOSYS
+    }
+
+    let child_tid = ThreadId::new();
+
+    let user_rip = SYSCALL_SAVED_USER_RIP.load(Ordering::SeqCst);
+    let user_rflags = SYSCALL_SAVED_USER_RFLAGS.load(Ordering::SeqCst);
+    let child_rsp = if child_stack != 0 {
+        child_stack
+    } else {
+        SYSCALL_SAVED_USER_RSP.load(Ordering::SeqCst)
+    };
+
+    if user_rip == 0 || child_rsp == 0 {
+        return -22; // -EINVAL
+    }
+
+    let tls_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
+    let clear_child_tid_ptr = if flags & CLONE_CHILD_CLEARTID != 0 { ctid_ptr } else { 0 };
+
+    let thread = Thread {
+        tid: child_tid,
+        state: ProcessState::Ready,
+        context: ProcessContext::default(),
+        kernel_stack: 0,
+        kernel_stack_size: 0,
+        user_stack: child_rsp,
+        user_stack_size: 0,
+        tls: tls_base,
+        clear_child_tid: clear_child_tid_ptr,
+    };
+    PROCESS_TABLE.with_process_mut(pid, |proc| {
+        proc.threads.push(thread);
+    });
+
+    if flags & CLONE_PARENT_SETTID != 0 && ptid_ptr != 0 && ptid_ptr < 0x0000_8000_0000_0000 {
+        // SAFETY: ptid_ptr validated as user-space address above.
+        unsafe { core::ptr::write(ptid_ptr as *mut u32, child_tid.0 as u32); }
+    }
+
+    let thread_name = alloc::format!("thread-{}", child_tid.0);
+    let child_task = super::task::Task::new_thread(
+        &thread_name,
+        parent_cr3,
+        user_rip,
+        child_rsp,
+        user_rflags,
+        tls_base,
+        pid.0,
+        child_tid.0,
+        clear_child_tid_ptr,
+    );
+
+    super::spawn(child_task);
+
+    crate::serial_println!("[IPC] Clone thread tid={} tgid={}", child_tid.0, tgid.0);
+
+    child_tid.0 as i64
 }
 
 // ─── Inline syscall implementations using crate-local modules ────────

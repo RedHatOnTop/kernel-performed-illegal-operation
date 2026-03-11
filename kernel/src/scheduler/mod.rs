@@ -239,6 +239,20 @@ pub fn current_thread_tid() -> u64 {
     0
 }
 
+/// Get the process PID of the current task (for getpid()).
+pub fn current_process_pid() -> u64 {
+    let task_id = current_task_id();
+    if let Some(ref sched) = *SCHEDULER.lock() {
+        for task_arc in &sched.all_tasks {
+            let t = task_arc.lock();
+            if t.id() == task_id {
+                return t.process_pid();
+            }
+        }
+    }
+    0
+}
+
 /// Set the clear_child_tid pointer on the current task.
 pub fn set_current_clear_child_tid(addr: u64) {
     let task_id = current_task_id();
@@ -265,6 +279,34 @@ pub fn get_current_clear_child_tid() -> u64 {
         }
     }
     0
+}
+
+/// Get the per-thread signal mask of the current task.
+pub fn get_current_signal_mask() -> u64 {
+    let task_id = current_task_id();
+    if let Some(ref sched) = *SCHEDULER.lock() {
+        for task_arc in &sched.all_tasks {
+            let t = task_arc.lock();
+            if t.id() == task_id {
+                return t.signal_mask();
+            }
+        }
+    }
+    0
+}
+
+/// Set the per-thread signal mask on the current task.
+pub fn set_current_signal_mask(mask: u64) {
+    let task_id = current_task_id();
+    if let Some(ref sched) = *SCHEDULER.lock() {
+        for task_arc in &sched.all_tasks {
+            let mut t = task_arc.lock();
+            if t.id() == task_id {
+                t.set_signal_mask(mask);
+                return;
+            }
+        }
+    }
 }
 
 /// Yield the current task.
