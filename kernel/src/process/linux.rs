@@ -213,6 +213,7 @@ pub fn launch_linux_process(
         user_stack: initial_sp,
         user_stack_size: layout::USER_STACK_SIZE as usize,
         tls: 0,
+        clear_child_tid: 0,
     };
 
     process.add_thread(main_thread);

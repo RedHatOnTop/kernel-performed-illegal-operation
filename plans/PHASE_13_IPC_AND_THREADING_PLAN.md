@@ -1,8 +1,8 @@
 # Phase 13: IPC, Socket Syscalls & Kernel Threading
 
-**Document Version:** 1.1.0
+**Document Version:** 1.3.0
 **Created:** 2026-03-10
-**Status:** In Progress (13-1 ✅, 13-2 ✅)
+**Status:** In Progress (13-1 ✅, 13-2 ✅, 13-3 ⬜, 13-4 ✅, 13-5 ⬜)
 **Depends On:** Phase 12 (User-Space & Writable FS) ✅
 
 ---

@@ -225,6 +225,48 @@ pub fn current_task_id() -> TaskId {
     TaskId(CURRENT_TASK_ID.load(Ordering::Relaxed))
 }
 
+/// Get the thread TID of the current task (for gettid()).
+pub fn current_thread_tid() -> u64 {
+    let task_id = current_task_id();
+    if let Some(ref sched) = *SCHEDULER.lock() {
+        for task_arc in &sched.all_tasks {
+            let t = task_arc.lock();
+            if t.id() == task_id {
+                return t.thread_tid();
+            }
+        }
+    }
+    0
+}
+
+/// Set the clear_child_tid pointer on the current task.
+pub fn set_current_clear_child_tid(addr: u64) {
+    let task_id = current_task_id();
+    if let Some(ref sched) = *SCHEDULER.lock() {
+        for task_arc in &sched.all_tasks {
+            let mut t = task_arc.lock();
+            if t.id() == task_id {
+                t.set_clear_child_tid(addr);
+                return;
+            }
+        }
+    }
+}
+
+/// Get the clear_child_tid pointer of the current task.
+pub fn get_current_clear_child_tid() -> u64 {
+    let task_id = current_task_id();
+    if let Some(ref sched) = *SCHEDULER.lock() {
+        for task_arc in &sched.all_tasks {
+            let t = task_arc.lock();
+            if t.id() == task_id {
+                return t.clear_child_tid();
+            }
+        }
+    }
+    0
+}
+
 /// Yield the current task.
 pub fn yield_now() {
     schedule();

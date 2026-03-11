@@ -1,5 +1,6 @@
 //! Synchronization primitives.
 //!
-//! Currently provides futex (fast userspace mutex) support.
+//! Provides futex (fast userspace mutex) and epoll (event multiplexing) support.
 
+pub mod epoll;
 pub mod futex;

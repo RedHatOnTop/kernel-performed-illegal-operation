@@ -848,8 +848,33 @@ pub fn sys_ioctl(fd: i32, request: u64, arg: u64) -> i64 {
 // Process syscalls
 // ═══════════════════════════════════════════════════════════════════════
 
-/// `exit(status)` — terminate current process
+/// `exit(status)` — terminate current thread/process
 pub fn sys_exit(status: i32) -> i64 {
+    // Check if this is a non-leader thread exiting
+    let current_tid = crate::scheduler::current_thread_tid();
+    if let Some(pid) = current_pid() {
+        let is_thread_leader = PROCESS_TABLE.with_process_mut(pid, |proc| {
+            proc.tgid.0 == current_tid
+        }).unwrap_or(true);
+
+        if !is_thread_leader {
+            // Non-leader thread exit: clean up thread, do NOT kill the process
+            crate::serial_println!("[IPC] Thread exit tid={} status={}", current_tid, status);
+
+            // Handle clear_child_tid: write 0 and futex_wake
+            handle_thread_exit_futex();
+
+            // Remove thread from process table
+            PROCESS_TABLE.with_process_mut(pid, |proc| {
+                proc.threads.retain(|t| t.tid.0 != current_tid);
+            });
+
+            // Terminate this scheduler task (thread task only)
+            crate::scheduler::exit_current(status);
+            return 0; // unreachable
+        }
+    }
+
     crate::serial_println!("[KPIO/Linux] Process exit with status {}", status);
 
     // Mark process as exited in the process table
@@ -864,6 +889,9 @@ pub fn sys_exit(status: i32) -> i64 {
         });
     }
 
+    // Handle clear_child_tid for the leader thread as well
+    handle_thread_exit_futex();
+
     // Write exit code to debug port for QEMU test harness
     use x86_64::instructions::port::Port;
     let exit_code: u32 = if status == 0 { 0x10 } else { 0x11 }; // success=33, fail=35
@@ -877,10 +905,28 @@ pub fn sys_exit(status: i32) -> i64 {
     0 // unreachable
 }
 
-/// `getpid()` → pid
+/// Handle clear_child_tid on thread exit: write 0 and futex_wake(addr, 1).
+fn handle_thread_exit_futex() {
+    let ctid_addr = crate::scheduler::get_current_clear_child_tid();
+    if ctid_addr != 0 {
+        // SAFETY: ctid_addr was set by clone(CLONE_CHILD_CLEARTID) or set_tid_address(),
+        // pointing to a valid user-space address in the shared address space.
+        unsafe {
+            core::ptr::write_volatile(ctid_addr as *mut u32, 0);
+        }
+        // Wake one waiter blocked on this address (pthread_join)
+        crate::sync::futex::sys_futex(ctid_addr, 1, 1); // FUTEX_WAKE, 1 waiter
+    }
+}
+
+/// `getpid()` → thread group id (POSIX: getpid returns tgid)
 pub fn sys_getpid() -> i64 {
     match current_pid() {
-        Some(pid) => pid.0 as i64,
+        Some(pid) => {
+            PROCESS_TABLE
+                .with_process_mut(pid, |proc| proc.tgid.0 as i64)
+                .unwrap_or(1)
+        }
         None => 1, // Kernel context → pretend PID 1
     }
 }
@@ -897,9 +943,15 @@ pub fn sys_getppid() -> i64 {
     }
 }
 
-/// `gettid()` → thread id (returns PID for now — single-threaded processes)
+/// `gettid()` → current thread's TID
 pub fn sys_gettid() -> i64 {
-    sys_getpid()
+    let tid = crate::scheduler::current_thread_tid();
+    if tid != 0 {
+        tid as i64
+    } else {
+        // Fallback: if thread_tid is not set, use process PID
+        sys_getpid()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1048,6 +1100,130 @@ pub fn sys_fork() -> i64 {
     );
 
     child_pid.0 as i64
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 13-3: clone with CLONE_THREAD
+// ═══════════════════════════════════════════════════════════════════════
+
+// Clone flags (Linux ABI)
+const CLONE_VM: u64 = 0x0000_0100;
+const CLONE_FILES: u64 = 0x0000_0400;
+const CLONE_SIGHAND: u64 = 0x0000_0800;
+const CLONE_THREAD: u64 = 0x0001_0000;
+const CLONE_SETTLS: u64 = 0x0008_0000;
+const CLONE_PARENT_SETTID: u64 = 0x0010_0000;
+const CLONE_CHILD_CLEARTID: u64 = 0x0020_0000;
+
+/// `clone(flags, child_stack, ptid, ctid, tls)` → tid (parent) or 0 (child)
+///
+/// If CLONE_THREAD is set: creates a new thread in the same thread group.
+/// Otherwise: falls back to fork behavior.
+pub fn sys_clone(flags: u64, child_stack: u64, ptid_ptr: u64, ctid_ptr: u64, tls: u64) -> i64 {
+    if flags & CLONE_THREAD == 0 {
+        // No CLONE_THREAD — behave like fork
+        return sys_fork();
+    }
+
+    // CLONE_THREAD path: create a new thread sharing the parent's address space.
+
+    let parent_pid = match current_pid() {
+        Some(pid) => pid,
+        None => return -(super::linux::ENOSYS),
+    };
+
+    // Read parent info
+    let parent_info = PROCESS_TABLE.with_process_mut(parent_pid, |proc| {
+        let cr3 = proc.linux_memory.as_ref().map(|m| m.cr3).unwrap_or(proc.page_table_root);
+        let tgid = proc.tgid;
+        (cr3, tgid)
+    });
+
+    let (parent_cr3, tgid) = match parent_info {
+        Some(info) => info,
+        None => return -(super::linux::ESRCH),
+    };
+
+    if parent_cr3 == 0 {
+        crate::serial_println!("[IPC] Cannot clone thread in kernel process");
+        return -(super::linux::ENOSYS);
+    }
+
+    // Generate a unique thread ID
+    let child_tid = crate::process::table::ThreadId::new();
+
+    // Read saved user-mode state from the statics populated by syscall entry
+    let user_rip = crate::scheduler::userspace::SYSCALL_SAVED_USER_RIP
+        .load(Ordering::SeqCst);
+    let user_rflags = crate::scheduler::userspace::SYSCALL_SAVED_USER_RFLAGS
+        .load(Ordering::SeqCst);
+
+    // Use child_stack if provided, otherwise fall back to parent's RSP
+    let child_rsp = if child_stack != 0 {
+        child_stack
+    } else {
+        crate::scheduler::userspace::SYSCALL_SAVED_USER_RSP
+            .load(Ordering::SeqCst)
+    };
+
+    if user_rip == 0 || child_rsp == 0 {
+        crate::serial_println!("[IPC] clone: no saved user frame");
+        return -(super::linux::EINVAL as i64);
+    }
+
+    // TLS base for FS_BASE (only if CLONE_SETTLS)
+    let tls_base = if flags & CLONE_SETTLS != 0 { tls } else { 0 };
+
+    // clear_child_tid pointer (CLONE_CHILD_CLEARTID)
+    let clear_child_tid_ptr = if flags & CLONE_CHILD_CLEARTID != 0 { ctid_ptr } else { 0 };
+
+    // Add thread to the process table
+    let thread = crate::process::table::Thread {
+        tid: child_tid,
+        state: crate::process::table::ProcessState::Ready,
+        context: crate::process::context::ProcessContext::default(),
+        kernel_stack: 0,
+        kernel_stack_size: 0,
+        user_stack: child_rsp,
+        user_stack_size: 0,
+        tls: tls_base,
+        clear_child_tid: clear_child_tid_ptr,
+    };
+    PROCESS_TABLE.with_process_mut(parent_pid, |proc| {
+        proc.threads.push(thread);
+    });
+
+    // Write child TID to parent's ptid_ptr if CLONE_PARENT_SETTID
+    if flags & CLONE_PARENT_SETTID != 0 && ptid_ptr != 0 {
+        if validate_user_ptr(ptid_ptr, 4).is_ok() {
+            // SAFETY: ptid_ptr validated above as a writable user-space address.
+            unsafe { core::ptr::write(ptid_ptr as *mut u32, child_tid.0 as u32) };
+        }
+    }
+
+    // Create the scheduler task for the new thread
+    let thread_name = alloc::format!("thread-{}", child_tid.0);
+    let child_task = crate::scheduler::task::Task::new_thread(
+        &thread_name,
+        parent_cr3,
+        user_rip,
+        child_rsp,
+        user_rflags,
+        tls_base,
+        parent_pid.0, // process_pid = parent's PID (shared thread group)
+        child_tid.0,   // thread_tid = unique TID
+        clear_child_tid_ptr,
+    );
+
+    crate::scheduler::spawn(child_task);
+
+    crate::serial_println!(
+        "[IPC] Clone thread tid={} tgid={}",
+        child_tid.0,
+        tgid.0,
+    );
+
+    child_tid.0 as i64
 }
 
 /// `execve(path, argv, envp)` → 0 or -errno
@@ -1785,9 +1961,13 @@ pub fn sys_arch_prctl(code: i32, addr: u64) -> i64 {
 }
 
 /// `set_tid_address(tidptr)` → `tid`
-pub fn sys_set_tid_address(_tidptr: u64) -> i64 {
-    // Return current TID (simplified: same as PID)
-    sys_getpid()
+///
+/// Stores tidptr as clear_child_tid. On thread exit, the kernel
+/// writes 0 to *tidptr and performs futex_wake(tidptr, 1).
+pub fn sys_set_tid_address(tidptr: u64) -> i64 {
+    crate::scheduler::set_current_clear_child_tid(tidptr);
+    // Return current thread's TID
+    sys_gettid()
 }
 
 /// `clock_gettime(clockid, tp)` → `0` or `-errno`

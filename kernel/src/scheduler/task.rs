@@ -342,6 +342,12 @@ pub struct Task {
     kernel_stack_top_addr: u64,
     /// Associated process ID (for user-space tasks).
     process_pid: u64,
+    /// clear_child_tid pointer: on thread exit, write 0 here and
+    /// futex_wake(addr, 1). Used by pthread_join / CLONE_CHILD_CLEARTID.
+    clear_child_tid: u64,
+    /// Thread ID within the thread group (matches Thread.tid in process table).
+    /// For the main thread this equals the PID; for clone'd threads it's a unique TID.
+    thread_tid: u64,
 }
 
 impl Task {
@@ -397,6 +403,8 @@ impl Task {
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
+            clear_child_tid: 0,
+            thread_tid: 0,
         }
     }
 
@@ -431,6 +439,8 @@ impl Task {
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
+            clear_child_tid: 0,
+            thread_tid: 0,
         }
     }
 
@@ -473,6 +483,8 @@ impl Task {
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
+            clear_child_tid: 0,
+            thread_tid: 0,
         }
     }
 
@@ -503,6 +515,8 @@ impl Task {
             cr3: 0,
             kernel_stack_top_addr: stack_top,
             process_pid: 0,
+            clear_child_tid: 0,
+            thread_tid: 0,
         }
     }
 
@@ -622,6 +636,21 @@ impl Task {
         self.process_pid
     }
 
+    /// Get the thread TID for this task.
+    pub fn thread_tid(&self) -> u64 {
+        self.thread_tid
+    }
+
+    /// Get the clear_child_tid pointer.
+    pub fn clear_child_tid(&self) -> u64 {
+        self.clear_child_tid
+    }
+
+    /// Set the clear_child_tid pointer (CLONE_CHILD_CLEARTID / set_tid_address).
+    pub fn set_clear_child_tid(&mut self, addr: u64) {
+        self.clear_child_tid = addr;
+    }
+
     /// Create a new user-space process task.
     ///
     /// This task starts in kernel mode at a trampoline function.
@@ -698,6 +727,8 @@ impl Task {
             cr3,
             kernel_stack_top_addr: kernel_stack_top,
             process_pid: pid,
+            clear_child_tid: 0,
+            thread_tid: pid, // Main thread: TID == PID
         }
     }
 }
@@ -807,6 +838,93 @@ impl Task {
             cr3,
             kernel_stack_top_addr: kernel_stack_top,
             process_pid: pid,
+            clear_child_tid: 0,
+            thread_tid: pid, // Forked child main thread: TID == PID
+        }
+    }
+
+    /// Create a new task for a clone(CLONE_THREAD) thread.
+    ///
+    /// Unlike `new_forked_process()`, this task shares the parent's CR3
+    /// (address space), file descriptors, and signal handlers. It resumes
+    /// at the instruction after the parent's `syscall` with RAX = 0.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Task name
+    /// * `cr3` - Parent's CR3 (shared address space)
+    /// * `user_rip` - User-mode RIP (instruction after parent's syscall)
+    /// * `user_rsp` - Child user-mode RSP (from child_stack argument to clone)
+    /// * `user_rflags` - User RFLAGS at the time of the clone
+    /// * `tls` - Thread-local storage base (written to FS_BASE if CLONE_SETTLS)
+    /// * `pid` - Process PID (same as parent — shared thread group)
+    /// * `tid` - Unique thread ID for gettid()
+    /// * `clear_child_tid_ptr` - Address to clear and futex-wake on thread exit
+    pub fn new_thread(
+        name: &str,
+        cr3: u64,
+        user_rip: u64,
+        user_rsp: u64,
+        user_rflags: u64,
+        tls: u64,
+        pid: u64,
+        tid: u64,
+        clear_child_tid_ptr: u64,
+    ) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(300);
+
+        // Allocate a kernel stack for this thread.
+        let kernel_stack_size = 16 * 1024usize;
+        let mut kernel_stack = alloc::vec::Vec::with_capacity(kernel_stack_size);
+        kernel_stack.resize(kernel_stack_size, 0u8);
+        let kernel_stack_bottom = kernel_stack.as_ptr() as u64;
+        let kernel_stack_top = (kernel_stack_bottom + kernel_stack_size as u64) & !0xF;
+
+        // Reuse ForkChildContext: child thread enters at user_rip with RAX=0.
+        let ctx = ForkChildContext {
+            rip: user_rip,
+            cs: crate::gdt::USER_CS as u64,
+            rflags: user_rflags,
+            rsp: user_rsp,
+            ss: crate::gdt::USER_DS as u64,
+        };
+        let ctx_ptr = alloc::boxed::Box::into_raw(alloc::boxed::Box::new(ctx)) as u64;
+
+        // Use a thread-specific trampoline that also sets FS_BASE for TLS.
+        let trampoline_addr = clone_thread_trampoline as *const () as u64;
+        let initial_rsp = setup_initial_stack(kernel_stack_top, trampoline_addr);
+
+        let switch_ctx = SwitchContext {
+            rip: trampoline_addr,
+            rsp: initial_rsp,
+            rbp: 0,
+            rbx: 0,
+            r12: ctx_ptr,     // ForkChildContext pointer
+            r13: tls,         // TLS base for FS_BASE MSR
+            r14: 0,
+            r15: 0,
+        };
+
+        Task {
+            id: TaskId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
+            name: String::from(name),
+            task_type: TaskType::UserProcess,
+            state: TaskState::Ready,
+            priority: Priority::Normal,
+            context: TaskContext::default(),
+            switch_ctx,
+            stats: TaskStats::default(),
+            exit_code: None,
+            stack_top: kernel_stack_top,
+            stack_size: KERNEL_STACK_SIZE,
+            parent: None,
+            _kernel_stack: Some(kernel_stack),
+            _stack_guard: None,
+            cr3,
+            kernel_stack_top_addr: kernel_stack_top,
+            process_pid: pid,
+            clear_child_tid: clear_child_tid_ptr,
+            thread_tid: tid,
         }
     }
 }
@@ -882,6 +1000,91 @@ fn fork_child_trampoline() -> ! {
             // Zero all GPRs — RAX=0 is the fork() return value for child.
             // The iretq frame on the stack is untouched because these are
             // register operations only.
+            "xor rax, rax",
+            "xor rbx, rbx",
+            "xor rcx, rcx",
+            "xor rdx, rdx",
+            "xor rsi, rsi",
+            "xor rdi, rdi",
+            "xor rbp, rbp",
+            "xor r8, r8",
+            "xor r9, r9",
+            "xor r10, r10",
+            "xor r11, r11",
+            "xor r12, r12",
+            "xor r13, r13",
+            "xor r14, r14",
+            "xor r15, r15",
+            "iretq",
+            ss = in(reg) ctx.ss,
+            rsp_val = in(reg) ctx.rsp,
+            rflags = in(reg) ctx.rflags,
+            cs = in(reg) ctx.cs,
+            rip = in(reg) ctx.rip,
+            options(noreturn),
+        );
+    }
+}
+
+/// Clone thread trampoline — entered when the scheduler first switches
+/// to a clone(CLONE_THREAD) child task.
+///
+/// Similar to `fork_child_trampoline` but additionally sets the
+/// FS_BASE MSR from `r13` (TLS pointer for CLONE_SETTLS).
+/// SwitchContext.r12 = ForkChildContext pointer, r13 = TLS base.
+fn clone_thread_trampoline() -> ! {
+    let ctx_ptr: u64;
+    let tls_base: u64;
+    // SAFETY: r12/r13 were set by SwitchContext in Task::new_thread().
+    unsafe {
+        core::arch::asm!("mov {}, r12", out(reg) ctx_ptr);
+        core::arch::asm!("mov {}, r13", out(reg) tls_base);
+    }
+
+    // SAFETY: ctx_ptr is a valid heap-allocated ForkChildContext from new_thread().
+    let ctx = unsafe { *alloc::boxed::Box::from_raw(ctx_ptr as *mut ForkChildContext) };
+
+    crate::serial_println!(
+        "[IPC] Clone thread running (RIP={:#x} RSP={:#x} TLS={:#x})",
+        ctx.rip,
+        ctx.rsp,
+        tls_base,
+    );
+
+    // Set FS_BASE for thread-local storage
+    if tls_base != 0 {
+        // SAFETY: Writing FS_BASE MSR is safe in Ring 0.
+        unsafe {
+            use x86_64::registers::model_specific::Msr;
+            const IA32_FS_BASE: u32 = 0xC000_0100;
+            Msr::new(IA32_FS_BASE).write(tls_base);
+        }
+    }
+
+    // Enable interrupts before entering user space.
+    x86_64::instructions::interrupts::enable();
+
+    // Fix SWAPGS state.
+    // SAFETY: Reading MSR and conditionally executing swapgs to fix the
+    // GS_BASE / KERNEL_GS_BASE ordering before iretq to Ring 3.
+    unsafe {
+        use x86_64::registers::model_specific::Msr;
+        const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
+        let kgs = Msr::new(IA32_KERNEL_GS_BASE).read();
+        if kgs == 0 {
+            core::arch::asm!("swapgs", options(nomem, nostack));
+        }
+    }
+
+    // Enter Ring 3 via iretq with RAX = 0 (clone return value for child thread).
+    // SAFETY: ctx contains valid Ring 3 segment selectors, RIP, RSP, and RFLAGS.
+    unsafe {
+        core::arch::asm!(
+            "push {ss}",
+            "push {rsp_val}",
+            "push {rflags}",
+            "push {cs}",
+            "push {rip}",
             "xor rax, rax",
             "xor rbx, rbx",
             "xor rcx, rcx",

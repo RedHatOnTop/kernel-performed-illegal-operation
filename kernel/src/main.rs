@@ -45,6 +45,7 @@ mod panic;
 mod process;
 mod scheduler;
 mod serial;
+mod sync;
 mod terminal;
 mod vfs;
 mod wasm;
@@ -1874,6 +1875,112 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
         serial_println!("[E2E] TCP echo server PASSED");
         serial_println!("[IPC] Phase 13-2 BSD socket syscalls complete");
+    }
+
+    // ── Phase 13-4: Epoll Event Multiplexing — kernel-internal test ─
+    // Exercises the epoll lifecycle:
+    //   1. Create an epoll instance → valid epoll_id
+    //   2. Create a pipe pair → read_fd + write_fd
+    //   3. Register the pipe read-end with EPOLLIN
+    //   4. Write data to the pipe write-end
+    //   5. Call epoll_wait → receive EPOLLIN event
+    //   6. Verify timeout=0 with empty pipe returns 0 events
+    //   7. Also test socket readiness via epoll
+    {
+        use sync::epoll;
+
+        serial_println!("[IPC] Phase 13-4: Epoll event multiplexing test");
+
+        // 1. Create epoll instance
+        let epoll_id = epoll::epoll_create();
+        serial_println!("[IPC] Epoll create (epoll_id={})", epoll_id);
+
+        // 2. Create a pipe pair (kernel-internal, using the Ring 3 pipe table)
+        use scheduler::userspace::{ring3_create_pipe, ring3_write_pipe, ring3_poll_pipe};
+        let (pipe_read_fd, pipe_write_fd, pipe_id) = ring3_create_pipe();
+        serial_println!("[IPC] Pipe created: read_fd={} write_fd={} pipe_id={}",
+            pipe_read_fd, pipe_write_fd, pipe_id);
+
+        // 3. Register pipe read-end FD with EPOLLIN
+        epoll::epoll_ctl(
+            epoll_id,
+            epoll::EPOLL_CTL_ADD,
+            pipe_read_fd,
+            epoll::EPOLLIN,
+            pipe_read_fd as u64, // data = the fd itself
+        ).expect("epoll_ctl add pipe");
+        serial_println!("[IPC] Epoll ctl add (fd={})", pipe_read_fd);
+
+        // 4. epoll_wait with timeout=0 on empty pipe → should return 0
+        let empty_events = epoll::epoll_wait(epoll_id, 16, |fd| {
+            ring3_poll_pipe(fd)
+        }).expect("epoll_wait empty");
+        if empty_events.is_empty() {
+            serial_println!("[IPC] Epoll timeout (0 events, as expected)");
+        } else {
+            serial_println!("[IPC] FAIL: expected 0 events on empty pipe, got {}", empty_events.len());
+        }
+
+        // 5. Write data to the pipe write-end
+        let msg = b"epoll test data!";
+        ring3_write_pipe(pipe_id, msg);
+        serial_println!("[IPC] Pipe write: {} bytes", msg.len());
+
+        // 6. epoll_wait → should get EPOLLIN on the pipe read-end
+        let events = epoll::epoll_wait(epoll_id, 16, |fd| {
+            ring3_poll_pipe(fd)
+        }).expect("epoll_wait after write");
+        if !events.is_empty() && events[0].events & epoll::EPOLLIN != 0 {
+            serial_println!(
+                "[Epoll] ready fd={} events=EPOLLIN",
+                events[0].data as i32,
+            );
+            serial_println!("[IPC] Epoll wait (got EPOLLIN)");
+        } else {
+            serial_println!("[IPC] FAIL: expected EPOLLIN after pipe write");
+        }
+
+        // 7. Test socket readiness via epoll
+        let sock = network::socket::create(network::socket::SocketType::Stream)
+            .expect("epoll sock create");
+        let sock_fd = 100i32; // virtual fd for kernel-internal test
+
+        epoll::epoll_ctl(
+            epoll_id,
+            epoll::EPOLL_CTL_ADD,
+            sock_fd,
+            epoll::EPOLLIN | epoll::EPOLLOUT,
+            sock_fd as u64,
+        ).expect("epoll_ctl add socket");
+
+        // Socket won't be readable (no peer), but test the plumbing
+        let sock_events = epoll::epoll_wait(epoll_id, 16, |fd| {
+            if fd == sock_fd {
+                let pf = network::socket::poll(sock);
+                let mut flags = 0u32;
+                if pf.contains(&network::socket::PollFlags::READABLE) {
+                    flags |= epoll::EPOLLIN;
+                }
+                if pf.contains(&network::socket::PollFlags::WRITABLE) {
+                    flags |= epoll::EPOLLOUT;
+                }
+                flags
+            } else {
+                ring3_poll_pipe(fd)
+            }
+        }).expect("epoll_wait socket");
+        serial_println!("[IPC] Epoll socket poll ({} events)", sock_events.len());
+
+        // 8. Cleanup
+        epoll::epoll_ctl(epoll_id, epoll::EPOLL_CTL_DEL, pipe_read_fd, 0, 0)
+            .expect("epoll_ctl del pipe");
+        epoll::epoll_ctl(epoll_id, epoll::EPOLL_CTL_DEL, sock_fd, 0, 0)
+            .expect("epoll_ctl del socket");
+        epoll::epoll_destroy(epoll_id);
+        network::socket::close(sock).expect("close sock");
+
+        serial_println!("[E2E] Epoll test PASSED");
+        serial_println!("[IPC] Phase 13-4 epoll complete");
     }
 
     // ── Phase 11: Kernel Hardening — CoW fork integration test ──

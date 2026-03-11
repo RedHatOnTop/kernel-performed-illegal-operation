@@ -388,9 +388,9 @@ pub fn linux_syscall_dispatch(
         SYS_FORK => linux_handlers::sys_fork(),
         SYS_VFORK => linux_handlers::sys_fork(), // vfork treated as fork
         SYS_CLONE => {
-            // clone with no special flags behaves like fork
-            // Full clone(flags, stack, ...) is complex; treat as fork for now
-            linux_handlers::sys_fork()
+            // clone(flags, child_stack, ptid, ctid, tls)
+            // Linux x86_64: RDI=flags, RSI=stack, RDX=ptid, R10=ctid, R8=tls
+            linux_handlers::sys_clone(a1, a2, a3, a4, a5)
         }
         SYS_EXECVE => linux_handlers::sys_execve(a1, a2, a3),
         SYS_EXIT => linux_handlers::sys_exit(a1 as i32),

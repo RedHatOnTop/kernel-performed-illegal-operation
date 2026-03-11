@@ -301,6 +301,16 @@ extern "C" fn ring3_syscall_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64
         158 => 0,
         // SYS_ACCEPT4 (288)
         288 => dispatch_sys_accept(a1 as i32, a2, a3),
+        // SYS_EPOLL_WAIT (232)
+        232 => dispatch_sys_epoll_wait(a1 as i32, a2, a3 as i32, a4 as i32),
+        // SYS_EPOLL_CTL (233)
+        233 => dispatch_sys_epoll_ctl(a1 as i32, a2 as i32, a3 as i32, a4),
+        // SYS_EPOLL_CREATE1 (291)
+        291 => dispatch_sys_epoll_create1(a1 as u32),
+        // SYS_PIPE2 (293)
+        293 => dispatch_sys_pipe2(a1, a2 as u32),
+        // SYS_PIPE (22) — alias for pipe2 with flags=0
+        22 => dispatch_sys_pipe2(a1, 0),
         // Unknown
         _ => {
             crate::serial_println!("[RING3] Unknown syscall nr={}", nr);
@@ -324,6 +334,10 @@ enum FdKind {
     File { ino: u64, offset: usize },
     /// Network socket: handle id from network::socket.
     Socket { handle_id: u32 },
+    /// Epoll instance: id into sync::epoll table.
+    Epoll { epoll_id: u64 },
+    /// Pipe end: id into the pipe buffer table.
+    Pipe { pipe_id: u64, is_write_end: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -415,6 +429,16 @@ fn dispatch_sys_read(fd: i32, buf_ptr: u64, count: usize) -> i64 {
                 Err(_) => -11, // -EAGAIN
             }
         }
+        FdKind::Epoll { .. } => -22, // -EINVAL: cannot read from epoll fd
+        FdKind::Pipe { pipe_id, is_write_end } => {
+            if *is_write_end {
+                return -9; // -EBADF: cannot read from write end
+            }
+            let pid = *pipe_id;
+            drop(table);
+            let dst = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, count.min(4096)) };
+            ring3_pipe_read(pid, dst) as i64
+        }
     }
 }
 
@@ -460,6 +484,16 @@ fn dispatch_sys_write(fd: i32, buf_ptr: u64, count: usize) -> i64 {
                 Err(_) => -11, // -EAGAIN
             }
         }
+        FdKind::Epoll { .. } => -22, // -EINVAL: cannot write to epoll fd
+        FdKind::Pipe { pipe_id, is_write_end } => {
+            if !*is_write_end {
+                return -9; // -EBADF: cannot write to read end
+            }
+            let pid = *pipe_id;
+            let data = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count.min(4096)) };
+            drop(table);
+            ring3_pipe_write(pid, data) as i64
+        }
     }
 }
 
@@ -470,9 +504,18 @@ fn dispatch_sys_close(fd: i32) -> i64 {
     let mut table = RING3_FD_TABLE.lock();
     if let Some(slot) = table.get_mut(fd as usize) {
         if let Some(entry) = slot.take() {
-            if let FdKind::Socket { handle_id } = entry.kind {
-                let handle = network::socket::SocketHandle(handle_id);
-                let _ = network::socket::close(handle);
+            match entry.kind {
+                FdKind::Socket { handle_id } => {
+                    let handle = network::socket::SocketHandle(handle_id);
+                    let _ = network::socket::close(handle);
+                }
+                FdKind::Epoll { epoll_id } => {
+                    crate::sync::epoll::epoll_destroy(epoll_id);
+                }
+                FdKind::Pipe { pipe_id, is_write_end } => {
+                    ring3_pipe_close(pipe_id, is_write_end);
+                }
+                FdKind::File { .. } => {}
             }
         }
         0
@@ -817,7 +860,9 @@ fn dispatch_sys_lseek(fd: i32, offset: i64, whence: u32) -> i64 {
 
     let file_offset = match &mut entry.kind {
         FdKind::File { ino, offset: off } => (ino, off),
-        FdKind::Socket { .. } => return -29, // -ESPIPE (illegal seek on socket)
+        FdKind::Socket { .. } | FdKind::Epoll { .. } | FdKind::Pipe { .. } => {
+            return -29 // -ESPIPE (illegal seek)
+        }
     };
 
     let file_size = crate::terminal::fs::with_fs(|fs| {
@@ -836,6 +881,365 @@ fn dispatch_sys_lseek(fd: i32, offset: i64, whence: u32) -> i64 {
     }
     *file_offset.1 = new_offset as usize;
     new_offset
+}
+
+// ─── Pipe buffer infrastructure (Ring 3 path) ────────────────────────
+
+/// Ring 3 pipe buffer: simple circular buffer shared between read/write ends.
+const PIPE_BUF_SIZE: usize = 4096;
+
+struct Ring3PipeBuffer {
+    data: alloc::vec::Vec<u8>,
+    write_pos: usize,
+    read_pos: usize,
+    count: usize,
+    write_closed: bool,
+    read_closed: bool,
+}
+
+impl Ring3PipeBuffer {
+    fn new() -> Self {
+        Self {
+            data: alloc::vec![0u8; PIPE_BUF_SIZE],
+            write_pos: 0,
+            read_pos: 0,
+            count: 0,
+            write_closed: false,
+            read_closed: false,
+        }
+    }
+
+    fn write(&mut self, src: &[u8]) -> usize {
+        let space = PIPE_BUF_SIZE - self.count;
+        let n = src.len().min(space);
+        for i in 0..n {
+            self.data[self.write_pos] = src[i];
+            self.write_pos = (self.write_pos + 1) % PIPE_BUF_SIZE;
+        }
+        self.count += n;
+        n
+    }
+
+    fn read(&mut self, dst: &mut [u8]) -> usize {
+        let n = dst.len().min(self.count);
+        for i in 0..n {
+            dst[i] = self.data[self.read_pos];
+            self.read_pos = (self.read_pos + 1) % PIPE_BUF_SIZE;
+        }
+        self.count -= n;
+        n
+    }
+}
+
+static RING3_PIPE_TABLE: spin::Mutex<Option<alloc::collections::BTreeMap<u64, Ring3PipeBuffer>>> =
+    spin::Mutex::new(None);
+static RING3_NEXT_PIPE_ID: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(1);
+
+fn with_pipe_table<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut alloc::collections::BTreeMap<u64, Ring3PipeBuffer>) -> R,
+{
+    let mut guard = RING3_PIPE_TABLE.lock();
+    if guard.is_none() {
+        *guard = Some(alloc::collections::BTreeMap::new());
+    }
+    f(guard.as_mut().expect("pipe table init"))
+}
+
+fn ring3_pipe_read(pipe_id: u64, dst: &mut [u8]) -> usize {
+    with_pipe_table(|t| {
+        match t.get_mut(&pipe_id) {
+            Some(pipe) => pipe.read(dst),
+            None => 0,
+        }
+    })
+}
+
+fn ring3_pipe_write(pipe_id: u64, src: &[u8]) -> usize {
+    with_pipe_table(|t| {
+        match t.get_mut(&pipe_id) {
+            Some(pipe) => pipe.write(src),
+            None => 0,
+        }
+    })
+}
+
+fn ring3_pipe_close(pipe_id: u64, is_write_end: bool) {
+    with_pipe_table(|t| {
+        if let Some(pipe) = t.get_mut(&pipe_id) {
+            if is_write_end {
+                pipe.write_closed = true;
+            } else {
+                pipe.read_closed = true;
+            }
+            if pipe.write_closed && pipe.read_closed {
+                t.remove(&pipe_id);
+            }
+        }
+    });
+}
+
+/// Query pipe readiness for epoll: returns EPOLLIN/EPOLLOUT bitmask.
+fn ring3_pipe_poll(pipe_id: u64) -> u32 {
+    use crate::sync::epoll::{EPOLLIN, EPOLLOUT, EPOLLHUP};
+    with_pipe_table(|t| {
+        match t.get(&pipe_id) {
+            Some(pipe) => {
+                let mut flags = 0u32;
+                if pipe.count > 0 || pipe.write_closed {
+                    flags |= EPOLLIN;
+                }
+                if pipe.count < PIPE_BUF_SIZE && !pipe.read_closed {
+                    flags |= EPOLLOUT;
+                }
+                if pipe.write_closed && pipe.count == 0 {
+                    flags |= EPOLLHUP;
+                }
+                flags
+            }
+            None => EPOLLHUP,
+        }
+    })
+}
+
+// ─── Public helpers for kernel-internal epoll tests ──────────────────
+
+/// Create a pipe and return (read_fd, write_fd, pipe_id) for kernel tests.
+///
+/// Unlike `dispatch_sys_pipe2`, this does not write to user memory — it
+/// returns the values directly for use from Rust test code.
+pub fn ring3_create_pipe() -> (i32, i32, u64) {
+    let pipe_id = RING3_NEXT_PIPE_ID.fetch_add(1, Ordering::Relaxed);
+    with_pipe_table(|t| {
+        t.insert(pipe_id, Ring3PipeBuffer::new());
+    });
+    let read_fd = RING3_NEXT_FD.fetch_add(1, Ordering::Relaxed);
+    let write_fd = RING3_NEXT_FD.fetch_add(1, Ordering::Relaxed);
+    {
+        let mut table = RING3_FD_TABLE.lock();
+        if (read_fd as usize) < 64 {
+            table[read_fd as usize] = Some(FdEntry {
+                kind: FdKind::Pipe { pipe_id, is_write_end: false },
+            });
+        }
+        if (write_fd as usize) < 64 {
+            table[write_fd as usize] = Some(FdEntry {
+                kind: FdKind::Pipe { pipe_id, is_write_end: true },
+            });
+        }
+    }
+    (read_fd, write_fd, pipe_id)
+}
+
+/// Write data into a pipe buffer (kernel-internal, bypasses syscall path).
+pub fn ring3_write_pipe(pipe_id: u64, data: &[u8]) -> usize {
+    ring3_pipe_write(pipe_id, data)
+}
+
+/// Poll a pipe (or look up fd→pipe_id and poll). Returns epoll event flags.
+///
+/// This maps an fd to its pipe_id via the FD table, then checks readiness.
+/// For fds not found in the table, returns 0.
+pub fn ring3_poll_pipe(fd: i32) -> u32 {
+    let table = RING3_FD_TABLE.lock();
+    match table.get(fd as usize).and_then(|e| e.as_ref()) {
+        Some(FdEntry { kind: FdKind::Pipe { pipe_id, .. } }) => {
+            let pid = *pipe_id;
+            drop(table);
+            ring3_pipe_poll(pid)
+        }
+        _ => 0,
+    }
+}
+
+// ─── SYS_PIPE2 (293) ────────────────────────────────────────────────
+
+fn dispatch_sys_pipe2(pipefd_ptr: u64, _flags: u32) -> i64 {
+    if pipefd_ptr == 0 || pipefd_ptr >= 0x0000_8000_0000_0000 {
+        return -14; // -EFAULT
+    }
+
+    let pipe_id = RING3_NEXT_PIPE_ID.fetch_add(1, Ordering::Relaxed);
+    with_pipe_table(|t| {
+        t.insert(pipe_id, Ring3PipeBuffer::new());
+    });
+
+    // Allocate two FDs: read end and write end.
+    let read_fd = RING3_NEXT_FD.fetch_add(1, Ordering::Relaxed);
+    let write_fd = RING3_NEXT_FD.fetch_add(1, Ordering::Relaxed);
+    if read_fd < 0 || write_fd < 0 || read_fd as usize >= 64 || write_fd as usize >= 64 {
+        ring3_pipe_close(pipe_id, true);
+        ring3_pipe_close(pipe_id, false);
+        return -24; // -EMFILE
+    }
+
+    {
+        let mut table = RING3_FD_TABLE.lock();
+        table[read_fd as usize] = Some(FdEntry {
+            kind: FdKind::Pipe { pipe_id, is_write_end: false },
+        });
+        table[write_fd as usize] = Some(FdEntry {
+            kind: FdKind::Pipe { pipe_id, is_write_end: true },
+        });
+    }
+
+    // Write [read_fd, write_fd] to user-space pointer.
+    // SAFETY: pipefd_ptr validated above to be in user-space range.
+    unsafe {
+        let arr = pipefd_ptr as *mut [i32; 2];
+        (*arr)[0] = read_fd;
+        (*arr)[1] = write_fd;
+    }
+
+    crate::serial_println!("[Pipe] created pipe_id={} read_fd={} write_fd={}", pipe_id, read_fd, write_fd);
+    0
+}
+
+// ─── Epoll syscall dispatchers ───────────────────────────────────────
+
+fn dispatch_sys_epoll_create1(_flags: u32) -> i64 {
+    let epoll_id = crate::sync::epoll::epoll_create();
+
+    let fd = RING3_NEXT_FD.fetch_add(1, Ordering::Relaxed);
+    if fd < 0 || fd as usize >= 64 {
+        crate::sync::epoll::epoll_destroy(epoll_id);
+        return -24; // -EMFILE
+    }
+
+    let mut table = RING3_FD_TABLE.lock();
+    table[fd as usize] = Some(FdEntry {
+        kind: FdKind::Epoll { epoll_id },
+    });
+
+    crate::serial_println!("[Epoll] created epoll_id={} fd={}", epoll_id, fd);
+    fd as i64
+}
+
+fn dispatch_sys_epoll_ctl(epfd: i32, op: i32, fd: i32, event_ptr: u64) -> i64 {
+    // Look up the epoll instance from the FD table.
+    let epoll_id = {
+        let table = RING3_FD_TABLE.lock();
+        match table.get(epfd as usize).and_then(|e| e.as_ref()) {
+            Some(FdEntry { kind: FdKind::Epoll { epoll_id } }) => *epoll_id,
+            _ => return -9, // -EBADF
+        }
+    };
+
+    // For DEL, we don't need to read the event struct.
+    if op == crate::sync::epoll::EPOLL_CTL_DEL {
+        return match crate::sync::epoll::epoll_ctl(epoll_id, op, fd, 0, 0) {
+            Ok(()) => 0,
+            Err(e) => e,
+        };
+    }
+
+    // Read struct epoll_event (12 bytes packed: u32 events + u64 data) from user-space.
+    if event_ptr == 0 || event_ptr >= 0x0000_8000_0000_0000 {
+        return -14; // -EFAULT
+    }
+    // SAFETY: event_ptr is validated to be in user-space range.
+    let (events, data) = unsafe {
+        let ev = event_ptr as *const u8;
+        let events = u32::from_ne_bytes([*ev, *ev.add(1), *ev.add(2), *ev.add(3)]);
+        let data = u64::from_ne_bytes([
+            *ev.add(4), *ev.add(5), *ev.add(6), *ev.add(7),
+            *ev.add(8), *ev.add(9), *ev.add(10), *ev.add(11),
+        ]);
+        (events, data)
+    };
+
+    match crate::sync::epoll::epoll_ctl(epoll_id, op, fd, events, data) {
+        Ok(()) => {
+            crate::serial_println!("[Epoll] ctl op={} fd={} events={:#x}", op, fd, events);
+            0
+        }
+        Err(e) => e,
+    }
+}
+
+fn dispatch_sys_epoll_wait(epfd: i32, events_ptr: u64, maxevents: i32, _timeout: i32) -> i64 {
+    if maxevents <= 0 || events_ptr == 0 || events_ptr >= 0x0000_8000_0000_0000 {
+        return -22; // -EINVAL
+    }
+
+    // Look up the epoll instance.
+    let epoll_id = {
+        let table = RING3_FD_TABLE.lock();
+        match table.get(epfd as usize).and_then(|e| e.as_ref()) {
+            Some(FdEntry { kind: FdKind::Epoll { epoll_id } }) => *epoll_id,
+            _ => return -9, // -EBADF
+        }
+    };
+
+    // Build a snapshot of fd→kind so we can poll without holding the FD table lock.
+    let fd_snapshot: alloc::vec::Vec<(i32, FdKind)> = {
+        let table = RING3_FD_TABLE.lock();
+        table.iter().enumerate().filter_map(|(i, slot)| {
+            slot.as_ref().map(|e| (i as i32, e.kind))
+        }).collect()
+    };
+
+    // Poll function: given an fd, return its readiness as epoll event flags.
+    let poll_fn = |fd: i32| -> u32 {
+        for (fdi, kind) in &fd_snapshot {
+            if *fdi == fd {
+                return match kind {
+                    FdKind::Socket { handle_id } => {
+                        let pf = network::socket::poll(network::socket::SocketHandle(*handle_id));
+                        // Map PollFlags to EPOLL* constants
+                        let mut flags = 0u32;
+                        if pf.contains(&network::socket::PollFlags::READABLE) {
+                            flags |= crate::sync::epoll::EPOLLIN;
+                        }
+                        if pf.contains(&network::socket::PollFlags::WRITABLE) {
+                            flags |= crate::sync::epoll::EPOLLOUT;
+                        }
+                        if pf.contains(&network::socket::PollFlags::ERROR) {
+                            flags |= crate::sync::epoll::EPOLLERR;
+                        }
+                        if pf.contains(&network::socket::PollFlags::HANGUP) {
+                            flags |= crate::sync::epoll::EPOLLHUP;
+                        }
+                        flags
+                    }
+                    FdKind::Pipe { pipe_id, .. } => ring3_pipe_poll(*pipe_id),
+                    _ => 0,
+                };
+            }
+        }
+        0
+    };
+
+    let result = match crate::sync::epoll::epoll_wait(epoll_id, maxevents as usize, poll_fn) {
+        Ok(events) => events,
+        Err(e) => return e,
+    };
+
+    // Write epoll_event structs (12 bytes each) to user-space.
+    let count = result.len();
+    for (i, ev) in result.iter().enumerate() {
+        let base = events_ptr + (i as u64 * 12);
+        // SAFETY: events_ptr was validated and we stay within maxevents bounds.
+        unsafe {
+            let ptr = base as *mut u8;
+            let ev_bytes = ev.events.to_ne_bytes();
+            let data_bytes = ev.data.to_ne_bytes();
+            core::ptr::copy_nonoverlapping(ev_bytes.as_ptr(), ptr, 4);
+            core::ptr::copy_nonoverlapping(data_bytes.as_ptr(), ptr.add(4), 8);
+        }
+        // Log each ready event for QEMU test verification
+        let event_name = if ev.events & crate::sync::epoll::EPOLLIN != 0 {
+            "EPOLLIN"
+        } else if ev.events & crate::sync::epoll::EPOLLOUT != 0 {
+            "EPOLLOUT"
+        } else {
+            "OTHER"
+        };
+        crate::serial_println!("[Epoll] ready fd={} events={}", ev.data as i32, event_name);
+    }
+
+    count as i64
 }
 
 // ─── Fork handler ────────────────────────────────────────────────────

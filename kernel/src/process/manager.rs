@@ -187,6 +187,7 @@ impl ProcessManager {
             user_stack: load_result.initial_sp,
             user_stack_size: crate::loader::program::layout::USER_STACK_SIZE as usize,
             tls: 0,
+            clear_child_tid: 0,
         };
         process.add_thread(main_thread);
         process.program = Some(user_program);
@@ -264,6 +265,7 @@ impl ProcessManager {
             user_stack: initial_sp,
             user_stack_size: crate::loader::program::layout::USER_STACK_SIZE as usize,
             tls: 0,
+            clear_child_tid: 0,
         };
 
         process.add_thread(main_thread);

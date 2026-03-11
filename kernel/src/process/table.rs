@@ -163,12 +163,16 @@ pub struct Thread {
     pub user_stack_size: usize,
     /// Thread-local storage pointer
     pub tls: u64,
+    /// clear_child_tid pointer (written to 0 and futex-woken on thread exit)
+    pub clear_child_tid: u64,
 }
 
 /// A process (address space + threads)
 pub struct Process {
     /// Process ID
     pub pid: ProcessId,
+    /// Thread group ID (= leader's PID; returned by getpid())
+    pub tgid: ProcessId,
     /// Parent process ID
     pub parent: ProcessId,
     /// Process name
@@ -227,6 +231,8 @@ pub enum FileResource {
     Stdio(StdioType),
     /// IPC channel
     Channel { channel_id: u64 },
+    /// Epoll instance
+    Epoll { epoll_id: u64 },
 }
 
 /// Standard I/O type
@@ -242,6 +248,7 @@ impl Process {
     pub fn kernel() -> Self {
         Self {
             pid: ProcessId::KERNEL,
+            tgid: ProcessId::KERNEL,
             parent: ProcessId::KERNEL,
             name: String::from("kernel"),
             state: ProcessState::Running,
@@ -296,6 +303,7 @@ impl Process {
 
         Self {
             pid,
+            tgid: pid,
             parent,
             name,
             state: ProcessState::Creating,

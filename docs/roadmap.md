@@ -1,14 +1,16 @@
 # KPIO Development Roadmap
 
-**Document Version:** 7.9.0  
-**Last Updated:** 2026-03-10  
-**Status:** Phase 13 In Progress 🔄 (13-1 ✅, 13-2 ✅, 13-3 ⬜, 13-4 ⬜, 13-5 ⬜)
+**Document Version:** 8.0.0  
+**Last Updated:** 2026-03-11  
+**Status:** Phase 13 In Progress 🔄 (13-1 ✅, 13-2 ✅, 13-3 ⬜, 13-4 ✅, 13-5 ⬜)
 
 ---
 
 ## Overview
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
+
+**Update:** Phase 13-4 (Epoll Event Multiplexing) completed 2026-03-11. Created `kernel/src/sync/epoll.rs` with `EpollInstance` (BTreeMap interest list), global `EPOLL_TABLE`, and `epoll_create`/`epoll_ctl`/`epoll_wait`/`epoll_destroy` API. Level-triggered semantics only. Added `FdKind::Epoll` and `FdKind::Pipe` variants to Ring 3 FD table. Implemented `Ring3PipeBuffer` (heap-allocated 4 KiB circular buffer) with `ring3_create_pipe`/`ring3_write_pipe`/`ring3_poll_pipe` helpers. Wired syscalls: `pipe`(22), `epoll_wait`(232), `epoll_ctl`(233), `epoll_create1`(291), `pipe2`(293). Dispatch handlers: `dispatch_sys_pipe2`, `dispatch_sys_epoll_create1`, `dispatch_sys_epoll_ctl`, `dispatch_sys_epoll_wait`. QEMU serial: `[Epoll] ready fd=5 events=EPOLLIN`, `[E2E] Epoll test PASSED`. No panics.
 
 **Update:** Phase 13-2 (BSD Socket Syscalls) completed 2026-03-10. All 12 BSD socket syscall handlers implemented in `ring3_syscall_dispatch`: bind(49), listen(50), accept(43), accept4(288), connect(42), sendto(44), recvfrom(45), shutdown(48), getsockname(51), getpeername(52), setsockopt(54), getsockopt(55). `network/src/socket.rs` rewritten with kernel-internal peer buffer model for send/recv, accept queue, shutdown, poll, setsockopt/getsockopt. Ring 3 syscall entry expanded from 4 to 6 args. Kernel-internal TCP echo + UDP tests pass. `[E2E] TCP echo server PASSED`.
 
