@@ -1,14 +1,16 @@
 # KPIO Development Roadmap
 
-**Document Version:** 8.0.0  
-**Last Updated:** 2026-03-11  
-**Status:** Phase 13 In Progress 🔄 (13-1 ✅, 13-2 ✅, 13-3 ✅, 13-4 ✅, 13-5 ⬜)
+**Document Version:** 8.2.0  
+**Last Updated:** 2026-03-16  
+**Status:** Phase 13 Complete ✅ (13-1 ✅, 13-2 ✅, 13-3 ✅, 13-4 ✅, 13-5 ✅)
 
 ---
 
 ## Overview
 
 This document outlines the phased development plan for the KPIO (Kernel Performed Illegal Operation) operating system. The roadmap is divided into multiple phases, each building upon the previous to create a complete, production-ready system.
+
+**Update:** Phase 13-5 (Integration Test) completed 2026-03-16. Added `ipc` mode to `scripts/qemu-test.ps1` with 17 IPC checks mapped to Phase 13 quality gate markers: socket lifecycle (`[IPC] Socket create/bind/listen/connect/accept/close`), TCP/UDP traffic (`[IPC] TCP echo`, `[IPC] UDP sendto/recvfrom`), threading (`[IPC] Clone thread`, `[IPC] Thread shared memory`, `[IPC] Thread exit`, `[IPC] TID vs PID`), and epoll (`[IPC] Epoll create/ctl add/wait/timeout`). Full required regression verified in QEMU: `boot` 5/5, `process` 22/22, `hardening` 29/29, `userspace` 21/21, `ipc` 28/28. No panics or triple faults observed.
 
 **Update:** Phase 13-4 (Epoll Event Multiplexing) completed 2026-03-11. Created `kernel/src/sync/epoll.rs` with `EpollInstance` (BTreeMap interest list), global `EPOLL_TABLE`, and `epoll_create`/`epoll_ctl`/`epoll_wait`/`epoll_destroy` API. Level-triggered semantics only. Added `FdKind::Epoll` and `FdKind::Pipe` variants to Ring 3 FD table. Implemented `Ring3PipeBuffer` (heap-allocated 4 KiB circular buffer) with `ring3_create_pipe`/`ring3_write_pipe`/`ring3_poll_pipe` helpers. Wired syscalls: `pipe`(22), `epoll_wait`(232), `epoll_ctl`(233), `epoll_create1`(291), `pipe2`(293). Dispatch handlers: `dispatch_sys_pipe2`, `dispatch_sys_epoll_create1`, `dispatch_sys_epoll_ctl`, `dispatch_sys_epoll_wait`. QEMU serial: `[Epoll] ready fd=5 events=EPOLLIN`, `[E2E] Epoll test PASSED`. No panics.
 

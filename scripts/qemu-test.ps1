@@ -16,11 +16,12 @@
       smoke   - Boot + all subsystem initialization verification
       linux   - Phase 7-4 Linux compatibility layer verification
       io      - End-to-end I/O integration (VirtIO NIC + block + VFS)
-      full    - All verification combined
+            ipc     - Phase 13 IPC integration verification
+            full    - All verification combined
       custom  - Check strings specified with -Expect
 
 .PARAMETER Mode
-    Test mode (boot, smoke, linux, full, custom)
+    Test mode (boot, smoke, linux, full, io, process, hardening, userspace, ipc, custom)
 
 .PARAMETER Timeout
     QEMU timeout in seconds (default: 45)
@@ -52,13 +53,14 @@
     .\scripts\qemu-test.ps1 -Mode process             # Phase 10 process lifecycle test
     .\scripts\qemu-test.ps1 -Mode hardening            # Phase 11 kernel hardening test
     .\scripts\qemu-test.ps1 -Mode userspace            # Phase 12 user-space execution test
+    .\scripts\qemu-test.ps1 -Mode ipc                  # Phase 13 IPC integration test
     .\scripts\qemu-test.ps1 -Mode full -Verbose      # Full verification (verbose)
     .\scripts\qemu-test.ps1 -Mode custom -Expect "GDT initialized","IDT initialized"
     .\scripts\qemu-test.ps1 -NoBuild -NoImage -Mode boot  # Quick retest
 #>
 
 param(
-    [ValidateSet("boot", "smoke", "linux", "full", "io", "process", "hardening", "userspace", "custom")]
+    [ValidateSet("boot", "smoke", "linux", "full", "io", "process", "hardening", "userspace", "ipc", "custom")]
     [string]$Mode = "boot",
     [int]$Timeout = 45,
     [switch]$Release,
@@ -188,6 +190,27 @@ $UserspaceChecks = $SmokeChecks + @(
     @{ Pattern = "Hello from disk";                             Label = "Hello from disk" },
     @{ Pattern = "P12.*PASSED";                                 Label = "Phase 12 all passed"; IsRegex = $true },
     @{ Pattern = "panicked at";                                  Label = "No panics"; NegateCheck = $true }
+)
+
+# IPC checks: Phase 13 socket + threading + epoll integration
+$IpcChecks = $SmokeChecks + @(
+    @{ Pattern = "\[IPC\] Socket create";                                 Label = "[IPC] Socket create"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Socket bind";                                   Label = "[IPC] Socket bind"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Socket listen";                                 Label = "[IPC] Socket listen"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Socket connect";                                Label = "[IPC] Socket connect"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Socket accept";                                 Label = "[IPC] Socket accept"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] TCP echo";                                      Label = "[IPC] TCP echo"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Socket close";                                  Label = "[IPC] Socket close"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] UDP sendto";                                    Label = "[IPC] UDP sendto"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] UDP recvfrom";                                  Label = "[IPC] UDP recvfrom"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Clone thread";                                  Label = "[IPC] Clone thread"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Thread shared memory";                          Label = "[IPC] Thread shared memory"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Thread exit";                                   Label = "[IPC] Thread exit"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] TID vs PID";                                    Label = "[IPC] TID vs PID"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Epoll create";                                  Label = "[IPC] Epoll create"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Epoll ctl add";                                 Label = "[IPC] Epoll ctl add"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Epoll wait";                                    Label = "[IPC] Epoll wait"; IsRegex = $true },
+    @{ Pattern = "\[IPC\] Epoll timeout";                                 Label = "[IPC] Epoll timeout"; IsRegex = $true }
 )
 
 # ============================================================
@@ -411,8 +434,8 @@ while ($elapsed -lt $Timeout) {
         $content = Get-Content $SerialLog -Raw -ErrorAction SilentlyContinue
         if ($content) {
             if ($content.Contains("Kernel initialization complete")) {
-                # In process/hardening/userspace mode, wait longer for delayed test summary
-                $waitSec = if ($Mode -eq "process" -or $Mode -eq "hardening" -or $Mode -eq "userspace") { 5 } else { 2 }
+                # In process/hardening/userspace/ipc mode, wait longer for delayed test summary
+                $waitSec = if ($Mode -eq "process" -or $Mode -eq "hardening" -or $Mode -eq "userspace" -or $Mode -eq "ipc") { 5 } else { 2 }
                 Write-Detail "Kernel init complete detected -> waiting ${waitSec}s"
                 Start-Sleep -Seconds $waitSec
                 $earlyExit = $true
@@ -474,6 +497,7 @@ $checks = switch ($Mode) {
     "process"   { $ProcessChecks }
     "hardening" { $HardeningChecks }
     "userspace" { $UserspaceChecks }
+    "ipc"       { $IpcChecks }
     "custom"  {
         $Expect | ForEach-Object {
             @{ Pattern = $_; Label = "Custom: $_" }

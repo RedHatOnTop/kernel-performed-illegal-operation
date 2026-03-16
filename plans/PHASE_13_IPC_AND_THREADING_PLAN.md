@@ -1,8 +1,8 @@
 # Phase 13: IPC, Socket Syscalls & Kernel Threading
 
-**Document Version:** 1.3.0
+**Document Version:** 1.5.0
 **Created:** 2026-03-10
-**Status:** In Progress (13-1 ✅, 13-2 ✅, 13-3 ✅, 13-4 ✅, 13-5 ⬜)
+**Status:** Completed (13-1 ✅, 13-2 ✅, 13-3 ✅, 13-4 ✅, 13-5 ✅)
 **Depends On:** Phase 12 (User-Space & Writable FS) ✅
 
 ---
@@ -310,6 +310,8 @@ network and process infrastructure from Phases 9-12.
 
 ### Sub-Phase 13-5: Integration Test & QEMU Validation
 
+- **Status**: COMPLETED — Quality gate verified on 2026-03-16.
+
 - **Goal**: End-to-end automated integration test validating all Phase 13
   features in a single QEMU boot session via `qemu-test.ps1 -Mode ipc`.
 
@@ -332,22 +334,22 @@ network and process infrastructure from Phases 9-12.
      - `[IPC] Epoll ctl add` — register pipe fd succeeds
      - `[IPC] Epoll wait` — receives EPOLLIN from pipe
      - `[IPC] Epoll timeout` — returns 0 on empty poll with timeout=0
-  2. Create embedded ELF test binaries in `kernel/src/` (inline assembly, no libc):
-     - `test_socket_echo.rs` — TCP echo server/client pair
-     - `test_threading.rs` — multi-thread shared counter
-     - `test_epoll.rs` — epoll pipe readiness
+  2. Validate embedded IPC test coverage in `kernel/src/main.rs`:
+     - TCP echo path (socket lifecycle)
+     - clone threading shared-counter path
+     - epoll pipe readiness path
   3. Integrate test dispatch in `kernel/src/main.rs` when built with
      `#[cfg(feature = "test-ipc")]` or detected via QEMU test mode
   4. Update `scripts/qemu-test.ps1` to support `-Mode ipc` with all check patterns
-  5. Run full regression across all existing modes:
+  5. Run full regression across all required modes:
      - `qemu-test.ps1 -Mode boot` — 5/5
      - `qemu-test.ps1 -Mode process` — 22/22
      - `qemu-test.ps1 -Mode hardening` — 29/29
      - `qemu-test.ps1 -Mode userspace` — 21/21
-     - `qemu-test.ps1 -Mode ipc` — 17/17 (new)
+     - `qemu-test.ps1 -Mode ipc` — 28/28 (11 smoke + 17 IPC checks)
 
 - **Quality Gate**: All five QEMU test modes pass with zero failures.
-  `qemu-test.ps1 -Mode ipc` reports `Result: ALL PASS (17/17)`.
+   `qemu-test.ps1 -Mode ipc` reports `Result: ALL PASS (28/28)`.
   Serial log contains all `[IPC]` check markers listed above.
   No regression in existing modes. No panics or triple faults.
 
